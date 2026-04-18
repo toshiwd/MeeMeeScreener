@@ -68,6 +68,36 @@ def test_tradex_bootstrap_returns_structured_candidates(monkeypatch) -> None:
     monkeypatch.setattr(tradex_router, "get_internal_state_eval_action_queue", lambda: {"actions": [{}, {}]})
     monkeypatch.setattr(
         tradex_router,
+        "get_latest_strategy_judgement_summary",
+        lambda: {
+            "status": "available",
+            "experiment_id": "exp_live_001",
+            "hypothesis_id": "live-trader-foundation-1301-20260403-numeric_baseline_v1",
+            "generated_at": "2026-04-12T11:33:51Z",
+            "target": {
+                "code": "1301",
+                "as_of_date": "20260403",
+                "side": "long",
+                "judgement_type": "close_based_daily_buy_v1",
+            },
+            "primary_adapter_id": "numeric_baseline_v1",
+            "machine_action_state": "enter",
+            "human_readable_judgement": "buy",
+            "buy_score": 0.81,
+            "environment_score": 0.76,
+            "trend_score": 0.72,
+            "trigger_score": 0.69,
+            "risk_score": 0.58,
+            "reason_codes": ["support_confirmed"],
+            "authoritative_decision": "hold",
+            "authoritative_decision_path": "G:/Tradex/keep/research_os/experiments/exp_live_001/authoritative_decision.json",
+            "strategy_judgement_path": "G:/Tradex/keep/research_os/experiments/exp_live_001/strategy_judgement.json",
+            "experiment_manifest_path": "G:/Tradex/keep/research_os/experiments/exp_live_001/experiment_manifest.json",
+            "is_buy_signal": True,
+        },
+    )
+    monkeypatch.setattr(
+        tradex_router,
         "get_internal_forecast_surface_projection",
         lambda limit_per_side=20: {
             "projection": {
@@ -90,6 +120,9 @@ def test_tradex_bootstrap_returns_structured_candidates(monkeypatch) -> None:
     assert payload["baseline"]["logic_id"] == "logic-a"
     assert payload["summary"]["attention_count"] == 2
     assert payload["summary"]["candidate_count"] == 1
+    assert payload["summary"]["live_strategy_judgement_state"] == "buy"
+    assert payload["summary"]["live_strategy_is_buy_signal"] is True
+    assert payload["live_strategy_judgement"]["human_readable_judgement"] == "buy"
     assert payload["forecast_surface_projection"]["projection"]["summary"]["coverage_ratio"] == 1.0
     assert payload["forecast_surface_projection"]["limit_per_side"] == 8
     candidate = payload["candidates"][0]

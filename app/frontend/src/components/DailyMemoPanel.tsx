@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
+import { formatDateTimeLabel, formatIsoDateLabel } from "../utils/dateLabels";
 import "./DailyMemoPanel.css";
 
 interface DailyMemoPanelProps {
@@ -216,23 +217,6 @@ export default function DailyMemoPanel({
     };
   }, []);
 
-  const formatDate = (dateStr: string | null) => {
-    if (!dateStr) return "--";
-    const date = new Date(dateStr);
-    const days = ["日", "月", "火", "水", "木", "金", "土"];
-    return `${dateStr} (${days[date.getDay()]})`;
-  };
-
-  const formatTime = (timestamp: string | null) => {
-    if (!timestamp) return "";
-    const date = new Date(timestamp);
-    return date.toLocaleTimeString("ja-JP", {
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    });
-  };
-
   const formatNumber = (value: number | null | undefined, decimals = 0) => {
     if (value == null) return "--";
     return value.toLocaleString("ja-JP", {
@@ -258,7 +242,7 @@ export default function DailyMemoPanel({
       ) : (
         <div className="memo-panel-info">
           <div className="info-header">
-            <div className="info-date">{formatDate(selectedDate)}</div>
+            <div className="info-date">{formatIsoDateLabel(selectedDate)}</div>
             <div className="info-nav">
               <button type="button" className="nav-btn" onClick={() => handleDateChange("prev")}>
                 前日
@@ -330,7 +314,7 @@ export default function DailyMemoPanel({
       <div className="memo-section">
         <div className="memo-section-header">
           <span>日付メモ (100字以内)</span>
-          {lastSavedAt && <span className="memo-saved-at">更新 {formatTime(lastSavedAt)}</span>}
+          {lastSavedAt && <span className="memo-saved-at">更新 {formatDateTimeLabel(lastSavedAt)}</span>}
         </div>
         <textarea
           className="memo-textarea"

@@ -1,0 +1,61 @@
+{
+  "compare_engine_local_decision": "hold",
+  "compare_engine_local_reason": "liquidity_quality_not_improved",
+  "compare_family_id": "tradex-research-buy-surface-operational-r6-r4-default",
+  "compare_path": "G:\\Tradex\\scratch\\research_families\\tradex-research-buy-surface-operational-r6-r4-default\\compare.json",
+  "decision": "keep",
+  "decision_reason": "meaningful_topk_branching_with_positive_bad_pick_removal",
+  "decision_rules": {
+    "drop": "No meaningful branching or negative trade-off.",
+    "hold": "Evidence is positive but not yet strong enough for a default operational promotion.",
+    "keep": "Real branching occurs and bad pick removal is positive without obvious worst-regime collapse."
+  },
+  "generated_at": "2026-04-18T02:04:18.211376+00:00",
+  "metrics": {
+    "bad_pick_removal": 30,
+    "changed_rank_count": 19,
+    "changed_top10_members_count": 18,
+    "changed_top20_members_count": 20,
+    "changed_top5_members_count": 10,
+    "regime_wise_result_deltas": {
+      "neutral": {
+        "after": 0.001365484953587314,
+        "before": 0.0008013837739714017,
+        "delta": 0.0005641011796159123
+      },
+      "risk_off": {
+        "after": 0.019993680513204957,
+        "before": 0.019350932776703463,
+        "delta": 0.0006427477365014943
+      },
+      "risk_on": {
+        "after": -0.00164329152346361,
+        "before": -0.0048590955312048465,
+        "delta": 0.0032158040077412365
+      }
+    },
+    "selection_divergence_reason": "top5_member_replacement",
+    "top10_boundary_score_gap": -1.7932266791531593e-05,
+    "top10_uplift": 0.15131120030419337,
+    "top5_boundary_score_gap": 0.005333292764672537,
+    "top5_uplift": 0.17482090113042728,
+    "worst_regime_delta": 0.0005641011796159123
+  },
+  "preserved_roles": {
+    "default_operational_challenger_source": "buy_judgment_revision_r4_reclaim_quality_gate",
+    "dropped_closed": "buy_judgment_revision_r3_liquidity_plus_regime_gate",
+    "secondary_defensive_reference": "buy_judgment_revision_r1_weak_liquidity_gate",
+    "secondary_reference_only": "buy_judgment_revision_r2_regime_mismatch_gate"
+  },
+  "schema_version": "tradex_buy_surface_operational_challenger_r6_gate_decision_v1",
+  "source_default_surface": "buy_judgment_revision_r4_reclaim_quality_gate",
+  "status": "confirmed",
+  "verify": {
+    "boundary_aware_compare_executed": false,
+    "confirmed_data_only": true,
+    "exactly_one_challenger_created": true,
+    "no_meemee_ui_change": true,
+    "no_new_gate_or_threshold": true,
+    "no_overwrite_provenance_regression": true
+  }
+}

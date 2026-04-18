@@ -52,6 +52,28 @@ export type BarsMeta = {
   pendingYahooDate?: number | null;
   delayedPendingDate?: number | null;
   message?: string | null;
+  confirmedChartSourceProvider?: string | null;
+  provisionalChartSourceProvider?: string | null;
+  confirmedJudgmentBasis?: string | null;
+  provisionalJudgmentBasis?: string | null;
+  confirmedJudgmentAvailable?: boolean | null;
+  provisionalJudgmentAvailable?: boolean | null;
+  displayBasisClassification?: "confirmed" | "provisional" | "mixed" | null;
+  judgmentBasisClassification?: "confirmed" | "provisional" | "dual" | null;
+  confirmedLastAvailableDate?: number | null;
+  provisionalLastAvailableDate?: number | null;
+  overwriteStatus?: "authoritative_confirmed" | "provisional_only" | "provisional_replaced_by_confirmed" | null;
+  confirmed_chart_source_provider?: string | null;
+  provisional_chart_source_provider?: string | null;
+  confirmed_judgment_basis?: string | null;
+  provisional_judgment_basis?: string | null;
+  confirmed_judgment_available?: boolean | null;
+  provisional_judgment_available?: boolean | null;
+  display_basis_classification?: "confirmed" | "provisional" | "mixed" | null;
+  judgment_basis_classification?: "confirmed" | "provisional" | "dual" | null;
+  confirmed_last_available_date?: number | null;
+  provisional_last_available_date?: number | null;
+  overwrite_status?: "authoritative_confirmed" | "provisional_only" | "provisional_replaced_by_confirmed" | null;
 };
 
 export type BarsResponse = {

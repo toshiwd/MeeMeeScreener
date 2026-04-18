@@ -168,6 +168,11 @@ _ENTRY_BONUS_PATTERN_D5_SHORT_HEAD_SHOULDERS = 0.02
 _ENTRY_PENALTY_PATTERN_DTRAP_STACKDOWN_FAR = 0.025
 _ENTRY_PENALTY_PATTERN_DTRAP_OVERHEAT_MOMENTUM = 0.03
 _ENTRY_PENALTY_PATTERN_DTRAP_TOP_FAKEOUT = 0.025
+_ENTRY_BONUS_COMBO_LONG_CORE = 0.006
+_ENTRY_BONUS_COMBO_LONG_STAGE = 0.008
+_ENTRY_BONUS_COMBO_LONG_MTF = 0.01
+_ENTRY_BONUS_COMBO_SHORT_CORE = 0.008
+_ENTRY_BONUS_COMBO_SHORT_CONFIRMED = 0.01
 _MONTHLY_ABS_GATE_DEFAULT = 0.30
 _MONTHLY_SIDE_GATE_DEFAULT = 0.30
 _MONTHLY_ABS_GATE_MIN = 0.15
@@ -175,6 +180,7 @@ _MONTHLY_SIDE_GATE_MIN = 0.10
 _MONTHLY_GATE_MIN_CANDIDATES = 5
 _MONTHLY_ABS_RELAX_STEPS: tuple[float, ...] = (0.35, 0.32, 0.30, 0.28, 0.25, 0.22, 0.20, 0.18, 0.15)
 _MONTHLY_SIDE_RELAX_STEPS: tuple[float, ...] = (0.30, 0.25, 0.22, 0.20, 0.18, 0.16, 0.14, 0.12, 0.10)
+_MONTHLY_COMBO_RANK_WEIGHT_DOWN = 10.0
 _MONTHLY_REGIME_BONUS = 0.04
 _MONTHLY_RANGE_PENALTY = 0.03
 _MONTHLY_TARGET20_GATE_MIN_UP = 0.11
@@ -1153,12 +1159,16 @@ def _decorate_rule_items_with_entry_gate(
     *,
     direction: RankDir,
     risk_mode: RankRiskMode = "balanced",
+    snapshot_map: dict[str, dict] | None = None,
 ) -> list[dict]:
     decorated: list[dict] = []
     research_prior = _load_research_prior_snapshot()
+    if snapshot_map is None:
+        snapshot_map = _resolve_rule_snapshot_map(items)
     for base in items:
         item = dict(base)
         code = str(item.get("code") or "")
+        _apply_rule_snapshot_fields(item, snapshot_map.get(code) if isinstance(snapshot_map, dict) else None)
         change = _first_finite(item.get("changePct"))
         weekly_breakout = _first_finite(
             item.get("weeklyBreakoutUpProb") if direction == "up" else item.get("weeklyBreakoutDownProb")
@@ -1202,6 +1212,7 @@ def _decorate_rule_items_with_entry_gate(
         )
         if monthly_range is not None and monthly_range >= 0.72 and (monthly_breakout is None or monthly_breakout < 0.55):
             entry_score -= 0.05
+        combo_bonus = _calc_combo_entry_bonus(direction=direction, item=item)
         research_bonus = _calc_research_prior_bonus(
             item=item,
             direction=direction,
@@ -1209,6 +1220,7 @@ def _decorate_rule_items_with_entry_gate(
             prior_snapshot=research_prior,
         )
         entry_score += float(research_bonus)
+        entry_score += float(combo_bonus)
         entry_score = float(max(0.0, min(1.0, entry_score)))
         decision_reasons: list[str] = []
         risk_watch: list[str] = []
@@ -1353,6 +1365,7 @@ def _decorate_rule_items_with_entry_gate(
         item["hybridScore"] = item.get("hybridScore")
         item["entryScore"] = float(entry_score)
         item["playbookScoreBonus"] = 0.0
+        item["comboScoreBonus"] = float(combo_bonus)
         item["probSideRaw"] = float(prob_proxy)
         item["probSideCalib"] = float(prob_proxy)
         item["probSide"] = float(prob_proxy)
@@ -2744,12 +2757,12 @@ def _calc_playbook_entry_bonus(
             return -_ENTRY_PENALTY_PLAYBOOK_TRAP
         if (
             bool(shape_patterns.get("d1ShortBreakdown"))
-            or bool(shape_patterns.get("d2ShortMixedFar"))
-            or bool(shape_patterns.get("d3ShortNaBelow"))
             or bool(shape_patterns.get("d4ShortDoubleTop"))
             or bool(shape_patterns.get("d5ShortHeadShoulders"))
         ):
             return _ENTRY_BONUS_PLAYBOOK_SHORT_STRONG
+        if bool(shape_patterns.get("d2ShortMixedFar")) or bool(shape_patterns.get("d3ShortNaBelow")):
+            return _ENTRY_BONUS_PLAYBOOK_SHORT_STRONG * 0.75
         return 0.0
 
     if (
@@ -2763,6 +2776,139 @@ def _calc_playbook_entry_bonus(
     if bool(shape_patterns.get("a3CapitulationRebound")):
         return _ENTRY_BONUS_PLAYBOOK_LONG_REBOUND
     return 0.0
+
+
+def _combo_feature_value(item: dict, *keys: str) -> float | None:
+    values = [item.get(key) for key in keys]
+    return _first_finite(*values)
+
+
+def _feature_at_least(item: dict, *, keys: tuple[str, ...], threshold: float) -> bool:
+    value = _combo_feature_value(item, *keys)
+    return value is not None and value >= float(threshold)
+
+
+def _feature_at_most(item: dict, *, keys: tuple[str, ...], threshold: float) -> bool:
+    value = _combo_feature_value(item, *keys)
+    return value is not None and value <= float(threshold)
+
+
+def _feature_is_true(item: dict, *keys: str) -> bool:
+    for key in keys:
+        if bool(item.get(key)):
+            return True
+    return False
+
+
+def _resolve_rule_snapshot_map(items: list[dict]) -> dict[str, dict]:
+    anchor_candidates = [_iso_date_to_int(str(item.get("asOf") or "")) for item in items]
+    anchor_ymd = max((value for value in anchor_candidates if isinstance(value, int)), default=None)
+    if anchor_ymd is None:
+        return {}
+    try:
+        with get_conn() as conn:
+            return _load_daily_snapshot_map(conn, anchor_ymd)
+    except Exception as exc:
+        logger.debug("rule snapshot map skipped: as_of=%s err=%s", anchor_ymd, exc)
+        return {}
+
+
+def _apply_rule_snapshot_fields(item: dict, snap: dict | None) -> None:
+    if not isinstance(snap, dict):
+        return
+    item["trendUp"] = snap.get("trend_up")
+    item["trendDown"] = snap.get("trend_down")
+    item["trendUpStrict"] = snap.get("trend_up_strict")
+    item["trendDownStrict"] = snap.get("trend_down_strict")
+    item["distMa20"] = snap.get("dist_ma20")
+    item["distMa20Signed"] = snap.get("dist_ma20_signed")
+    item["diff20_pct"] = snap.get("diff20_pct")
+    item["diff20Pct"] = snap.get("diff20_pct")
+    item["breakout20Up"] = snap.get("breakout20_up")
+    item["breakout20_up"] = snap.get("breakout20_up")
+    item["breakout20Down"] = snap.get("breakout20_down")
+    item["breakout20_down"] = snap.get("breakout20_down")
+    item["cnt_20_above"] = snap.get("cnt20_above")
+    item["cnt20Above"] = snap.get("cnt20_above")
+    item["cnt_7_above"] = snap.get("cnt7_above")
+    item["cnt7Above"] = snap.get("cnt7_above")
+    item["market_ret20"] = snap.get("market_ret20")
+    item["marketRet20"] = snap.get("market_ret20")
+    item["breadth_above_ma20"] = snap.get("breadth_above_ma20")
+    item["breadthAboveMa20"] = snap.get("breadth_above_ma20")
+
+
+def _calc_combo_entry_bonus(
+    *,
+    direction: RankDir,
+    item: dict,
+) -> float:
+    # Keep these bonuses smaller than playbook bonuses. They are nudges for
+    # multi-feature agreement, not hard gates and not a second ranking model.
+    if direction == "up":
+        bundles: tuple[tuple[float, tuple[tuple[tuple[str, ...], str, float], ...]], ...] = (
+            (
+                _ENTRY_BONUS_COMBO_LONG_CORE,
+                (
+                    (("weeklyBreakoutUpProb",), "min", 0.56),
+                    (("diff20_pct", "diff20Pct"), "min", 0.03),
+                    (("trendUpStrict", "trend_up_strict"), "min", 1.0),
+                ),
+            ),
+            (
+                _ENTRY_BONUS_COMBO_LONG_STAGE,
+                (
+                    (("breakout20Up", "breakout20_up"), "min", 0.01),
+                    (("diff20_pct", "diff20Pct"), "min", 0.03),
+                    (("cnt_20_above", "cnt20Above"), "min", 10.0),
+                ),
+            ),
+            (
+                _ENTRY_BONUS_COMBO_LONG_MTF,
+                (
+                    (("monthlyBreakoutUpProb",), "min", 0.60),
+                    (("weeklyBreakoutUpProb",), "min", 0.56),
+                    (("trendUpStrict", "trend_up_strict"), "min", 1.0),
+                    (("diff20_pct", "diff20Pct"), "min", 0.03),
+                ),
+            ),
+        )
+    else:
+        bundles = (
+            (
+                _ENTRY_BONUS_COMBO_SHORT_CORE,
+                (
+                    (("breakout20Down", "breakout20_down"), "min", 0.01),
+                    (("market_ret20", "marketRet20"), "max", -0.02),
+                    (("diff20_pct", "diff20Pct"), "max", -0.03),
+                ),
+            ),
+            (
+                _ENTRY_BONUS_COMBO_SHORT_CONFIRMED,
+                (
+                    (("breakout20Down", "breakout20_down"), "min", 0.01),
+                    (("market_ret20", "marketRet20"), "max", -0.02),
+                    (("diff20_pct", "diff20Pct"), "max", -0.03),
+                    (("trendDownStrict", "trend_down_strict"), "min", 1.0),
+                ),
+            ),
+        )
+
+    best_bonus = 0.0
+    for bonus, conditions in bundles:
+        matched = True
+        for keys, comparator, threshold in conditions:
+            if comparator == "min":
+                if not _feature_at_least(item, keys=keys, threshold=threshold):
+                    matched = False
+                    break
+            else:
+                if not _feature_at_most(item, keys=keys, threshold=threshold):
+                    matched = False
+                    break
+        if matched:
+            best_bonus = max(best_bonus, float(bonus))
+    return float(best_bonus)
 
 
 def _resolve_invalidation_recommended_action(
@@ -2791,6 +2937,22 @@ def _resolve_short_precision_gates(*, risk_mode: RankRiskMode) -> tuple[float, f
     return _ENTRY_SHORT_MIN_PROB_BALANCED, _ENTRY_SHORT_MIN_TURN_BALANCED
 
 
+def _monthly_entry_sort_key(item: dict[str, Any], *, direction: RankDir) -> tuple[Any, ...]:
+    entry_score = _first_finite(item.get("entryScore"))
+    combo_score = _first_finite(item.get("comboScoreBonus")) or 0.0
+    effective_entry = float(entry_score or 0.0)
+    if direction == "down":
+        effective_entry += _MONTHLY_COMBO_RANK_WEIGHT_DOWN * float(combo_score)
+    return (
+        entry_score is None,
+        -effective_entry,
+        -(entry_score or 0.0),
+        -float(combo_score) if direction == "down" else 0.0,
+        -(float(item.get("probSide") or 0.0)),
+        str(item.get("code") or ""),
+    )
+
+
 def _resolve_short_pressure_score_gate(*, risk_mode: RankRiskMode) -> float:
     if risk_mode == "defensive":
         return _ENTRY_SHORT_PRESSURE_SCORE_DEFENSIVE
@@ -2805,6 +2967,29 @@ def _resolve_short_pressure_max_ev(*, risk_mode: RankRiskMode) -> float:
     if risk_mode == "aggressive":
         return _ENTRY_SHORT_PRESSURE_MAX_EV_AGGRESSIVE
     return _ENTRY_SHORT_PRESSURE_MAX_EV_BALANCED
+
+
+def _has_short_monthly_support(
+    *,
+    trend_down_strict: bool,
+    monthly_breakout_down_prob: float | None,
+    monthly_range_prob: float | None,
+    monthly_range_pos: float | None,
+    monthly_box_state: str,
+) -> bool:
+    if trend_down_strict:
+        return True
+    if monthly_breakout_down_prob is not None and monthly_breakout_down_prob >= 0.58:
+        return True
+    if (
+        monthly_range_prob is not None
+        and monthly_range_prob >= 0.62
+        and monthly_range_pos is not None
+        and monthly_range_pos >= 0.62
+        and monthly_box_state in _STRICT_TRADE_DOWN_BOX_STATES
+    ):
+        return True
+    return False
 
 
 def _apply_entry_playbook_fields(
@@ -4051,13 +4236,18 @@ def _relax_monthly_gates_for_coverage(
     return float(_MONTHLY_ABS_GATE_MIN), float(_MONTHLY_SIDE_GATE_MIN)
 
 
-def _decorate_items_with_monthly_ml(items: list[dict], pred_map: dict[str, dict]) -> list[dict]:
+def _decorate_items_with_monthly_ml(
+    items: list[dict],
+    pred_map: dict[str, dict],
+    snapshot_map: dict[str, dict] | None = None,
+) -> list[dict]:
     enriched: list[dict] = []
     for item in items:
         code = str(item.get("code") or "")
         pred = pred_map.get(code) or {}
         p_up_big = _first_finite(pred.get("p_up_big"))
         p_down_big = _first_finite(pred.get("p_down_big"))
+        snap = snapshot_map.get(code) if isinstance(snapshot_map, dict) else {}
         enriched.append(
             {
                 **item,
@@ -4083,6 +4273,26 @@ def _decorate_items_with_monthly_ml(items: list[dict], pred_map: dict[str, dict]
                 "prob5dAligned": None,
                 "probCurveAligned": None,
                 "horizonAligned": None,
+                "trendUp": snap.get("trend_up") if isinstance(snap, dict) else None,
+                "trendDown": snap.get("trend_down") if isinstance(snap, dict) else None,
+                "trendUpStrict": snap.get("trend_up_strict") if isinstance(snap, dict) else None,
+                "trendDownStrict": snap.get("trend_down_strict") if isinstance(snap, dict) else None,
+                "distMa20": snap.get("dist_ma20") if isinstance(snap, dict) else None,
+                "distMa20Signed": snap.get("dist_ma20_signed") if isinstance(snap, dict) else None,
+                "diff20_pct": snap.get("diff20_pct") if isinstance(snap, dict) else None,
+                "diff20Pct": snap.get("diff20_pct") if isinstance(snap, dict) else None,
+                "breakout20Up": snap.get("breakout20_up") if isinstance(snap, dict) else None,
+                "breakout20_up": snap.get("breakout20_up") if isinstance(snap, dict) else None,
+                "breakout20Down": snap.get("breakout20_down") if isinstance(snap, dict) else None,
+                "breakout20_down": snap.get("breakout20_down") if isinstance(snap, dict) else None,
+                "cnt_20_above": snap.get("cnt20_above") if isinstance(snap, dict) else None,
+                "cnt20Above": snap.get("cnt20_above") if isinstance(snap, dict) else None,
+                "cnt_7_above": snap.get("cnt7_above") if isinstance(snap, dict) else None,
+                "cnt7Above": snap.get("cnt7_above") if isinstance(snap, dict) else None,
+                "market_ret20": snap.get("market_ret20") if isinstance(snap, dict) else None,
+                "marketRet20": snap.get("market_ret20") if isinstance(snap, dict) else None,
+                "breadth_above_ma20": snap.get("breadth_above_ma20") if isinstance(snap, dict) else None,
+                "breadthAboveMa20": snap.get("breadth_above_ma20") if isinstance(snap, dict) else None,
             }
         )
     return enriched
@@ -4105,6 +4315,7 @@ def _apply_monthly_ml_mode(
     pred_map: dict[str, dict] = {}
     model_version: str | None = None
     edinet_feature_map: dict[str, dict[str, Any]] = {}
+    snapshot_map: dict[str, dict] = {}
     edinet_flag_applied = _is_edinet_bonus_enabled()
     target_codes = sorted({str(item.get("code") or "").strip() for item in items if str(item.get("code") or "").strip()})
     asof_candidates = [_iso_date_to_int(str(item.get("asOf") or "")) for item in items]
@@ -4119,6 +4330,7 @@ def _apply_monthly_ml_mode(
                 gate_recommendation, ret20_lookup = _load_monthly_gate_recommendation(conn, model_version)
             if target_codes:
                 edinet_feature_map = load_edinet_rank_features(conn, target_codes, anchor_asof_ymd)
+                snapshot_map = _load_daily_snapshot_map(conn, anchor_asof_ymd)
     except Exception as exc:
         logger.debug("monthly ml bootstrap skipped due to DB error: %s", exc)
 
@@ -4132,6 +4344,8 @@ def _apply_monthly_ml_mode(
                     gate_recommendation, ret20_lookup = _load_monthly_gate_recommendation(conn, model_version)
                 if target_codes and not edinet_feature_map:
                     edinet_feature_map = load_edinet_rank_features(conn, target_codes, anchor_asof_ymd)
+                if target_codes and not snapshot_map:
+                    snapshot_map = _load_daily_snapshot_map(conn, anchor_asof_ymd)
         except Exception as exc:
             logger.debug("monthly ml repair reload skipped due to DB error: %s", exc)
     if not pred_map:
@@ -4146,7 +4360,7 @@ def _apply_monthly_ml_mode(
             item["edinetFeatureFlagApplied"] = bool(edinet_flag_applied)
         return items[:limit], pred_dt, model_version
 
-    enriched = _decorate_items_with_monthly_ml(items, pred_map)
+    enriched = _decorate_items_with_monthly_ml(items, pred_map, snapshot_map=snapshot_map)
     dir_gate = gate_recommendation.get(direction, {})
     abs_gate, side_gate = _relax_monthly_gates_for_coverage(
         enriched,
@@ -4367,6 +4581,7 @@ def _apply_monthly_ml_mode(
             direction=direction,
             shape_patterns=shape_patterns,
         )
+        combo_bonus = _calc_combo_entry_bonus(direction=direction, item=item)
         item["entryScore"] = (
             float(
                 0.48 * (score_side if score_side is not None else 0.0)
@@ -4387,8 +4602,9 @@ def _apply_monthly_ml_mode(
             prior_snapshot=research_prior,
         )
         item["playbookScoreBonus"] = float(playbook_bonus)
+        item["comboScoreBonus"] = float(combo_bonus)
         if item["entryScore"] is not None:
-            bonus_total = float(research_bonus)
+            bonus_total = float(research_bonus) + float(combo_bonus)
             if edinet_flag_applied:
                 bonus_total += float(edinet_bonus)
             item["entryScore"] = float(max(0.0, min(1.0, float(item["entryScore"]) + bonus_total)))
@@ -4486,14 +4702,7 @@ def _apply_monthly_ml_mode(
             )
         )
     else:
-        qualified.sort(
-            key=lambda item: (
-                item.get("entryScore") is None,
-                -(item.get("entryScore") or 0.0),
-                -(item.get("probSide") or 0.0),
-                item.get("code", ""),
-            )
-        )
+        qualified.sort(key=lambda item: _monthly_entry_sort_key(item, direction=direction))
     if len(qualified) >= limit:
         return qualified[:limit], pred_dt, model_version
 
@@ -4545,6 +4754,7 @@ def _apply_monthly_ml_mode(
         selected.append(candidate)
         if len(selected) >= limit:
             break
+    selected.sort(key=lambda item: _monthly_entry_sort_key(item, direction=direction))
     return selected[:limit], pred_dt, model_version
 
 
@@ -4598,6 +4808,7 @@ def _load_daily_snapshot_map(
     anchor_dt: int,
 ) -> dict[str, dict]:
     anchor_ymd = _to_yyyymmdd_int(anchor_dt)
+    anchor_epoch = _as_of_int_to_utc_epoch(anchor_ymd)
     rows = conn.execute(
         """
         WITH latest AS (
@@ -4607,6 +4818,35 @@ def _load_daily_snapshot_map(
                 b.c,
                 m.ma20,
                 m.ma60,
+                LAG(b.c, 20) OVER (PARTITION BY b.code ORDER BY b.date) AS c_prev20,
+                MAX(b.h) OVER (
+                    PARTITION BY b.code ORDER BY b.date ROWS BETWEEN 19 PRECEDING AND CURRENT ROW
+                ) AS high20,
+                MIN(b.l) OVER (
+                    PARTITION BY b.code ORDER BY b.date ROWS BETWEEN 19 PRECEDING AND CURRENT ROW
+                ) AS low20,
+                MAX(b.h) OVER (
+                    PARTITION BY b.code ORDER BY b.date ROWS BETWEEN 20 PRECEDING AND 1 PRECEDING
+                ) AS high20_prev,
+                MIN(b.l) OVER (
+                    PARTITION BY b.code ORDER BY b.date ROWS BETWEEN 20 PRECEDING AND 1 PRECEDING
+                ) AS low20_prev,
+                SUM(
+                    CASE
+                        WHEN m.ma20 IS NOT NULL AND ABS(m.ma20) > 1e-12 AND b.c > m.ma20 THEN 1
+                        ELSE 0
+                    END
+                ) OVER (
+                    PARTITION BY b.code ORDER BY b.date ROWS BETWEEN 19 PRECEDING AND CURRENT ROW
+                ) AS cnt20_above,
+                SUM(
+                    CASE
+                        WHEN m.ma20 IS NOT NULL AND ABS(m.ma20) > 1e-12 AND b.c > m.ma20 THEN 1
+                        ELSE 0
+                    END
+                ) OVER (
+                    PARTITION BY b.code ORDER BY b.date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+                ) AS cnt7_above,
                 ROW_NUMBER() OVER (PARTITION BY b.code ORDER BY b.date DESC) AS rn
             FROM daily_bars b
             LEFT JOIN daily_ma m ON m.code = b.code AND m.date = b.date
@@ -4621,13 +4861,71 @@ def _load_daily_snapshot_map(
             MAX(CASE WHEN rn = 1 THEN ma60 END) AS snap_ma60,
             MAX(CASE WHEN rn = 2 THEN c END) AS prev_close,
             MAX(CASE WHEN rn = 2 THEN ma20 END) AS prev_ma20,
-            MAX(CASE WHEN rn = 2 THEN ma60 END) AS prev_ma60
+            MAX(CASE WHEN rn = 2 THEN ma60 END) AS prev_ma60,
+            MAX(CASE WHEN rn = 1 THEN c_prev20 END) AS c_prev20,
+            MAX(CASE WHEN rn = 1 THEN high20 END) AS high20,
+            MAX(CASE WHEN rn = 1 THEN low20 END) AS low20,
+            MAX(CASE WHEN rn = 1 THEN high20_prev END) AS high20_prev,
+            MAX(CASE WHEN rn = 1 THEN low20_prev END) AS low20_prev,
+            MAX(CASE WHEN rn = 1 THEN cnt20_above END) AS cnt20_above,
+            MAX(CASE WHEN rn = 1 THEN cnt7_above END) AS cnt7_above
         FROM latest
         WHERE rn <= 2
         GROUP BY code
         """,
-        [int(anchor_dt), int(anchor_ymd)],
+        [int(anchor_epoch), int(anchor_ymd)],
     ).fetchall()
+    market_row = conn.execute(
+        """
+        WITH market_series AS (
+            SELECT
+                b.date AS dt,
+                b.c AS m_close,
+                LAG(b.c, 20) OVER (ORDER BY b.date) AS m_prev20
+            FROM daily_bars b
+            WHERE b.code = '1001'
+              AND b.c IS NOT NULL
+              AND COALESCE(b.source, 'pan') <> 'yahoo'
+              AND b.date <= CASE WHEN b.date >= 1000000000 THEN ? ELSE ? END
+        )
+        SELECT
+            dt,
+            CASE
+                WHEN m_prev20 IS NULL OR ABS(m_prev20) <= 1e-12 THEN NULL
+                ELSE (m_close - m_prev20) / m_prev20
+            END AS market_ret20
+        FROM market_series
+        ORDER BY dt DESC
+        LIMIT 1
+        """,
+        [int(anchor_epoch), int(anchor_ymd)],
+    ).fetchone()
+    breadth_row = conn.execute(
+        """
+        WITH breadth AS (
+            SELECT
+                b.date AS dt,
+                AVG(
+                    CASE
+                        WHEN m.ma20 IS NOT NULL AND ABS(m.ma20) > 1e-12 AND b.c > m.ma20
+                            THEN 1.0
+                        ELSE 0.0
+                    END
+                ) AS breadth_above_ma20
+            FROM daily_bars b
+            LEFT JOIN daily_ma m ON m.code = b.code AND m.date = b.date
+            WHERE COALESCE(b.source, 'pan') <> 'yahoo'
+              AND b.c IS NOT NULL
+              AND b.date <= CASE WHEN b.date >= 1000000000 THEN ? ELSE ? END
+            GROUP BY b.date
+        )
+        SELECT dt, breadth_above_ma20
+        FROM breadth
+        ORDER BY dt DESC
+        LIMIT 1
+        """,
+        [int(anchor_epoch), int(anchor_ymd)],
+    ).fetchone()
     snapshot_map: dict[str, dict] = {}
     for row in rows:
         code = str(row[0])
@@ -4637,12 +4935,28 @@ def _load_daily_snapshot_map(
         prev_close = float(row[5]) if row[5] is not None else None
         prev_ma20 = float(row[6]) if row[6] is not None else None
         prev_ma60 = float(row[7]) if row[7] is not None else None
+        c_prev20 = float(row[8]) if len(row) > 8 and row[8] is not None else None
+        high20 = float(row[9]) if len(row) > 9 and row[9] is not None else None
+        low20 = float(row[10]) if len(row) > 10 and row[10] is not None else None
+        high20_prev = float(row[11]) if len(row) > 11 and row[11] is not None else None
+        low20_prev = float(row[12]) if len(row) > 12 and row[12] is not None else None
+        cnt20_above = float(row[13]) if len(row) > 13 and row[13] is not None else None
+        cnt7_above = float(row[14]) if len(row) > 14 and row[14] is not None else None
         dist_ma20 = None
         dist_ma20_signed = None
         dist_ma60_signed = None
+        diff20_pct = None
+        breakout20_up = None
+        breakout20_down = None
         if close is not None and ma20 is not None and ma20 > 0:
             dist_ma20 = abs(close - ma20) / ma20
             dist_ma20_signed = (close - ma20) / ma20
+        if close is not None and c_prev20 is not None and abs(c_prev20) > 1e-12:
+            diff20_pct = (close - c_prev20) / c_prev20
+        if close is not None and high20_prev is not None and high20_prev > 0:
+            breakout20_up = (close - high20_prev) / high20_prev
+        if close is not None and low20_prev is not None and low20_prev > 0:
+            breakout20_down = (low20_prev - close) / low20_prev
         if close is not None and ma60 is not None and ma60 > 0:
             dist_ma60_signed = (close - ma60) / ma60
         trend_up = (
@@ -4695,15 +5009,27 @@ def _load_daily_snapshot_map(
             "prev_close": prev_close,
             "prev_ma20": prev_ma20,
             "prev_ma60": prev_ma60,
+            "c_prev20": c_prev20,
+            "high20": high20,
+            "low20": low20,
+            "high20_prev": high20_prev,
+            "low20_prev": low20_prev,
+            "cnt20_above": cnt20_above,
+            "cnt7_above": cnt7_above,
             "dist_ma20": dist_ma20,
             "dist_ma20_signed": dist_ma20_signed,
             "dist_ma60_signed": dist_ma60_signed,
+            "diff20_pct": diff20_pct,
+            "breakout20_up": breakout20_up,
+            "breakout20_down": breakout20_down,
             "ma20_slope": ma20_slope,
             "ma60_slope": ma60_slope,
             "trend_up": bool(trend_up),
             "trend_down": bool(trend_down),
             "trend_up_strict": trend_up_strict,
             "trend_down_strict": trend_down_strict,
+            "market_ret20": float(market_row[1]) if market_row and market_row[1] is not None else None,
+            "breadth_above_ma20": float(breadth_row[1]) if breadth_row and breadth_row[1] is not None else None,
         }
     return snapshot_map
 
@@ -4762,6 +5088,20 @@ def _decorate_items_with_ml(
                 "trendDownStrict": snap.get("trend_down_strict"),
                 "distMa20": snap.get("dist_ma20"),
                 "distMa20Signed": snap.get("dist_ma20_signed"),
+                "diff20_pct": snap.get("diff20_pct"),
+                "diff20Pct": snap.get("diff20_pct"),
+                "breakout20Up": snap.get("breakout20_up"),
+                "breakout20_up": snap.get("breakout20_up"),
+                "breakout20Down": snap.get("breakout20_down"),
+                "breakout20_down": snap.get("breakout20_down"),
+                "cnt_20_above": snap.get("cnt20_above"),
+                "cnt20Above": snap.get("cnt20_above"),
+                "cnt_7_above": snap.get("cnt7_above"),
+                "cnt7Above": snap.get("cnt7_above"),
+                "market_ret20": snap.get("market_ret20"),
+                "marketRet20": snap.get("market_ret20"),
+                "breadth_above_ma20": snap.get("breadth_above_ma20"),
+                "breadthAboveMa20": snap.get("breadth_above_ma20"),
                 "ma20Slope": snap.get("ma20_slope"),
                 "ma60Slope": snap.get("ma60_slope"),
             }
@@ -5581,8 +5921,10 @@ def _apply_ml_mode(
             direction=direction,
             shape_patterns=shape_patterns,
         )
+        combo_bonus = _calc_combo_entry_bonus(direction=direction, item=item)
         item["playbookScoreBonus"] = float(playbook_bonus)
-        item["entryScore"] = float(max(0.0, min(1.0, float(item["entryScore"]) + playbook_bonus)))
+        item["comboScoreBonus"] = float(combo_bonus)
+        item["entryScore"] = float(max(0.0, min(1.0, float(item["entryScore"]) + playbook_bonus + combo_bonus)))
         research_bonus = _calc_research_prior_bonus(
             item=item,
             direction=direction,
@@ -5681,17 +6023,33 @@ def _apply_ml_mode(
             )
         )
         late_breakout_caution = bool(direction == "up" and shape_patterns.get("s3LateBreakout"))
-        short_pattern_setup = bool(
+        short_monthly_support_ok = _has_short_monthly_support(
+            trend_down_strict=trend_down_strict,
+            monthly_breakout_down_prob=monthly_breakout_prob if direction == "down" else None,
+            monthly_range_prob=monthly_range_prob,
+            monthly_range_pos=monthly_range_pos,
+            monthly_box_state=monthly_box_state,
+        )
+        short_breakdown_pattern = bool(
             direction == "down"
             and (
                 shape_patterns.get("d1ShortBreakdown")
                 or shape_patterns.get("d2ShortMixedFar")
                 or shape_patterns.get("d3ShortNaBelow")
-                or shape_patterns.get("d4ShortDoubleTop")
+            )
+        )
+        short_reversal_pattern = bool(
+            direction == "down"
+            and (
+                shape_patterns.get("d4ShortDoubleTop")
                 or shape_patterns.get("d5ShortHeadShoulders")
             )
+        )
+        short_pattern_setup = bool(
+            direction == "down"
             and turn_ok
             and strict_prob_ok
+            and (short_reversal_pattern or (short_breakdown_pattern and short_monthly_support_ok))
         )
         short_pressure_setup = bool(
             direction == "down"
@@ -5700,6 +6058,9 @@ def _apply_ml_mode(
             and short_prob_ok
             and counter_move_ok
             and horizon_ok
+            and short_monthly_support_ok
+            and monthly_breakout_prob is not None
+            and monthly_breakout_prob >= 0.62
             and (not weak_shape_block)
             and isinstance(item.get("entryScore"), (int, float))
             and math.isfinite(float(item.get("entryScore")))

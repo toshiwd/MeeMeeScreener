@@ -1,0 +1,415 @@
+{
+  "backlog_items": [
+    {
+      "candidate_name": "boundary-aware",
+      "decision": "backlog",
+      "feature_class": "boundary_feature",
+      "reason": "not executed in this round",
+      "target_failure_bucket": "ranking_no_op"
+    },
+    {
+      "candidate_name": "regime-differential-adjustment",
+      "decision": "backlog",
+      "feature_class": "regime_adjustment",
+      "reason": "not executed in this round",
+      "target_failure_bucket": "regime_mismatch"
+    },
+    {
+      "candidate_name": "weighting_hygiene",
+      "decision": "backlog",
+      "feature_class": "label_hygiene",
+      "reason": "explicitly deferred by policy",
+      "target_failure_bucket": "sample_quality"
+    }
+  ],
+  "candidate_records": [
+    {
+      "bad_pick_removal": 6,
+      "candidate_name": "bp_liquidity_trap_penalty/v1",
+      "changed_rank_count": 15,
+      "changed_top10_members_count": 12,
+      "changed_top5_members_count": 6,
+      "compare_engine_decision_reasons": [
+        "turnover_too_high"
+      ],
+      "compare_engine_local_decision": "keep",
+      "compare_ready_run_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-removal-20260417-r2-bp_liquidity_trap_penalty\\compare.json",
+      "compare_status": "compared",
+      "coverage_status": {
+        "evaluation_window_count": 3,
+        "evaluation_window_ids": [
+          "up:up:20250626:20250829",
+          "down:down:20250331:20250409",
+          "flat:flat:20230803:20230828"
+        ],
+        "insufficient_samples": false,
+        "status_reasons": [],
+        "window_source": "family_period_segments",
+        "window_source_reason": "explicit_family_period_segments_available"
+      },
+      "decision": "keep",
+      "decision_reason": "positive_bad_pick_removal_with_completed_coverage",
+      "feature_class": "bad_pick_removal",
+      "gate_decision": "keep",
+      "gate_reason": "positive_bad_pick_removal_with_completed_coverage",
+      "overlap_vs_champion": 0.4,
+      "overlap_vs_peer_candidates": 1.0,
+      "peer_duplicate_state": "identical_top10_to_peer_candidates",
+      "removed_bucket_counts": {
+        "breakout_failure": 0,
+        "liquidity_trap": 6,
+        "other": 0,
+        "weak_recovery": 0
+      },
+      "selection_divergence_reason": "top5_member_replacement",
+      "target_failure_bucket": "liquidity_trap",
+      "target_removed_count": 6,
+      "top10_uplift": 0.017542163616904125,
+      "top5_uplift": 0.02739186933632866,
+      "window_source": "family_period_segments",
+      "window_source_reason": "explicit_family_period_segments_available",
+      "worst_regime_delta": 0.0
+    },
+    {
+      "bad_pick_removal": 0,
+      "candidate_name": "bp_weak_recovery_penalty/v1",
+      "changed_rank_count": 15,
+      "changed_top10_members_count": 12,
+      "changed_top5_members_count": 6,
+      "compare_engine_decision_reasons": [
+        "evaluation_window_coverage_incomplete",
+        "missing_down_window",
+        "missing_flat_window",
+        "turnover_too_high"
+      ],
+      "compare_engine_local_decision": "drop",
+      "compare_ready_run_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-removal-20260417-r2-bp_weak_recovery_penalty\\compare.json",
+      "compare_status": "compared",
+      "coverage_status": {
+        "evaluation_window_count": 1,
+        "evaluation_window_ids": [
+          "up:20250626:20250829"
+        ],
+        "insufficient_samples": false,
+        "status_reasons": [
+          "missing_down_window",
+          "missing_flat_window",
+          "evaluation_window_coverage_incomplete"
+        ]
+      },
+      "decision": "drop",
+      "decision_reason": "overlap_heavy_duplicate_or_target_bucket_not_removed",
+      "feature_class": "bad_pick_removal",
+      "gate_decision": "drop",
+      "gate_reason": "overlap_heavy_duplicate_or_target_bucket_not_removed",
+      "overlap_vs_champion": 0.4,
+      "overlap_vs_peer_candidates": 1.0,
+      "peer_duplicate_state": "identical_top10_to_peer_candidates",
+      "removed_bucket_counts": {
+        "breakout_failure": 0,
+        "liquidity_trap": 6,
+        "other": 0,
+        "weak_recovery": 0
+      },
+      "selection_divergence_reason": "top5_member_replacement",
+      "target_failure_bucket": "weak_recovery",
+      "target_removed_count": 0,
+      "top10_uplift": 0.017542163616904125,
+      "top5_uplift": 0.02739186933632866,
+      "window_source": "",
+      "window_source_reason": "",
+      "worst_regime_delta": 0.0
+    },
+    {
+      "bad_pick_removal": 0,
+      "candidate_name": "bp_breakout_failure_penalty/v1",
+      "changed_rank_count": 15,
+      "changed_top10_members_count": 12,
+      "changed_top5_members_count": 6,
+      "compare_engine_decision_reasons": [
+        "evaluation_window_coverage_incomplete",
+        "missing_down_window",
+        "missing_flat_window",
+        "turnover_too_high"
+      ],
+      "compare_engine_local_decision": "drop",
+      "compare_ready_run_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-removal-20260417-r2-bp_breakout_failure_penalty\\compare.json",
+      "compare_status": "compared",
+      "coverage_status": {
+        "evaluation_window_count": 1,
+        "evaluation_window_ids": [
+          "up:20250626:20250829"
+        ],
+        "insufficient_samples": false,
+        "status_reasons": [
+          "missing_down_window",
+          "missing_flat_window",
+          "evaluation_window_coverage_incomplete"
+        ]
+      },
+      "decision": "drop",
+      "decision_reason": "overlap_heavy_duplicate_or_target_bucket_not_removed",
+      "feature_class": "bad_pick_removal",
+      "gate_decision": "drop",
+      "gate_reason": "overlap_heavy_duplicate_or_target_bucket_not_removed",
+      "overlap_vs_champion": 0.4,
+      "overlap_vs_peer_candidates": 1.0,
+      "peer_duplicate_state": "identical_top10_to_peer_candidates",
+      "removed_bucket_counts": {
+        "breakout_failure": 0,
+        "liquidity_trap": 6,
+        "other": 0,
+        "weak_recovery": 0
+      },
+      "selection_divergence_reason": "top5_member_replacement",
+      "target_failure_bucket": "breakout_failure",
+      "target_removed_count": 0,
+      "top10_uplift": 0.017542163616904125,
+      "top5_uplift": 0.02739186933632866,
+      "window_source": "",
+      "window_source_reason": "",
+      "worst_regime_delta": 0.0
+    }
+  ],
+  "compare_ready_artifacts": [
+    "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-removal-20260417-r2-bp_liquidity_trap_penalty\\compare.json",
+    "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-removal-20260417-r2-bp_weak_recovery_penalty\\compare.json",
+    "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-removal-20260417-r2-bp_breakout_failure_penalty\\compare.json"
+  ],
+  "confirmed_findings": [
+    {
+      "bad_pick_removal": 6,
+      "candidate_name": "bp_liquidity_trap_penalty/v1",
+      "changed_rank_count": 15,
+      "changed_top10_members_count": 12,
+      "changed_top5_members_count": 6,
+      "compare_engine_decision_reasons": [
+        "turnover_too_high"
+      ],
+      "compare_engine_local_decision": "keep",
+      "compare_ready_run_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-removal-20260417-r2-bp_liquidity_trap_penalty\\compare.json",
+      "compare_status": "compared",
+      "coverage_status": {
+        "evaluation_window_count": 3,
+        "evaluation_window_ids": [
+          "up:up:20250626:20250829",
+          "down:down:20250331:20250409",
+          "flat:flat:20230803:20230828"
+        ],
+        "insufficient_samples": false,
+        "status_reasons": [],
+        "window_source": "family_period_segments",
+        "window_source_reason": "explicit_family_period_segments_available"
+      },
+      "decision": "keep",
+      "decision_reason": "positive_bad_pick_removal_with_completed_coverage",
+      "feature_class": "bad_pick_removal",
+      "gate_decision": "keep",
+      "gate_reason": "positive_bad_pick_removal_with_completed_coverage",
+      "overlap_vs_champion": 0.4,
+      "overlap_vs_peer_candidates": 1.0,
+      "peer_duplicate_state": "identical_top10_to_peer_candidates",
+      "removed_bucket_counts": {
+        "breakout_failure": 0,
+        "liquidity_trap": 6,
+        "other": 0,
+        "weak_recovery": 0
+      },
+      "selection_divergence_reason": "top5_member_replacement",
+      "target_failure_bucket": "liquidity_trap",
+      "target_removed_count": 6,
+      "top10_uplift": 0.017542163616904125,
+      "top5_uplift": 0.02739186933632866,
+      "window_source": "family_period_segments",
+      "window_source_reason": "explicit_family_period_segments_available",
+      "worst_regime_delta": 0.0
+    }
+  ],
+  "coverage_resolution": {
+    "completed": true,
+    "missing_windows_resolved": [
+      "down_window",
+      "flat_window"
+    ],
+    "window_source": "family_period_segments",
+    "window_source_reason": "explicit_family_period_segments_available"
+  },
+  "derived_snapshot_path": "",
+  "drop_count": 2,
+  "dropped_branches": [
+    {
+      "bad_pick_removal": 0,
+      "candidate_name": "bp_weak_recovery_penalty/v1",
+      "changed_rank_count": 15,
+      "changed_top10_members_count": 12,
+      "changed_top5_members_count": 6,
+      "compare_engine_decision_reasons": [
+        "evaluation_window_coverage_incomplete",
+        "missing_down_window",
+        "missing_flat_window",
+        "turnover_too_high"
+      ],
+      "compare_engine_local_decision": "drop",
+      "compare_ready_run_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-removal-20260417-r2-bp_weak_recovery_penalty\\compare.json",
+      "compare_status": "compared",
+      "coverage_status": {
+        "evaluation_window_count": 1,
+        "evaluation_window_ids": [
+          "up:20250626:20250829"
+        ],
+        "insufficient_samples": false,
+        "status_reasons": [
+          "missing_down_window",
+          "missing_flat_window",
+          "evaluation_window_coverage_incomplete"
+        ]
+      },
+      "decision": "drop",
+      "decision_reason": "overlap_heavy_duplicate_or_target_bucket_not_removed",
+      "feature_class": "bad_pick_removal",
+      "gate_decision": "drop",
+      "gate_reason": "overlap_heavy_duplicate_or_target_bucket_not_removed",
+      "overlap_vs_champion": 0.4,
+      "overlap_vs_peer_candidates": 1.0,
+      "peer_duplicate_state": "identical_top10_to_peer_candidates",
+      "removed_bucket_counts": {
+        "breakout_failure": 0,
+        "liquidity_trap": 6,
+        "other": 0,
+        "weak_recovery": 0
+      },
+      "selection_divergence_reason": "top5_member_replacement",
+      "target_failure_bucket": "weak_recovery",
+      "target_removed_count": 0,
+      "top10_uplift": 0.017542163616904125,
+      "top5_uplift": 0.02739186933632866,
+      "window_source": "",
+      "window_source_reason": "",
+      "worst_regime_delta": 0.0
+    },
+    {
+      "bad_pick_removal": 0,
+      "candidate_name": "bp_breakout_failure_penalty/v1",
+      "changed_rank_count": 15,
+      "changed_top10_members_count": 12,
+      "changed_top5_members_count": 6,
+      "compare_engine_decision_reasons": [
+        "evaluation_window_coverage_incomplete",
+        "missing_down_window",
+        "missing_flat_window",
+        "turnover_too_high"
+      ],
+      "compare_engine_local_decision": "drop",
+      "compare_ready_run_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-removal-20260417-r2-bp_breakout_failure_penalty\\compare.json",
+      "compare_status": "compared",
+      "coverage_status": {
+        "evaluation_window_count": 1,
+        "evaluation_window_ids": [
+          "up:20250626:20250829"
+        ],
+        "insufficient_samples": false,
+        "status_reasons": [
+          "missing_down_window",
+          "missing_flat_window",
+          "evaluation_window_coverage_incomplete"
+        ]
+      },
+      "decision": "drop",
+      "decision_reason": "overlap_heavy_duplicate_or_target_bucket_not_removed",
+      "feature_class": "bad_pick_removal",
+      "gate_decision": "drop",
+      "gate_reason": "overlap_heavy_duplicate_or_target_bucket_not_removed",
+      "overlap_vs_champion": 0.4,
+      "overlap_vs_peer_candidates": 1.0,
+      "peer_duplicate_state": "identical_top10_to_peer_candidates",
+      "removed_bucket_counts": {
+        "breakout_failure": 0,
+        "liquidity_trap": 6,
+        "other": 0,
+        "weak_recovery": 0
+      },
+      "selection_divergence_reason": "top5_member_replacement",
+      "target_failure_bucket": "breakout_failure",
+      "target_removed_count": 0,
+      "top10_uplift": 0.017542163616904125,
+      "top5_uplift": 0.02739186933632866,
+      "window_source": "",
+      "window_source_reason": "",
+      "worst_regime_delta": 0.0
+    }
+  ],
+  "generated_at": "2026-04-17T10:34:35.339553+09:00",
+  "hold_count": 0,
+  "keep_count": 1,
+  "primary_axis": "bad-pick-removal",
+  "provisional_findings": [],
+  "same_condition_contract": {
+    "artifact_detail_level": "authoritative_full",
+    "cost_model": {
+      "fee_bps": 0.0,
+      "mode": "flat_zero_cost",
+      "schema_version": "tradex_cost_model_v1",
+      "slippage_bps": 0.0,
+      "transaction_cost_bps": 0.0
+    },
+    "fallback_status": "authoritative",
+    "period": [
+      {
+        "end_date": "2025-08-29",
+        "label": "up:up:20250626:20250829",
+        "start_date": "2025-06-26"
+      },
+      {
+        "end_date": "2025-04-09",
+        "label": "down:down:20250331:20250409",
+        "start_date": "2025-03-31"
+      },
+      {
+        "end_date": "2023-08-28",
+        "label": "flat:flat:20230803:20230828",
+        "start_date": "2023-08-03"
+      }
+    ],
+    "regime": "multi_regime",
+    "schema_version": "tradex_research_contract_v1",
+    "top_k": 5,
+    "universe": [
+      "1332",
+      "1808",
+      "1833",
+      "2282",
+      "3105",
+      "3116",
+      "3289",
+      "3481",
+      "3687",
+      "4384",
+      "4503",
+      "4544",
+      "4927",
+      "5741",
+      "5949",
+      "6306",
+      "6376",
+      "6754",
+      "6857",
+      "6958",
+      "7514",
+      "7730",
+      "8174",
+      "8334",
+      "8725",
+      "9143",
+      "9433",
+      "9503",
+      "9603",
+      "9684"
+    ]
+  },
+  "schema_version": "tradex_bad_pick_removal_decomposition_round_v1",
+  "session_id": "bp-removal-20260417-r2",
+  "session_scope_id": "rr_confirmed_20260323_fix6",
+  "source_snapshot_is_read_only": true,
+  "source_snapshot_path": "",
+  "summary_text": "Liquidity hold resolved by using explicit family period segments for compare windows; liquidity branch keeps, weak_recovery and breakout_failure drop."
+}

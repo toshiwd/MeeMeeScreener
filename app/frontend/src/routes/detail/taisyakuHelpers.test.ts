@@ -84,7 +84,7 @@ describe("taisyaku helpers", () => {
 
     expect(display.watchLabel).toBe("需給警戒");
     expect(display.cards[0]).toMatchObject({ label: "貸借倍率", value: "0.30倍" });
-    expect(display.history[0]).toMatchObject({ dateLabel: "2026/03/11", feeLabel: "0.00円" });
+    expect(display.history[0]).toMatchObject({ dateLabel: "2026/03/11 (水)", feeLabel: "0.00円" });
   });
 
   it("requests refresh when snapshot is missing or stale", () => {

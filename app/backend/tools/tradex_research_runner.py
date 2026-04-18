@@ -18,6 +18,7 @@ import pandas as pd
 from app.backend.api.dependencies import get_stock_repo
 from app.backend.core.legacy_analysis_control import LEGACY_ANALYSIS_DISABLE_ENV, is_legacy_analysis_disabled
 from app.backend.services import tradex_experiment_service as tradex
+from app.backend.services import tradex_research_environment_readiness as tradex_environment_readiness
 from app.backend.services.tradex_research_contracts import (
     TRADEX_ARTIFACT_DETAIL_LEVEL_AUTHORITATIVE,
     TRADEX_ARTIFACT_DETAIL_LEVEL_RESEARCH_FALLBACK,
@@ -46,7 +47,7 @@ from app.backend.services.tradex_experiment_store import (
     write_json,
 )
 from app.core.config import config as app_config
-from shared.tradex_storage import tradex_research_sessions_root
+from shared.tradex_storage import tradex_research_keep_root, tradex_research_sessions_root
 
 
 SESSION_SCHEMA_VERSION = "tradex_research_session_v1"
@@ -56,12 +57,27 @@ SESSION_LEADERBOARD_ROLLUP_SCHEMA_VERSION = "tradex_session_leaderboard_rollup_v
 STABILITY_ROLLUP_SCHEMA_VERSION = "tradex_research_stability_rollup_v1"
 SCOPE_STABILITY_ROLLUP_SCHEMA_VERSION = "tradex_research_scope_stability_rollup_v1"
 LOGIC_SEARCH_ROLLUP_SCHEMA_VERSION = "tradex_research_logic_search_rollup_v1"
+SCENARIO_SEARCH_ROLLUP_SCHEMA_VERSION = "tradex_research_scenario_search_rollup_v1"
+SCENARIO_SEARCH_MEMORY_SCHEMA_VERSION = "tradex_research_scenario_memory_v1"
+SCENARIO_SEARCH_GENERATION_SUMMARY_SCHEMA_VERSION = "tradex_research_scenario_generation_summary_v1"
+SCENARIO_SEARCH_LINEAGE_SCHEMA_VERSION = "tradex_research_scenario_lineage_v1"
+SCENARIO_SEARCH_POPULATION_SCHEMA_VERSION = "tradex_research_scenario_population_v1"
+SCENARIO_SEARCH_WIDE_TOPK_SCHEMA_VERSION = "tradex_research_scenario_wide_topk_eval_v1"
+SCENARIO_SEARCH_ROLLUP_REPORT_PREFIX = "tradex_research_scenario_search_rollup"
 SESSION_REPORT_NAME_PREFIX = "tradex_research_session"
 SESSION_FAMILY_LEADERBOARD_REPORT_PREFIX = "tradex_research_family_leaderboard"
 SESSION_LEADERBOARD_ROLLUP_REPORT_PREFIX = "tradex_research_session_rollup"
 STABILITY_ROLLUP_REPORT_PREFIX = "tradex_research_stability_rollup"
 SCOPE_STABILITY_ROLLUP_REPORT_PREFIX = "tradex_research_scope_stability_rollup"
 LOGIC_SEARCH_ROLLUP_REPORT_PREFIX = "tradex_research_logic_search_rollup"
+SCENARIO_SEARCH_FILE = "research_memory.json"
+SCENARIO_POPULATION_FILE = "candidate_population.json"
+SCENARIO_GENERATION_SUMMARY_FILE = "generation_summary.json"
+SCENARIO_LINEAGE_FILE = "evolution_lineage.json"
+SCENARIO_KEEP_DROP_HOLD_FILE = "keep_drop_hold_rollup.json"
+SCENARIO_SELECTOR_EVAL_FILE = "regime_selector_eval.json"
+SCENARIO_CHAMPION_FILE = "champion_vs_challenger_summary.json"
+SCENARIO_WIDE_TOPK_FILE = "practical_topk_eval.json"
 SESSION_FAMILY_LEADERBOARD_FILE = "family_leaderboard.json"
 SESSION_LEADERBOARD_ROLLUP_FILE = "session_leaderboard_rollup.json"
 STABILITY_ROLLUP_FILE = "stability_rollup.json"
@@ -71,6 +87,7 @@ DEFAULT_MAX_CANDIDATES_PER_FAMILY = 2
 STABILITY_SWEEP_DEFAULT_SEEDS = (7, 11, 19, 23, 29)
 FEATURE_SNAPSHOT_SCOPE_ID = "rr_confirmed_20260323_fix6"
 TRADEX_EXPLORATORY_EVAL_WINDOW_MIN_TRADING_DAYS = 8
+SCENARIO_SEARCH_TOP_K = 5
 
 
 @dataclass(frozen=True)
@@ -81,6 +98,10 @@ class CandidateMethodSpec:
     method_thesis: str
     plan_overrides: dict[str, Any]
     feature_family: str | None = None
+    population_kind: str | None = None
+    scenario_definition: dict[str, Any] | None = None
+    generation_index: int | None = None
+    mutation_parent_ids: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -89,6 +110,29 @@ class FamilySpec:
     family_title: str
     family_thesis: str
     candidates: tuple[CandidateMethodSpec, ...]
+
+
+@dataclass(frozen=True)
+class ScenarioSpec:
+    direction: str
+    entry_family: str
+    filter_family: str
+    ranking_target: str
+    holding_days: int
+    exit_family: str
+    stop_type: str
+    regime_gate: str
+    liquidity_gate: str
+    weight_profile: str
+    signal_bias: str = "balanced"
+    minimum_confidence: float = 0.60
+    minimum_ready_rate: float = 0.50
+    bad_pick_penalty_scale: float = 1.0
+    playbook_up_score_bonus: float = 0.0
+    playbook_down_score_bonus: float = 0.0
+    mutation_parent_ids: tuple[str, ...] = ()
+    generation_index: int = 0
+    population_kind: str = "long_expert_population"
 
 
 FEATURE_FAMILY_BY_METHOD_FAMILY: dict[str, str] = {
@@ -106,6 +150,695 @@ def _feature_family_for_method_family(method_family: str) -> str:
     if not feature_family:
         raise ValueError(f"feature_family required for method_family={method_family}")
     return feature_family
+
+
+def _scenario_hash(payload: dict[str, Any]) -> str:
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str, separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def _scenario_population_kind_from_legacy(*, method_family: str, feature_family: str) -> str:
+    method_family_l = _text(method_family).lower()
+    feature_family_l = _text(feature_family).lower()
+    if "regime" in method_family_l or feature_family_l == "regime_adjustment":
+        return "regime_selector_population"
+    if "short" in method_family_l or feature_family_l in {"bad_pick_removal", "symbol_specific_adjustment"}:
+        return "short_expert_population"
+    return "long_expert_population"
+
+
+def _scenario_population_label(population_kind: str) -> str:
+    if population_kind == "short_expert_population":
+        return "Short Experts"
+    if population_kind == "regime_selector_population":
+        return "Regime Selector"
+    return "Long Experts"
+
+
+def _scenario_direction_for_population(population_kind: str, *, fallback: str = "long") -> str:
+    if population_kind == "short_expert_population":
+        return "short"
+    return "long" if fallback not in {"long", "short"} else fallback
+
+
+def _scenario_definition_to_payload(spec: ScenarioSpec) -> dict[str, Any]:
+    return {
+        "direction": spec.direction,
+        "entry_family": spec.entry_family,
+        "filter_family": spec.filter_family,
+        "ranking_target": spec.ranking_target,
+        "holding_days": int(spec.holding_days),
+        "exit_family": spec.exit_family,
+        "stop_type": spec.stop_type,
+        "regime_gate": spec.regime_gate,
+        "liquidity_gate": spec.liquidity_gate,
+        "weight_profile": spec.weight_profile,
+        "signal_bias": spec.signal_bias,
+        "minimum_confidence": float(spec.minimum_confidence),
+        "minimum_ready_rate": float(spec.minimum_ready_rate),
+        "bad_pick_penalty_scale": float(spec.bad_pick_penalty_scale),
+        "playbook_up_score_bonus": float(spec.playbook_up_score_bonus),
+        "playbook_down_score_bonus": float(spec.playbook_down_score_bonus),
+        "mutation_parent_ids": list(spec.mutation_parent_ids),
+        "generation_index": int(spec.generation_index),
+        "population_kind": spec.population_kind,
+    }
+
+
+def _scenario_definition_signature(spec: ScenarioSpec) -> str:
+    payload = {
+        "population_kind": spec.population_kind,
+        "method_thesis": _scenario_method_thesis(spec),
+    }
+    return _scenario_hash(payload)
+
+
+def _scenario_method_id(search_id: str, population_kind: str, spec: ScenarioSpec) -> str:
+    payload = {
+        "search_id": _slug(search_id),
+        "population_kind": population_kind,
+        "scenario": _scenario_definition_to_payload(spec),
+    }
+    return f"{_slug(search_id)}-{_slug(population_kind)}-{_scenario_hash(payload)}"
+
+
+def _scenario_method_title(spec: ScenarioSpec) -> str:
+    return (
+        f"{spec.population_kind} / {spec.direction} / {spec.entry_family} / "
+        f"{spec.ranking_target} / g{int(spec.generation_index)}"
+    )
+
+
+def _scenario_method_thesis(spec: ScenarioSpec) -> str:
+    return (
+        f"{spec.direction} expert via {spec.entry_family}, filtered by {spec.filter_family}, "
+        f"targeting {spec.ranking_target} under {spec.regime_gate} with {spec.liquidity_gate}"
+    )
+
+
+def _scenario_candidate_signature(spec: ScenarioSpec) -> str:
+    plan = _scenario_plan_overrides(spec, search_id="scenario-search", parent_candidate_ids=[])
+    payload = {
+        "method_family": spec.population_kind,
+        "minimum_confidence": tradex._float(plan.get("minimum_confidence")),
+        "minimum_ready_rate": tradex._float(plan.get("minimum_ready_rate")),
+        "signal_bias": _text(plan.get("signal_bias"), fallback="balanced"),
+        "top_k": max(1, tradex._int(plan.get("top_k")) or 0),
+        "bad_pick_penalty_scale": tradex._float(plan.get("bad_pick_penalty_scale")) or 0.0,
+        "bad_pick_penalty_profile": _text(plan.get("bad_pick_penalty_profile"), fallback="shared"),
+        "playbook_up_score_bonus": tradex._float(plan.get("playbook_up_score_bonus")) or 0.0,
+        "playbook_down_score_bonus": tradex._float(plan.get("playbook_down_score_bonus")) or 0.0,
+    }
+    return tradex._stable_hash(payload)
+
+
+def _scenario_plan_overrides(
+    spec: ScenarioSpec,
+    *,
+    search_id: str,
+    parent_candidate_ids: list[str],
+    top_k: int | None = None,
+) -> dict[str, Any]:
+    direction = _text(spec.direction, fallback="long")
+    signal_bias = _text(spec.signal_bias, fallback="sell" if direction == "short" else "buy")
+    weight_profile = _text(spec.weight_profile, fallback="balanced")
+    if weight_profile not in {"balanced", "boundary_heavy", "bad_pick_heavy", "regime_heavy", "liquidity_heavy"}:
+        weight_profile = "balanced"
+    minimum_confidence = float(spec.minimum_confidence)
+    minimum_ready_rate = float(spec.minimum_ready_rate)
+    bad_pick_penalty_scale = float(spec.bad_pick_penalty_scale)
+    playbook_up_score_bonus = float(spec.playbook_up_score_bonus)
+    playbook_down_score_bonus = float(spec.playbook_down_score_bonus)
+    plan_top_k = SCENARIO_SEARCH_TOP_K if top_k is None else max(1, int(top_k))
+    return {
+        "minimum_confidence": minimum_confidence,
+        "minimum_ready_rate": minimum_ready_rate,
+        "signal_bias": signal_bias,
+        "top_k": plan_top_k,
+        "bad_pick_penalty_scale": bad_pick_penalty_scale,
+        "bad_pick_penalty_profile": _text(getattr(spec, "bad_pick_penalty_profile", ""), fallback="shared"),
+        "target_failure_bucket": _text(getattr(spec, "target_failure_bucket", "")),
+        "playbook_up_score_bonus": playbook_up_score_bonus,
+        "playbook_down_score_bonus": playbook_down_score_bonus,
+        "scenario_definition": _scenario_definition_to_payload(spec),
+        "population_kind": spec.population_kind,
+        "search_id": _slug(search_id),
+        "generation_index": int(spec.generation_index),
+        "mutation_parent_ids": list(parent_candidate_ids),
+        "regime_gate": spec.regime_gate,
+        "liquidity_gate": spec.liquidity_gate,
+        "entry_family": spec.entry_family,
+        "filter_family": spec.filter_family,
+        "ranking_target": spec.ranking_target,
+        "holding_days": int(spec.holding_days),
+        "exit_family": spec.exit_family,
+        "stop_type": spec.stop_type,
+        "weight_profile": weight_profile,
+    }
+
+
+def _scenario_candidate_score(record: dict[str, Any]) -> float:
+    metrics = record.get("metrics") if isinstance(record.get("metrics"), dict) else {}
+    comparison = record.get("comparison") if isinstance(record.get("comparison"), dict) else {}
+    evaluation_metrics = record.get("evaluation_metrics") if isinstance(record.get("evaluation_metrics"), dict) else {}
+    branching_metrics = record.get("branching_metrics") if isinstance(record.get("branching_metrics"), dict) else {}
+    keep_bonus = 1.0 if _text(record.get("decision")) == "keep" else 0.5 if _text(record.get("decision")) == "hold" else 0.0
+    sample_count = float(metrics.get("sample_count") or 0)
+    top5 = float(comparison.get("challenger_top5_ret20_mean") or comparison.get("top5_ret20_mean") or 0.0)
+    top10 = float(comparison.get("challenger_top10_ret20_mean") or comparison.get("top10_ret20_mean") or 0.0)
+    monthly = float(comparison.get("challenger_monthly_capture_mean") or comparison.get("monthly_capture_mean") or 0.0)
+    worst = float(comparison.get("challenger_worst_regime_ret20_mean") or comparison.get("worst_regime_ret20_mean") or 0.0)
+    dd = float(comparison.get("challenger_dd") or comparison.get("dd") or 0.0)
+    turnover = float(comparison.get("challenger_turnover") or comparison.get("turnover") or 0.0)
+    liquidity = float(comparison.get("challenger_liquidity_fail_rate") or comparison.get("liquidity_fail_rate") or 0.0)
+    score = (
+        keep_bonus * 100.0
+        + sample_count * 0.25
+        + top5 * 120.0
+        + top10 * 90.0
+        + monthly * 70.0
+        + worst * 60.0
+        - abs(dd) * 100.0
+        - turnover * 30.0
+        - liquidity * 80.0
+    )
+    if bool(record.get("sample_validity")):
+        score += 20.0
+    if _text(record.get("fallback_status")) == "research-fallback":
+        score -= 10.0
+    branching_signal = 0.0
+    if bool(branching_metrics.get("meaningful_topk_branching_possible")):
+        branching_signal += 1.0
+    branching_signal += min(
+        4.0,
+        max(0.0, float(evaluation_metrics.get("changed_rank_count") or 0)) * 1.5
+        + max(0.0, float(evaluation_metrics.get("changed_top5_members_count") or 0)) * 0.5
+        + max(0.0, float(evaluation_metrics.get("changed_top10_members_count") or 0)) * 0.5
+        + max(0.0, float(evaluation_metrics.get("top5_boundary_score_gap") or 0.0)) * 50.0
+        + max(0.0, float(evaluation_metrics.get("top10_boundary_score_gap") or 0.0)) * 50.0,
+    )
+    score += branching_signal * 15.0
+    return float(score)
+
+
+def _scenario_parent_priority(record: dict[str, Any]) -> tuple[float, str, str]:
+    decision_rank = {"keep": 0.0, "hold": 1.0, "drop": 2.0}.get(_text(record.get("decision")), 3.0)
+    evaluation_metrics = record.get("evaluation_metrics") if isinstance(record.get("evaluation_metrics"), dict) else {}
+    branching_metrics = record.get("branching_metrics") if isinstance(record.get("branching_metrics"), dict) else {}
+    branching_priority = 0.0
+    if bool(branching_metrics.get("meaningful_topk_branching_possible")):
+        branching_priority += 1.0
+    branching_priority += min(
+        4.0,
+        max(0.0, float(evaluation_metrics.get("changed_rank_count") or 0)) * 1.5
+        + max(0.0, float(evaluation_metrics.get("changed_top5_members_count") or 0)) * 0.5
+        + max(0.0, float(evaluation_metrics.get("changed_top10_members_count") or 0)) * 0.5
+        + max(0.0, float(evaluation_metrics.get("top5_boundary_score_gap") or 0.0)) * 50.0
+        + max(0.0, float(evaluation_metrics.get("top10_boundary_score_gap") or 0.0)) * 50.0,
+    )
+    return (
+        decision_rank,
+        -branching_priority,
+        -_scenario_candidate_score(record),
+        _text(record.get("candidate_id"), fallback=_text(record.get("method_signature_hash"), fallback=_text(record.get("method_id")))),
+    )
+
+
+def _scenario_same_condition_universe_size(record: dict[str, Any]) -> int | None:
+    same_condition = record.get("same_condition_contract")
+    if isinstance(same_condition, dict):
+        universe = same_condition.get("universe")
+        if isinstance(universe, list) and universe:
+            return len(universe)
+    branching_metrics = record.get("branching_metrics") if isinstance(record.get("branching_metrics"), dict) else {}
+    effective_universe_count = branching_metrics.get("effective_universe_count")
+    if effective_universe_count is not None:
+        try:
+            value = int(effective_universe_count)
+        except Exception:
+            value = 0
+        if value > 0:
+            return value
+    return None
+
+
+def _scenario_branching_top_k(record: dict[str, Any]) -> int:
+    branching_metrics = record.get("branching_metrics") if isinstance(record.get("branching_metrics"), dict) else {}
+    same_condition = record.get("same_condition_contract") if isinstance(record.get("same_condition_contract"), dict) else {}
+    top_k = tradex._int(branching_metrics.get("top_k"))
+    if top_k is None or top_k <= 0:
+        top_k = tradex._int(same_condition.get("top_k"))
+    return max(0, int(top_k or 0))
+
+
+def _scenario_universe_too_small_for_branching(record: dict[str, Any]) -> bool:
+    universe_size = _scenario_same_condition_universe_size(record)
+    top_k = _scenario_branching_top_k(record)
+    if universe_size is None or top_k <= 0:
+        return False
+    return universe_size <= top_k
+
+
+def _scenario_is_seed_eligible(record: dict[str, Any], *, minimum_universe_size: int = 30) -> bool:
+    universe_size = _scenario_same_condition_universe_size(record)
+    if universe_size is not None and universe_size < int(minimum_universe_size):
+        return False
+    if not bool(record.get("sample_validity")):
+        return False
+    fallback_status = _text(record.get("fallback_status"))
+    if fallback_status and fallback_status not in {"authoritative", "research-fallback"}:
+        return False
+    return True
+
+
+def _scenario_defaults_for_population(population_kind: str) -> dict[str, Any]:
+    if population_kind == "short_expert_population":
+        return {
+            "direction": "short",
+            "entry_family": "short_downtrend",
+            "filter_family": "bad_pick_removal",
+            "ranking_target": "bad_pick_removal",
+            "holding_days": 10,
+            "exit_family": "risk_exit",
+            "stop_type": "hard",
+            "regime_gate": "trend_short",
+            "liquidity_gate": "tight",
+            "weight_profile": "bad_pick_heavy",
+            "signal_bias": "sell",
+            "minimum_confidence": 0.52,
+            "minimum_ready_rate": 0.40,
+            "bad_pick_penalty_scale": 2.5,
+            "playbook_up_score_bonus": 0.0,
+            "playbook_down_score_bonus": 0.03,
+        }
+    if population_kind == "regime_selector_population":
+        return {
+            "direction": "long",
+            "entry_family": "regime_selector",
+            "filter_family": "regime_adjustment",
+            "ranking_target": "regime_balance",
+            "holding_days": 20,
+            "exit_family": "regime_switch",
+            "stop_type": "adaptive",
+            "regime_gate": "trend_long",
+            "liquidity_gate": "balanced",
+            "weight_profile": "regime_heavy",
+            "signal_bias": "balanced",
+            "minimum_confidence": 0.55,
+            "minimum_ready_rate": 0.45,
+            "bad_pick_penalty_scale": 1.2,
+            "playbook_up_score_bonus": 0.01,
+            "playbook_down_score_bonus": 0.01,
+        }
+    return {
+        "direction": "long",
+        "entry_family": "long_breakout",
+        "filter_family": "boundary_feature",
+        "ranking_target": "topk_uplift",
+        "holding_days": 20,
+        "exit_family": "time_stop",
+        "stop_type": "trailing",
+        "regime_gate": "trend_long",
+        "liquidity_gate": "balanced",
+        "weight_profile": "boundary_heavy",
+        "signal_bias": "buy",
+        "minimum_confidence": 0.56,
+        "minimum_ready_rate": 0.45,
+        "bad_pick_penalty_scale": 1.0,
+        "playbook_up_score_bonus": 0.02,
+        "playbook_down_score_bonus": 0.0,
+    }
+
+
+def _scenario_spec_from_record(record: dict[str, Any], *, population_kind: str | None = None, generation_index: int = 0) -> ScenarioSpec:
+    population = _text(population_kind, fallback=_text(record.get("population_kind"), fallback="long_expert_population"))
+    defaults = _scenario_defaults_for_population(population)
+    candidate_method = record.get("candidate_method") if isinstance(record.get("candidate_method"), dict) else {}
+    effective_config = record.get("candidate_effective_config") if isinstance(record.get("candidate_effective_config"), dict) else {}
+    scenario_definition = record.get("scenario_definition") if isinstance(record.get("scenario_definition"), dict) else {}
+    signal_bias = _text(effective_config.get("signal_bias"), fallback="balanced")
+    direction = _text(record.get("direction"), fallback=_text(scenario_definition.get("direction"), fallback=defaults["direction"]))
+    if population == "short_expert_population":
+        direction = "short"
+    elif population == "regime_selector_population" and direction not in {"long", "short"}:
+        direction = defaults["direction"]
+    return ScenarioSpec(
+        direction=direction,
+        entry_family=_text(
+            record.get("entry_family"),
+            fallback=_text(
+                scenario_definition.get("entry_family"),
+                fallback=_text(candidate_method.get("method_family"), fallback=defaults["entry_family"]),
+            ),
+        ),
+        filter_family=_text(
+            record.get("filter_family"),
+            fallback=_text(scenario_definition.get("filter_family"), fallback=_text(record.get("feature_family"), fallback=defaults["filter_family"])),
+        ),
+        ranking_target=_text(record.get("ranking_target"), fallback=_text(scenario_definition.get("ranking_target"), fallback=defaults["ranking_target"])),
+        holding_days=max(
+            1,
+            int(
+                record.get("holding_days")
+                or scenario_definition.get("holding_days")
+                or effective_config.get("holding_days")
+                or defaults["holding_days"]
+            ),
+        ),
+        exit_family=_text(record.get("exit_family"), fallback=_text(scenario_definition.get("exit_family"), fallback=defaults["exit_family"])),
+        stop_type=_text(record.get("stop_type"), fallback=_text(scenario_definition.get("stop_type"), fallback=defaults["stop_type"])),
+        regime_gate=_text(
+            record.get("regime_gate"),
+            fallback=_text(scenario_definition.get("regime_gate"), fallback=_text(record.get("regime_tag"), fallback=defaults["regime_gate"])),
+        ),
+        liquidity_gate=_text(record.get("liquidity_gate"), fallback=_text(scenario_definition.get("liquidity_gate"), fallback=defaults["liquidity_gate"])),
+        weight_profile=_text(
+            record.get("weight_profile"),
+            fallback=_text(scenario_definition.get("weight_profile"), fallback=_text(signal_bias, fallback=defaults["weight_profile"])),
+        ),
+        signal_bias=_text(
+            effective_config.get("signal_bias"),
+            fallback=_text(scenario_definition.get("signal_bias"), fallback=_text(defaults["signal_bias"])),
+        ),
+        minimum_confidence=float(
+            scenario_definition.get("minimum_confidence")
+            or effective_config.get("minimum_confidence")
+            or defaults["minimum_confidence"]
+        ),
+        minimum_ready_rate=float(
+            scenario_definition.get("minimum_ready_rate")
+            or effective_config.get("minimum_ready_rate")
+            or defaults["minimum_ready_rate"]
+        ),
+        bad_pick_penalty_scale=float(
+            scenario_definition.get("bad_pick_penalty_scale")
+            or effective_config.get("bad_pick_penalty_scale")
+            or defaults["bad_pick_penalty_scale"]
+        ),
+        playbook_up_score_bonus=float(
+            scenario_definition.get("playbook_up_score_bonus")
+            or effective_config.get("playbook_up_score_bonus")
+            or defaults["playbook_up_score_bonus"]
+        ),
+        playbook_down_score_bonus=float(
+            scenario_definition.get("playbook_down_score_bonus")
+            or effective_config.get("playbook_down_score_bonus")
+            or defaults["playbook_down_score_bonus"]
+        ),
+        mutation_parent_ids=tuple(
+            _text(item)
+            for item in (
+                record.get("parent_candidate_ids")
+                or record.get("mutation_parent_ids")
+                or scenario_definition.get("mutation_parent_ids")
+                or []
+            )
+            if _text(item)
+        ),
+        generation_index=int(record.get("generation_index") or scenario_definition.get("generation_index") or generation_index),
+        population_kind=population,
+    )
+
+
+def _scenario_record_from_candidate_result(
+    *,
+    session_id: str,
+    family_result: dict[str, Any],
+    family_row: dict[str, Any] | None,
+    candidate_result: dict[str, Any],
+    generation_index: int,
+    source_kind: str,
+    mutation_parent_ids: tuple[str, ...] | None = None,
+) -> dict[str, Any]:
+    candidate_method = candidate_result.get("candidate_method") if isinstance(candidate_result.get("candidate_method"), dict) else {}
+    diagnostics = candidate_result.get("diagnostics") if isinstance(candidate_result.get("diagnostics"), dict) else {}
+    candidate_effective_config = diagnostics.get("candidate_effective_config") if isinstance(diagnostics.get("candidate_effective_config"), dict) else {}
+    comparison = candidate_result.get("comparison") if isinstance(candidate_result.get("comparison"), dict) else {}
+    selection_compare = candidate_result.get("selection_compare") if isinstance(candidate_result.get("selection_compare"), dict) else {}
+    evaluation_summary = candidate_result.get("evaluation_summary") if isinstance(candidate_result.get("evaluation_summary"), dict) else {}
+    method_family = _text(candidate_method.get("method_family"), fallback=_text(candidate_result.get("method_family"), fallback=_text(family_result.get("method_family"), fallback="unknown")))
+    feature_family = _text(candidate_method.get("feature_family"), fallback=_text(candidate_result.get("feature_family"), fallback="common_pattern"))
+    population_kind = _text(
+        candidate_effective_config.get("population_kind"),
+        fallback=_text(candidate_result.get("population_kind"), fallback=_scenario_population_kind_from_legacy(method_family=method_family, feature_family=feature_family)),
+    )
+    score_source = dict(candidate_result)
+    score_source["comparison"] = comparison
+    score_source["metrics"] = {
+        "sample_count": int(evaluation_summary.get("sample_count") or candidate_result.get("evaluation_window_count") or 0),
+    }
+    scenario_spec = _scenario_spec_from_record(
+        {
+            "candidate_method": candidate_method,
+            "candidate_effective_config": candidate_effective_config,
+            "feature_family": feature_family,
+            "method_family": method_family,
+            "population_kind": population_kind,
+            "regime_tag": _text(candidate_result.get("regime_tag"), fallback=_text(evaluation_summary.get("regime_tag"), fallback="unknown")),
+            "ranking_target": _text(candidate_effective_config.get("ranking_target"), fallback="topk_uplift" if population_kind == "long_expert_population" else "bad_pick_removal" if population_kind == "short_expert_population" else "regime_balance"),
+            "holding_days": int(candidate_effective_config.get("holding_days") or candidate_result.get("evaluation_window_count") or 10),
+            "weight_profile": _text(candidate_effective_config.get("weight_profile"), fallback=_text(candidate_effective_config.get("signal_bias"), fallback="balanced")),
+            "entry_family": _text(candidate_effective_config.get("entry_family"), fallback=_text(candidate_method.get("method_family"), fallback=method_family)),
+            "filter_family": _text(candidate_effective_config.get("filter_family"), fallback=feature_family),
+            "exit_family": _text(candidate_effective_config.get("exit_family"), fallback="time_stop"),
+            "stop_type": _text(candidate_effective_config.get("stop_type"), fallback="adaptive" if population_kind == "regime_selector_population" else "hard"),
+            "liquidity_gate": _text(candidate_effective_config.get("liquidity_gate"), fallback="balanced"),
+            "mutation_parent_ids": tuple(_text(item) for item in (candidate_effective_config.get("mutation_parent_ids") or []) if _text(item)),
+            "generation_index": generation_index,
+            "population_kind": population_kind,
+        },
+        population_kind=population_kind,
+        generation_index=generation_index,
+    )
+    same_condition = candidate_result.get("same_condition_contract") if isinstance(candidate_result.get("same_condition_contract"), dict) else {}
+    candidate_id = _text(candidate_result.get("method_signature_hash"), fallback=_text(candidate_result.get("plan_id"), fallback=_scenario_hash({"candidate_method": candidate_method, "scenario": _scenario_definition_to_payload(scenario_spec)})))
+    record = {
+        "candidate_id": candidate_id,
+        "generation_index": int(generation_index),
+        "population_kind": population_kind,
+        "family_id": _text(family_result.get("family_id")),
+        "family_title": _text(family_result.get("family_title"), fallback=_scenario_population_label(population_kind)),
+        "method_family": method_family,
+        "method_id": _text(candidate_method.get("method_id"), fallback=_text(candidate_result.get("plan_id"), fallback=candidate_id)),
+        "method_title": _text(candidate_method.get("method_title"), fallback=_text(candidate_result.get("plan_id"), fallback=candidate_id)),
+        "method_thesis": _text(candidate_method.get("method_thesis")),
+        "feature_family": feature_family,
+        "decision": _text(candidate_result.get("candidate_local_decision"), fallback=_text(candidate_result.get("decision"), fallback="hold")),
+        "sample_validity": bool(int(evaluation_summary.get("sample_count") or 0) > 0 and not bool(candidate_result.get("insufficient_samples"))),
+        "fallback_status": _text(candidate_result.get("fallback_status"), fallback=_text(candidate_result.get("artifact_detail_level"), fallback="unknown")),
+        "artifact_detail_level": _text(candidate_result.get("artifact_detail_level"), fallback="unknown"),
+        "ret20_source_mode": _text(candidate_result.get("ret20_source_mode"), fallback=_text(candidate_effective_config.get("ret20_source_mode"), fallback="unknown")),
+        "ret20_source_mode_reason": _text(candidate_result.get("ret20_source_mode_reason"), fallback=_text(candidate_effective_config.get("ret20_source_mode_reason"), fallback="unknown")),
+        "same_condition_contract_hash": _text(same_condition.get("contract_hash"), fallback=_scenario_hash(same_condition) if same_condition else ""),
+        "same_condition_contract": same_condition,
+        "scenario_definition": _scenario_definition_to_payload(scenario_spec),
+        "evaluation_metrics": {
+            "sample_count": int(evaluation_summary.get("sample_count") or candidate_result.get("evaluation_window_count") or 0),
+            "promote_ready": bool(candidate_result.get("promote_ready")),
+            "top5_ret20_mean": float(comparison.get("challenger_top5_ret20_mean") or comparison.get("top5_ret20_mean") or 0.0),
+            "top10_ret20_mean": float(comparison.get("challenger_top10_ret20_mean") or comparison.get("top10_ret20_mean") or 0.0),
+            "monthly_capture_mean": float(comparison.get("challenger_monthly_capture_mean") or comparison.get("monthly_capture_mean") or 0.0),
+            "worst_regime_ret20_mean": float(comparison.get("challenger_worst_regime_ret20_mean") or comparison.get("worst_regime_ret20_mean") or 0.0),
+            "dd": float(comparison.get("challenger_dd") or comparison.get("dd") or 0.0),
+            "turnover": float(comparison.get("challenger_turnover") or comparison.get("turnover") or 0.0),
+            "liquidity_fail_rate": float(comparison.get("challenger_liquidity_fail_rate") or comparison.get("liquidity_fail_rate") or 0.0),
+            "changed_top5_members_count": int(
+                candidate_result.get("changed_top5_members_count")
+                or comparison.get("changed_top5_members_count")
+                or selection_compare.get("changed_top5_members_count")
+                or 0
+            ),
+            "changed_top10_members_count": int(
+                candidate_result.get("changed_top10_members_count")
+                or comparison.get("changed_top10_members_count")
+                or selection_compare.get("changed_top10_members_count")
+                or 0
+            ),
+            "changed_rank_count": int(
+                candidate_result.get("changed_rank_count")
+                or comparison.get("changed_rank_count")
+                or selection_compare.get("changed_rank_count")
+                or 0
+            ),
+            "top5_boundary_score_gap": float(
+                candidate_result.get("top5_boundary_score_gap")
+                or comparison.get("top5_boundary_score_gap")
+                or selection_compare.get("top5_boundary_score_gap")
+                or 0.0
+            ),
+            "top10_boundary_score_gap": float(
+                candidate_result.get("top10_boundary_score_gap")
+                or comparison.get("top10_boundary_score_gap")
+                or selection_compare.get("top10_boundary_score_gap")
+                or 0.0
+            ),
+            "selection_divergence_reason": _text(
+                candidate_result.get("selection_divergence_reason"),
+                fallback=_text(comparison.get("selection_divergence_reason"), fallback=_text(selection_compare.get("selection_divergence_reason"), fallback="no_meaningful_branching")),
+            ),
+        },
+        "branching_metrics": {
+            "meaningful_topk_branching_possible": bool(candidate_result.get("meaningful_topk_branching_possible")),
+            "topk_branching_block_reason": _text(candidate_result.get("topk_branching_block_reason"), fallback=""),
+            "top_k": int(candidate_result.get("top_k") or 0),
+            "effective_universe_count": int(candidate_result.get("effective_universe_count") or 0),
+            "candidate_in_scope_before_build_count": int(candidate_result.get("candidate_in_scope_before_build_count") or 0),
+            "candidate_in_scope_after_build_count": int(candidate_result.get("candidate_in_scope_after_build_count") or 0),
+            "candidate_removed_by_scope_boundary_count": int(candidate_result.get("candidate_removed_by_scope_boundary_count") or 0),
+            "scope_filter_applied_stage": _text(candidate_result.get("scope_filter_applied_stage"), fallback="unknown"),
+            "key_normalization_mode": _text(candidate_result.get("key_normalization_mode"), fallback="unknown"),
+        },
+        "regime_summary": {
+            "regime_tag": _text(candidate_result.get("regime_tag"), fallback=_text(evaluation_summary.get("regime_tag"), fallback="unknown")),
+            "long_horizon_regime_score": float(candidate_result.get("long_horizon_regime_score") or 0.0),
+            "recent_adaptation_score": float(candidate_result.get("recent_adaptation_score") or 0.0),
+        },
+        "failure_reason": _text(candidate_result.get("ret20_source_mode_reason"), fallback=_text(candidate_result.get("topk_branching_block_reason"), fallback=_text(candidate_result.get("selection_divergence_reason"), fallback=""))),
+        "source_artifact_refs": {
+            "session_id": _text(session_id),
+            "family_id": _text(family_result.get("family_id")),
+            "compare_path": _text(family_result.get("compare_path")),
+            "family_leaderboard_path": _text(family_result.get("family_leaderboard_path")),
+        },
+        "parent_candidate_ids": list(
+            _text(item)
+            for item in (
+                scenario_spec.mutation_parent_ids
+                or mutation_parent_ids
+                or candidate_effective_config.get("mutation_parent_ids")
+                or ()
+            )
+            if _text(item)
+        ),
+        "source_kind": source_kind,
+    }
+    if _scenario_universe_too_small_for_branching(record):
+        record["decision"] = "drop"
+        record["failure_reason"] = "same_condition_universe_too_small"
+        record["sample_validity"] = False
+    record["score"] = _scenario_candidate_score(record)
+    return record
+
+
+def _scenario_record_from_family_row(
+    *,
+    session_id: str,
+    family_result: dict[str, Any],
+    family_row: dict[str, Any],
+    generation_index: int,
+    source_kind: str,
+) -> dict[str, Any]:
+    candidate_id = _text(family_row.get("method_signature_hash"), fallback=_text(family_row.get("best_candidate_method_id"), fallback=_text(family_row.get("method_id"), fallback="candidate")))
+    population_kind = _text(
+        family_row.get("population_kind"),
+        fallback=_scenario_population_kind_from_legacy(
+            method_family=_text(family_row.get("method_family")),
+            feature_family=_text(family_row.get("best_candidate_feature_family"), fallback=_text(family_row.get("feature_family"), fallback="common_pattern")),
+        ),
+    )
+    scenario_spec = _scenario_spec_from_record(
+        {
+            "candidate_method": {
+                "method_family": _text(family_row.get("method_family")),
+                "method_id": _text(family_row.get("best_candidate_method_id"), fallback=_text(family_row.get("method_id"), fallback=candidate_id)),
+                "method_title": _text(family_row.get("best_candidate_method_title"), fallback=_text(family_row.get("method_title"), fallback=candidate_id)),
+                "method_thesis": _text(family_row.get("best_candidate_method_thesis"), fallback=_text(family_row.get("method_thesis"))),
+                "feature_family": _text(family_row.get("best_candidate_feature_family"), fallback=_text(family_row.get("feature_family"), fallback="common_pattern")),
+            },
+            "candidate_effective_config": {
+                "signal_bias": _text(family_row.get("best_candidate_signal_bias"), fallback="balanced"),
+                "top_k": int(family_row.get("top_k") or 5),
+                "population_kind": population_kind,
+                "entry_family": _text(family_row.get("entry_family"), fallback=_text(family_row.get("method_family"))),
+                "filter_family": _text(family_row.get("filter_family"), fallback=_text(family_row.get("best_candidate_feature_family"), fallback=_text(family_row.get("feature_family"), fallback="common_pattern"))),
+            },
+            "feature_family": _text(family_row.get("best_candidate_feature_family"), fallback=_text(family_row.get("feature_family"), fallback="common_pattern")),
+            "method_family": _text(family_row.get("method_family")),
+            "population_kind": population_kind,
+            "regime_tag": _text(family_row.get("best_candidate_regime_tag"), fallback="unknown"),
+            "ranking_target": _text(family_row.get("ranking_target"), fallback="topk_uplift"),
+            "holding_days": int(family_row.get("holding_days") or 10),
+            "weight_profile": _text(family_row.get("weight_profile"), fallback="balanced"),
+            "entry_family": _text(family_row.get("method_family")),
+            "filter_family": _text(family_row.get("best_candidate_feature_family"), fallback=_text(family_row.get("feature_family"), fallback="common_pattern")),
+            "exit_family": _text(family_row.get("exit_family"), fallback="time_stop"),
+            "stop_type": _text(family_row.get("stop_type"), fallback="hard"),
+            "liquidity_gate": _text(family_row.get("liquidity_gate"), fallback="balanced"),
+            "mutation_parent_ids": tuple(),
+            "generation_index": generation_index,
+        },
+        population_kind=population_kind,
+        generation_index=generation_index,
+    )
+    record = {
+        "candidate_id": candidate_id,
+        "generation_index": int(generation_index),
+        "population_kind": population_kind,
+        "family_id": _text(family_result.get("family_id")),
+        "family_title": _text(family_result.get("family_title"), fallback=_scenario_population_label(population_kind)),
+        "method_family": _text(family_row.get("method_family")),
+        "method_id": _text(family_row.get("best_candidate_method_id"), fallback=_text(family_row.get("method_id"), fallback=candidate_id)),
+        "method_title": _text(family_row.get("best_candidate_method_title"), fallback=_text(family_row.get("method_title"), fallback=candidate_id)),
+        "method_thesis": _text(family_row.get("best_candidate_method_thesis"), fallback=_text(family_row.get("method_thesis"))),
+        "feature_family": _text(family_row.get("best_candidate_feature_family"), fallback=_text(family_row.get("feature_family"), fallback="common_pattern")),
+        "decision": _text(family_row.get("decision"), fallback="hold"),
+        "sample_validity": not bool(family_row.get("insufficient_samples")) and int(family_row.get("candidate_count") or 0) > 0,
+        "fallback_status": _text(family_row.get("latest_fallback_status"), fallback=_text(family_row.get("fallback_status"), fallback="unknown")),
+        "artifact_detail_level": _text(family_row.get("artifact_detail_level"), fallback="unknown"),
+        "ret20_source_mode": _text(family_row.get("ret20_source_mode"), fallback="unknown"),
+        "ret20_source_mode_reason": _text(family_row.get("ret20_source_mode_reason"), fallback="unknown"),
+        "same_condition_contract_hash": _text(family_row.get("same_condition_contract_hash")),
+        "same_condition_contract": {},
+        "scenario_definition": _scenario_definition_to_payload(scenario_spec),
+        "evaluation_metrics": {
+            "sample_count": int(family_row.get("sample_count") or 0),
+            "promote_ready": bool(family_row.get("best_candidate_promote_ready")),
+            "top5_ret20_mean": float(family_row.get("avg_top5_ret20_mean_delta") or 0.0),
+            "top10_ret20_mean": float(family_row.get("avg_top10_ret20_mean_delta") or 0.0),
+            "monthly_capture_mean": float(family_row.get("avg_monthly_capture_delta") or 0.0),
+            "worst_regime_ret20_mean": float(family_row.get("avg_worst_regime_delta") or 0.0),
+            "dd": float(family_row.get("avg_dd_delta") or 0.0),
+            "turnover": float(family_row.get("avg_turnover_delta") or 0.0),
+            "liquidity_fail_rate": float(family_row.get("avg_liquidity_fail_delta") or 0.0),
+            "changed_top5_members_count": int(family_row.get("avg_changed_top5_members_count") or 0),
+            "changed_top10_members_count": int(family_row.get("avg_changed_top10_members_count") or 0),
+            "changed_rank_count": int(family_row.get("avg_changed_rank_count") or 0),
+            "top5_boundary_score_gap": float(family_row.get("avg_top5_boundary_score_gap") or 0.0),
+            "top10_boundary_score_gap": float(family_row.get("avg_top10_boundary_score_gap") or 0.0),
+            "selection_divergence_reason": _text(family_row.get("selection_divergence_reason"), fallback="no_meaningful_branching"),
+        },
+        "branching_metrics": {
+            "meaningful_topk_branching_possible": bool(family_row.get("meaningful_topk_branching_possible")),
+            "topk_branching_block_reason": _text(family_row.get("topk_branching_block_reason"), fallback=""),
+            "top_k": int(family_row.get("top_k") or 0),
+            "effective_universe_count": int(family_row.get("effective_universe_count") or 0),
+            "candidate_in_scope_before_build_count": int(family_row.get("candidate_in_scope_before_build_count") or 0),
+            "candidate_in_scope_after_build_count": int(family_row.get("candidate_in_scope_after_build_count") or 0),
+            "candidate_removed_by_scope_boundary_count": int(family_row.get("candidate_removed_by_scope_boundary_count") or 0),
+            "scope_filter_applied_stage": _text(family_row.get("scope_filter_applied_stage"), fallback="unknown"),
+            "key_normalization_mode": _text(family_row.get("key_normalization_mode"), fallback="unknown"),
+        },
+        "regime_summary": {
+            "regime_tag": _text(family_row.get("latest_eval_window_mode"), fallback="unknown"),
+            "long_horizon_regime_score": 0.0,
+            "recent_adaptation_score": 0.0,
+        },
+        "failure_reason": _text(family_row.get("topk_branching_block_reason"), fallback=_text(family_row.get("selection_divergence_reason"), fallback="")),
+        "source_artifact_refs": {
+            "session_id": _text(session_id),
+            "family_id": _text(family_result.get("family_id")),
+            "compare_path": _text(family_result.get("compare_path")),
+            "family_leaderboard_path": _text(family_row.get("family_leaderboard_path")),
+        },
+        "parent_candidate_ids": list(),
+        "source_kind": source_kind,
+    }
+    if _scenario_universe_too_small_for_branching(record):
+        record["decision"] = "drop"
+        record["failure_reason"] = "same_condition_universe_too_small"
+        record["sample_validity"] = False
+    record["score"] = _scenario_candidate_score(record)
+    return record
 
 
 def _utc_now_iso() -> str:
@@ -166,7 +899,16 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     tmp_path.write_text(json.dumps(_json_ready(payload), ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
-    tmp_path.replace(path)
+    try:
+        tmp_path.replace(path)
+    except PermissionError:
+        # Windows can transiently block atomic replace when the target tree is under active test or AV scans.
+        # Fall back to an in-place write so scenario-search artifacts are still emitted deterministically.
+        path.write_text(tmp_path.read_text(encoding="utf-8"), encoding="utf-8")
+        try:
+            tmp_path.unlink()
+        except OSError:
+            pass
 
 
 def _verify_json_roundtrip(path: Path, payload: dict[str, Any], *, artifact_name: str) -> None:
@@ -256,6 +998,22 @@ def _logic_search_rollup_file(search_id: str) -> Path:
 
 def _logic_search_rollup_report_file(search_id: str) -> Path:
     return tradex_reports_root() / f"{LOGIC_SEARCH_ROLLUP_REPORT_PREFIX}_{_slug(search_id)}.md"
+
+
+def _scenario_search_root() -> Path:
+    root = tradex_research_keep_root() / "scenario_search" / "v1"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _scenario_search_dir(search_id: str) -> Path:
+    path = _scenario_search_root() / _slug(search_id)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _scenario_search_file(search_id: str, filename: str) -> Path:
+    return _scenario_search_dir(search_id) / filename
 
 
 def _session_family_id(session_id: str, method_family: str) -> str:
@@ -564,7 +1322,11 @@ def _build_manifest(
     return manifest
 
 
-def _build_champion_plan(*, ret20_source_mode: str = tradex.TRADEX_RET20_SOURCE_MODE_PRECOMPUTED) -> dict[str, Any]:
+def _build_champion_plan(
+    *,
+    ret20_source_mode: str = tradex.TRADEX_RET20_SOURCE_MODE_PRECOMPUTED,
+    top_k: int = 5,
+) -> dict[str, Any]:
     return {
         "plan_id": "champion_current_ranking",
         "plan_version": "v1",
@@ -577,7 +1339,7 @@ def _build_champion_plan(*, ret20_source_mode: str = tradex.TRADEX_RET20_SOURCE_
         "minimum_confidence": 0.60,
         "minimum_ready_rate": 0.50,
         "signal_bias": "balanced",
-        "top_k": 5,
+        "top_k": max(1, int(top_k)),
         "playbook_up_score_bonus": 0.0,
         "playbook_down_score_bonus": 0.0,
         "ret20_source_mode": ret20_source_mode,
@@ -598,6 +1360,7 @@ def _build_family_body(
     family_spec: FamilySpec,
     candidate_specs: list[CandidateMethodSpec],
     ret20_source_mode: str,
+    top_k: int,
 ) -> dict[str, Any]:
     family_id = _session_family_id(session_id, family_spec.method_family)
     candidate_plans = [
@@ -628,7 +1391,7 @@ def _build_family_body(
         "universe": list(universe),
         "period": {"segments": list(period_segments)},
         "probes": [],
-        "baseline_plan": _build_champion_plan(ret20_source_mode=ret20_source_mode),
+        "baseline_plan": _build_champion_plan(ret20_source_mode=ret20_source_mode, top_k=top_k),
         "candidate_plans": candidate_plans,
         "confirmed_only": True,
         "input_dataset_version": f"session:{session_id}:seed:{int(random_seed)}",
@@ -893,9 +1656,23 @@ def _seed_family_baseline_from_reference(
     return copied
 
 
-def _family_best_key(candidate_result: dict[str, Any]) -> tuple[float, float, float, float, str]:
+def _family_best_key(candidate_result: dict[str, Any]) -> tuple[float, float, float, float, float, str]:
     evaluation = candidate_result.get("evaluation_summary") if isinstance(candidate_result.get("evaluation_summary"), dict) else {}
+    selection_compare = candidate_result.get("selection_compare") if isinstance(candidate_result.get("selection_compare"), dict) else {}
     windows = evaluation.get("windows") if isinstance(evaluation.get("windows"), list) else []
+    changed_rank_count = float(selection_compare.get("changed_rank_count") or 0.0)
+    changed_top5_members_count = float(selection_compare.get("changed_top5_members_count") or 0.0)
+    changed_top10_members_count = float(selection_compare.get("changed_top10_members_count") or 0.0)
+    top5_boundary_score_gap = float(selection_compare.get("top5_boundary_score_gap") or 0.0)
+    top10_boundary_score_gap = float(selection_compare.get("top10_boundary_score_gap") or 0.0)
+    branching_priority = (
+        changed_rank_count * 10.0
+        + changed_top5_members_count * 5.0
+        + changed_top10_members_count * 3.0
+        + top5_boundary_score_gap * 100.0
+        + top10_boundary_score_gap * 80.0
+        + (1.0 if bool(selection_compare.get("meaningful_topk_branching_possible")) else 0.0)
+    )
     challenger_top5 = float(evaluation.get("challenger_topk_ret20_mean") or 0.0)
     worst_regime_margin = 0.0
     if windows:
@@ -906,6 +1683,7 @@ def _family_best_key(candidate_result: dict[str, Any]) -> tuple[float, float, fl
             margins.append(challenger - champion)
         worst_regime_margin = min(margins) if margins else 0.0
     return (
+        -branching_priority,
         -challenger_top5,
         -worst_regime_margin,
         float(evaluation.get("challenger_dd") or 0.0),
@@ -4327,7 +5105,7 @@ def run_tradex_research_session(
         "universe": universe,
         "period": {"segments": period_segments},
         "probes": [],
-        "baseline_plan": _build_champion_plan(ret20_source_mode=ret20_mode),
+        "baseline_plan": _build_champion_plan(ret20_source_mode=ret20_mode, top_k=session_top_k or SCENARIO_SEARCH_TOP_K),
         "candidate_plans": [],
         "confirmed_only": True,
         "input_dataset_version": f"session:{session_id}:champion",
@@ -4377,6 +5155,7 @@ def run_tradex_research_session(
             family_spec=family_spec,
             candidate_specs=candidate_specs,
             ret20_source_mode=ret20_mode,
+            top_k=session_top_k or SCENARIO_SEARCH_TOP_K,
         )
         family = load_family(family_id)
         if not family:
@@ -4414,11 +5193,13 @@ def run_tradex_research_session(
             candidate_pair = (candidate_spec.method_family, candidate_spec.method_thesis)
             candidate_signature_payload = {
                 "method_family": candidate_spec.method_family,
+                "method_id": candidate_spec.method_id,
                 "minimum_confidence": tradex._float(candidate_spec.plan_overrides.get("minimum_confidence")),
                 "minimum_ready_rate": tradex._float(candidate_spec.plan_overrides.get("minimum_ready_rate")),
                 "signal_bias": _text(candidate_spec.plan_overrides.get("signal_bias"), fallback="balanced"),
                 "top_k": max(1, tradex._int(candidate_spec.plan_overrides.get("top_k")) or 0),
                 "bad_pick_penalty_scale": tradex._float(candidate_spec.plan_overrides.get("bad_pick_penalty_scale")) or 0.0,
+                "bad_pick_penalty_profile": _text(candidate_spec.plan_overrides.get("bad_pick_penalty_profile"), fallback="shared"),
                 "playbook_up_score_bonus": tradex._float(candidate_spec.plan_overrides.get("playbook_up_score_bonus")) or 0.0,
                 "playbook_down_score_bonus": tradex._float(candidate_spec.plan_overrides.get("playbook_down_score_bonus")) or 0.0,
             }
@@ -4725,6 +5506,1171 @@ def _logic_search_mutated_family_specs(
         if len(families) >= max_families:
             break
     return tuple(families)
+
+
+def _scenario_feature_family_for_population(population_kind: str, filter_family: str) -> str:
+    filter_text = _text(filter_family)
+    if filter_text in TRADEX_FEATURE_FAMILIES:
+        return filter_text
+    if population_kind == "regime_selector_population":
+        return "regime_adjustment"
+    if population_kind == "short_expert_population":
+        return "bad_pick_removal"
+    return "boundary_feature"
+
+
+def _scenario_candidate_spec(search_id: str, spec: ScenarioSpec) -> CandidateMethodSpec:
+    feature_family = _scenario_feature_family_for_population(spec.population_kind, spec.filter_family)
+    method_id = _scenario_method_id(search_id, spec.population_kind, spec)
+    return CandidateMethodSpec(
+        method_family=spec.population_kind,
+        method_id=method_id,
+        method_title=_scenario_method_title(spec),
+        method_thesis=_scenario_method_thesis(spec),
+        plan_overrides=_scenario_plan_overrides(spec, search_id=search_id, parent_candidate_ids=list(spec.mutation_parent_ids)),
+        feature_family=feature_family,
+        population_kind=spec.population_kind,
+        scenario_definition=_scenario_definition_to_payload(spec),
+        generation_index=int(spec.generation_index),
+        mutation_parent_ids=tuple(spec.mutation_parent_ids),
+    )
+
+
+def _scenario_candidate_spec_with_top_k(
+    search_id: str,
+    spec: ScenarioSpec,
+    *,
+    top_k: int,
+    variant_label: str | None = None,
+) -> CandidateMethodSpec:
+    candidate = _scenario_candidate_spec(search_id, spec)
+    plan_overrides = dict(candidate.plan_overrides)
+    plan_overrides["top_k"] = max(1, int(top_k))
+    variant_suffix = f"-{_slug(variant_label)}" if _text(variant_label) else ""
+    title_suffix = f" [{variant_label}]" if _text(variant_label) else ""
+    return CandidateMethodSpec(
+        method_family=candidate.method_family,
+        method_id=f"{candidate.method_id}{variant_suffix}",
+        method_title=f"{candidate.method_title}{title_suffix}",
+        method_thesis=f"{candidate.method_thesis}{title_suffix}",
+        plan_overrides=plan_overrides,
+        feature_family=candidate.feature_family,
+        population_kind=candidate.population_kind,
+        scenario_definition=candidate.scenario_definition,
+        generation_index=candidate.generation_index,
+        mutation_parent_ids=candidate.mutation_parent_ids,
+    )
+
+
+def _scenario_mutate_spec(parent_record: dict[str, Any], *, generation_index: int, rng: random.Random) -> ScenarioSpec:
+    parent_spec = _scenario_spec_from_record(parent_record, generation_index=generation_index)
+    population = parent_spec.population_kind
+    defaults = _scenario_defaults_for_population(population)
+    direction = parent_spec.direction
+    mutate_axes = [
+        "entry_family",
+        "filter_family",
+        "ranking_target",
+        "holding_days",
+        "exit_family",
+        "stop_type",
+        "regime_gate",
+        "liquidity_gate",
+        "weight_profile",
+        "signal_bias",
+        "minimum_confidence",
+        "minimum_ready_rate",
+        "bad_pick_penalty_scale",
+        "playbook_up_score_bonus",
+        "playbook_down_score_bonus",
+    ]
+    rng.shuffle(mutate_axes)
+    chosen = mutate_axes[: 3 if population != "regime_selector_population" else 4]
+    values = parent_spec.__dict__.copy()
+    for axis in chosen:
+        if axis == "entry_family":
+            options = {
+                "long_expert_population": ["long_breakout", "long_reversal", "long_pullback"],
+                "short_expert_population": ["short_downtrend", "short_failed_high", "short_crash_top"],
+                "regime_selector_population": ["regime_selector", "regime_router"],
+            }.get(population, [defaults["entry_family"]])
+            values[axis] = rng.choice(options)
+        elif axis == "filter_family":
+            options = {
+                "long_expert_population": ["boundary_feature", "regime_adjustment", "symbol_specific_adjustment"],
+                "short_expert_population": ["bad_pick_removal", "symbol_specific_adjustment", "liquidity_first"],
+                "regime_selector_population": ["regime_adjustment", "boundary_feature"],
+            }.get(population, ["boundary_feature", "bad_pick_removal", "regime_adjustment", "symbol_specific_adjustment", "common_pattern"])
+            values[axis] = rng.choice(options)
+        elif axis == "ranking_target":
+            options = {
+                "long_expert_population": ["topk_uplift", "regime_balance", "stability"],
+                "short_expert_population": ["bad_pick_removal", "drawdown_control", "stability"],
+                "regime_selector_population": ["regime_balance", "stability"],
+            }.get(population, ["topk_uplift", "bad_pick_removal", "regime_balance", "stability", "drawdown_control"])
+            values[axis] = rng.choice(options)
+        elif axis == "holding_days":
+            options = {
+                "long_expert_population": [10, 20, 40],
+                "short_expert_population": [5, 10, 15],
+                "regime_selector_population": [10, 20, 30],
+            }.get(population, [5, 10, 15, 20, 40])
+            values[axis] = int(rng.choice(options))
+        elif axis == "exit_family":
+            options = {
+                "long_expert_population": ["time_stop", "signal_exit", "regime_switch"],
+                "short_expert_population": ["risk_exit", "signal_exit", "regime_switch"],
+                "regime_selector_population": ["regime_switch", "adaptive", "signal_exit"],
+            }.get(population, ["time_stop", "signal_exit", "regime_switch", "risk_exit"])
+            values[axis] = rng.choice(options)
+        elif axis == "stop_type":
+            options = {
+                "long_expert_population": ["trailing", "adaptive"],
+                "short_expert_population": ["hard", "adaptive"],
+                "regime_selector_population": ["adaptive", "trailing"],
+            }.get(population, ["hard", "trailing", "adaptive"])
+            values[axis] = rng.choice(options)
+        elif axis == "regime_gate":
+            options = {
+                "long_expert_population": ["trend_long", "bottom_building", "top_warning"],
+                "short_expert_population": ["trend_short", "top_warning", "range_sell"],
+                "regime_selector_population": ["multi_regime", "trend_long", "trend_short"],
+            }.get(population, ["trend_long", "trend_short", "range_buy", "range_sell", "bottom_building", "top_warning"])
+            values[axis] = rng.choice(options)
+        elif axis == "liquidity_gate":
+            options = {
+                "long_expert_population": ["balanced", "liquidity_first"],
+                "short_expert_population": ["tight", "liquidity_first", "balanced"],
+                "regime_selector_population": ["balanced", "liquidity_first"],
+            }.get(population, ["tight", "balanced", "liquidity_first"])
+            values[axis] = rng.choice(options)
+        elif axis == "weight_profile":
+            options = {
+                "long_expert_population": ["boundary_heavy", "regime_heavy", "balanced"],
+                "short_expert_population": ["bad_pick_heavy", "liquidity_heavy", "balanced"],
+                "regime_selector_population": ["regime_heavy", "balanced"],
+            }.get(population, ["balanced", "boundary_heavy", "bad_pick_heavy", "regime_heavy", "liquidity_heavy"])
+            values[axis] = rng.choice(options)
+        elif axis == "signal_bias":
+            options = {
+                "long_expert_population": ["buy", "balanced", "sell"],
+                "short_expert_population": ["sell", "balanced", "buy"],
+                "regime_selector_population": ["balanced", "buy", "sell"],
+            }.get(population, ["balanced", "buy", "sell"])
+            values[axis] = rng.choice(options)
+        elif axis == "minimum_confidence":
+            options = {
+                "long_expert_population": [0.20, 0.35, 0.56, 0.82],
+                "short_expert_population": [0.18, 0.30, 0.52, 0.78],
+                "regime_selector_population": [0.25, 0.40, 0.55, 0.75],
+            }.get(population, [0.20, 0.35, 0.55, 0.75])
+            values[axis] = float(rng.choice(options))
+        elif axis == "minimum_ready_rate":
+            options = {
+                "long_expert_population": [0.10, 0.25, 0.45, 0.70],
+                "short_expert_population": [0.08, 0.20, 0.40, 0.65],
+                "regime_selector_population": [0.15, 0.30, 0.45, 0.65],
+            }.get(population, [0.10, 0.25, 0.45, 0.65])
+            values[axis] = float(rng.choice(options))
+        elif axis == "bad_pick_penalty_scale":
+            options = {
+                "long_expert_population": [0.0, 0.5, 1.0, 1.5],
+                "short_expert_population": [1.0, 2.5, 4.0, 6.0],
+                "regime_selector_population": [0.0, 0.8, 1.2, 2.0],
+            }.get(population, [0.0, 0.5, 1.0, 2.5, 4.0, 6.0])
+            values[axis] = float(rng.choice(options))
+        elif axis == "playbook_up_score_bonus":
+            options = {
+                "long_expert_population": [0.0, 0.02, 0.05, 0.08],
+                "short_expert_population": [0.0, 0.01, 0.03],
+                "regime_selector_population": [0.0, 0.01, 0.03, 0.05],
+            }.get(population, [0.0, 0.01, 0.02, 0.05, 0.08])
+            values[axis] = float(rng.choice(options))
+        elif axis == "playbook_down_score_bonus":
+            options = {
+                "long_expert_population": [0.0, 0.01, 0.03],
+                "short_expert_population": [0.0, 0.03, 0.06, 0.10],
+                "regime_selector_population": [0.0, 0.01, 0.03, 0.05],
+            }.get(population, [0.0, 0.01, 0.03, 0.06, 0.10])
+            values[axis] = float(rng.choice(options))
+    values["direction"] = direction
+    parent_ids = tuple(dict.fromkeys([*tuple(parent_spec.mutation_parent_ids or ()), _text(parent_record.get("candidate_id"), fallback=_text(parent_record.get("method_signature_hash"), fallback=_text(parent_record.get("method_id"))))]))
+    values["mutation_parent_ids"] = parent_ids
+    values["generation_index"] = generation_index
+    values["population_kind"] = population
+    return ScenarioSpec(**values)
+
+
+def _scenario_crossover_spec(
+    left_record: dict[str, Any],
+    right_record: dict[str, Any],
+    *,
+    generation_index: int,
+    rng: random.Random,
+) -> ScenarioSpec:
+    left = _scenario_spec_from_record(left_record, generation_index=generation_index)
+    right = _scenario_spec_from_record(right_record, generation_index=generation_index)
+    population = left.population_kind
+    values = {
+        "direction": left.direction if rng.random() < 0.5 else right.direction,
+        "entry_family": left.entry_family if rng.random() < 0.5 else right.entry_family,
+        "filter_family": left.filter_family if rng.random() < 0.5 else right.filter_family,
+        "ranking_target": left.ranking_target if rng.random() < 0.5 else right.ranking_target,
+        "holding_days": int(left.holding_days if rng.random() < 0.5 else right.holding_days),
+        "exit_family": left.exit_family if rng.random() < 0.5 else right.exit_family,
+        "stop_type": left.stop_type if rng.random() < 0.5 else right.stop_type,
+        "regime_gate": left.regime_gate if rng.random() < 0.5 else right.regime_gate,
+        "liquidity_gate": left.liquidity_gate if rng.random() < 0.5 else right.liquidity_gate,
+        "weight_profile": left.weight_profile if rng.random() < 0.5 else right.weight_profile,
+        "signal_bias": left.signal_bias if rng.random() < 0.5 else right.signal_bias,
+        "minimum_confidence": float(left.minimum_confidence if rng.random() < 0.5 else right.minimum_confidence),
+        "minimum_ready_rate": float(left.minimum_ready_rate if rng.random() < 0.5 else right.minimum_ready_rate),
+        "bad_pick_penalty_scale": float(left.bad_pick_penalty_scale if rng.random() < 0.5 else right.bad_pick_penalty_scale),
+        "playbook_up_score_bonus": float(left.playbook_up_score_bonus if rng.random() < 0.5 else right.playbook_up_score_bonus),
+        "playbook_down_score_bonus": float(left.playbook_down_score_bonus if rng.random() < 0.5 else right.playbook_down_score_bonus),
+        "mutation_parent_ids": tuple(
+            dict.fromkeys(
+                [
+                    *tuple(left.mutation_parent_ids or ()),
+                    *tuple(right.mutation_parent_ids or ()),
+                    _text(left_record.get("candidate_id"), fallback=_text(left_record.get("method_signature_hash"), fallback=_text(left_record.get("method_id")))),
+                    _text(right_record.get("candidate_id"), fallback=_text(right_record.get("method_signature_hash"), fallback=_text(right_record.get("method_id")))),
+                ]
+            )
+        ),
+        "generation_index": generation_index,
+        "population_kind": population,
+    }
+    if population == "regime_selector_population" and rng.random() < 0.25:
+        values["direction"] = "short" if values["direction"] == "long" else "long"
+    return ScenarioSpec(**values)
+
+
+def _scenario_boundary_probe_spec(
+    parent_record: dict[str, Any],
+    *,
+    generation_index: int,
+    rng: random.Random,
+    variant: str = "permissive",
+) -> ScenarioSpec:
+    parent_spec = _scenario_spec_from_record(parent_record, generation_index=generation_index)
+    population = parent_spec.population_kind
+    parent_ids = tuple(
+        dict.fromkeys(
+            [
+                *tuple(parent_spec.mutation_parent_ids or ()),
+                _text(parent_record.get("candidate_id"), fallback=_text(parent_record.get("method_signature_hash"), fallback=_text(parent_record.get("method_id")))),
+            ]
+        )
+    )
+    if population == "short_expert_population":
+        if variant == "restrictive":
+            return ScenarioSpec(
+                direction="short",
+                entry_family="short_crash_top",
+                filter_family="bad_pick_removal",
+                ranking_target="bad_pick_removal",
+                holding_days=15,
+                exit_family="risk_exit",
+                stop_type="hard",
+                regime_gate="trend_short",
+                liquidity_gate="tight",
+                weight_profile="bad_pick_heavy",
+                signal_bias="sell",
+                minimum_confidence=0.90,
+                minimum_ready_rate=0.70,
+                bad_pick_penalty_scale=7.5,
+                playbook_up_score_bonus=0.0,
+                playbook_down_score_bonus=0.0,
+                mutation_parent_ids=parent_ids,
+                generation_index=generation_index,
+                population_kind=population,
+            )
+        return ScenarioSpec(
+            direction="short",
+            entry_family="short_downtrend",
+            filter_family="symbol_specific_adjustment",
+            ranking_target="drawdown_control",
+            holding_days=10,
+            exit_family="signal_exit",
+            stop_type="adaptive",
+            regime_gate="multi_regime",
+            liquidity_gate="balanced",
+            weight_profile="balanced",
+            signal_bias="buy",
+            minimum_confidence=0.08,
+            minimum_ready_rate=0.0,
+            bad_pick_penalty_scale=1.5,
+            playbook_up_score_bonus=0.0,
+            playbook_down_score_bonus=0.15,
+            mutation_parent_ids=parent_ids,
+            generation_index=generation_index,
+            population_kind=population,
+        )
+    if population == "regime_selector_population":
+        if variant == "restrictive":
+            return ScenarioSpec(
+                direction="long",
+                entry_family="regime_router",
+                filter_family="regime_adjustment",
+                ranking_target="regime_balance",
+                holding_days=30,
+                exit_family="regime_switch",
+                stop_type="adaptive",
+                regime_gate="multi_regime",
+                liquidity_gate="balanced",
+                weight_profile="regime_heavy",
+                signal_bias="balanced",
+                minimum_confidence=0.85,
+                minimum_ready_rate=0.60,
+                bad_pick_penalty_scale=2.4,
+                playbook_up_score_bonus=0.0,
+                playbook_down_score_bonus=0.0,
+                mutation_parent_ids=parent_ids,
+                generation_index=generation_index,
+                population_kind=population,
+            )
+        return ScenarioSpec(
+            direction="long",
+            entry_family="regime_router",
+            filter_family="boundary_feature",
+            ranking_target="regime_balance",
+            holding_days=10,
+            exit_family="regime_switch",
+            stop_type="trailing",
+            regime_gate="multi_regime",
+            liquidity_gate="balanced",
+            weight_profile="balanced",
+            signal_bias="balanced",
+            minimum_confidence=0.08,
+            minimum_ready_rate=0.0,
+            bad_pick_penalty_scale=0.8,
+            playbook_up_score_bonus=0.08,
+            playbook_down_score_bonus=0.08,
+            mutation_parent_ids=parent_ids,
+            generation_index=generation_index,
+            population_kind=population,
+        )
+    if variant == "restrictive":
+        return ScenarioSpec(
+            direction="long",
+            entry_family="long_reversal",
+            filter_family="boundary_feature",
+            ranking_target="stability",
+            holding_days=15,
+            exit_family="time_stop",
+            stop_type="trailing",
+            regime_gate="top_warning",
+            liquidity_gate="balanced",
+            weight_profile="boundary_heavy",
+            signal_bias="buy",
+            minimum_confidence=0.88,
+            minimum_ready_rate=0.68,
+            bad_pick_penalty_scale=0.0,
+            playbook_up_score_bonus=0.0,
+            playbook_down_score_bonus=0.0,
+            mutation_parent_ids=parent_ids,
+            generation_index=generation_index,
+            population_kind=population,
+        )
+    return ScenarioSpec(
+        direction="long",
+        entry_family="long_pullback",
+        filter_family="symbol_specific_adjustment",
+        ranking_target="topk_uplift",
+        holding_days=20,
+        exit_family="signal_exit",
+        stop_type="adaptive",
+        regime_gate="multi_regime",
+        liquidity_gate="balanced",
+        weight_profile="balanced",
+        signal_bias="buy",
+        minimum_confidence=0.08,
+        minimum_ready_rate=0.0,
+        bad_pick_penalty_scale=0.5,
+        playbook_up_score_bonus=0.12,
+        playbook_down_score_bonus=0.0,
+        mutation_parent_ids=parent_ids,
+        generation_index=generation_index,
+        population_kind=population,
+    )
+
+
+def _scenario_records_from_session(
+    *,
+    search_id: str,
+    session_id: str,
+    session_state: dict[str, Any],
+    family_leaderboard: dict[str, Any],
+    generation_index: int,
+    source_kind: str,
+    mutation_parent_ids_by_method_id: dict[str, tuple[str, ...]] | None = None,
+) -> list[dict[str, Any]]:
+    family_lookup = {
+        _text(row.get("method_family")): row
+        for row in (family_leaderboard.get("family_summary") or [])
+        if isinstance(row, dict)
+    }
+    records: list[dict[str, Any]] = []
+    for family_result in session_state.get("family_results") or []:
+        if not isinstance(family_result, dict):
+            continue
+        compare = family_result.get("compare") if isinstance(family_result.get("compare"), dict) else {}
+        candidate_results = [item for item in (compare.get("candidate_results") or []) if isinstance(item, dict)]
+        family_row = family_lookup.get(_text(family_result.get("method_family")))
+        if family_row is None and family_lookup:
+            family_row = next(iter(family_lookup.values()))
+        for candidate_result in candidate_results:
+            try:
+                candidate_method = candidate_result.get("candidate_method") if isinstance(candidate_result.get("candidate_method"), dict) else {}
+                method_id = _text(candidate_method.get("method_id"), fallback=_text(candidate_result.get("plan_id")))
+                records.append(
+                    _scenario_record_from_candidate_result(
+                        session_id=session_id,
+                        family_result=family_result,
+                        family_row=family_row,
+                        candidate_result=candidate_result,
+                        generation_index=generation_index,
+                        source_kind=source_kind,
+                        mutation_parent_ids=tuple(mutation_parent_ids_by_method_id.get(method_id) or ()) if isinstance(mutation_parent_ids_by_method_id, dict) else None,
+                    )
+                )
+            except Exception:
+                continue
+    return records
+
+
+def _scenario_seed_memory_from_sessions(*, max_sessions: int = 120) -> dict[str, Any]:
+    root = tradex_research_sessions_root()
+    session_dirs = [entry for entry in root.iterdir() if entry.is_dir()] if root.exists() else []
+    session_dirs = sorted(
+        session_dirs,
+        key=lambda path: (path.stat().st_mtime if path.exists() else 0.0, path.name),
+        reverse=True,
+    )[: max(1, int(max_sessions))]
+    records: list[dict[str, Any]] = []
+    source_refs: list[dict[str, Any]] = []
+    for session_dir in session_dirs:
+        session_id = session_dir.name
+        if "wide-topk" in session_id:
+            continue
+        session_state_path = session_dir / "session.json"
+        family_leaderboard_path = session_dir / "family_leaderboard.json"
+        compare_path = session_dir / "compare.json"
+        if not session_state_path.exists() or not family_leaderboard_path.exists() or not compare_path.exists():
+            continue
+        session_state = _read_json_file(session_state_path)
+        family_leaderboard = _read_json_file(family_leaderboard_path)
+        if not session_state or not family_leaderboard:
+            continue
+        source_refs.append(
+            {
+                "session_id": session_id,
+                "session_state_path": str(session_state_path),
+                "family_leaderboard_path": str(family_leaderboard_path),
+                "compare_path": str(compare_path),
+            }
+        )
+        records.extend(
+            _scenario_records_from_session(
+                search_id=session_id,
+                session_id=session_id,
+                session_state=session_state,
+                family_leaderboard=family_leaderboard,
+                generation_index=0,
+                source_kind="legacy_session_artifact",
+            )
+        )
+    source_record_count = len(records)
+    records = [record for record in records if _scenario_is_seed_eligible(record)]
+    records = sorted(records, key=_scenario_parent_priority)
+    population_summary: dict[str, dict[str, int]] = {}
+    for record in records:
+        bucket = population_summary.setdefault(
+            _text(record.get("population_kind"), fallback="long_expert_population"),
+            {"count": 0, "keep": 0, "hold": 0, "drop": 0},
+        )
+        bucket["count"] += 1
+        bucket[_text(record.get("decision"), fallback="hold")] = bucket.get(_text(record.get("decision"), fallback="hold"), 0) + 1
+    return {
+        "schema_version": SCENARIO_SEARCH_MEMORY_SCHEMA_VERSION,
+        "generated_at": _utc_now_iso(),
+        "source_artifact_refs": source_refs,
+        "excluded_seed_record_count": max(0, source_record_count - len(records)),
+        "records": records,
+        "population_summary": population_summary,
+        "record_count": len(records),
+    }
+
+
+def _scenario_family_specs_from_records(
+    search_id: str,
+    population_records: dict[str, list[dict[str, Any]]],
+    *,
+    generation_index: int,
+    max_candidates_per_family: int,
+    rng: random.Random,
+) -> tuple[FamilySpec, ...]:
+    families: list[FamilySpec] = []
+    for population_kind in ("long_expert_population", "short_expert_population", "regime_selector_population"):
+        parents = population_records.get(population_kind) or []
+        if not parents:
+            continue
+        parent_count = max(1, min(len(parents), max_candidates_per_family + 1))
+        selected_parents = parents[:parent_count]
+        candidate_specs: list[CandidateMethodSpec] = []
+        seen_signatures: set[str] = set()
+        seen_method_pairs: set[tuple[str, str]] = set()
+
+        def _add_candidate(spec: ScenarioSpec) -> None:
+            signature = _scenario_candidate_signature(spec)
+            method_pair = (spec.population_kind, _scenario_method_thesis(spec))
+            if signature in seen_signatures or method_pair in seen_method_pairs:
+                return
+            seen_signatures.add(signature)
+            seen_method_pairs.add(method_pair)
+            candidate_specs.append(_scenario_candidate_spec(search_id, spec))
+
+        if selected_parents:
+            _add_candidate(_scenario_boundary_probe_spec(selected_parents[0], generation_index=generation_index, rng=rng))
+        for parent in selected_parents[: max_candidates_per_family]:
+            _add_candidate(_scenario_mutate_spec(parent, generation_index=generation_index, rng=rng))
+        if len(selected_parents) >= 2 and len(candidate_specs) < max_candidates_per_family:
+            _add_candidate(
+                _scenario_crossover_spec(
+                    selected_parents[0],
+                    selected_parents[1],
+                    generation_index=generation_index,
+                    rng=rng,
+                )
+            )
+        attempts = 0
+        max_attempts = max(6, max_candidates_per_family * 8)
+        while len(candidate_specs) < max_candidates_per_family and attempts < max_attempts:
+            _add_candidate(_scenario_mutate_spec(rng.choice(selected_parents), generation_index=generation_index, rng=rng))
+            attempts += 1
+        families.append(
+            FamilySpec(
+                method_family=population_kind,
+                family_title=f"{_scenario_population_label(population_kind)} / g{generation_index + 1}",
+                family_thesis=f"Scenario search generation {generation_index + 1} for {population_kind}",
+                candidates=tuple(candidate_specs[: max(1, max_candidates_per_family)]),
+            )
+        )
+    return tuple(families)
+
+
+def _scenario_wide_topk_family_specs(
+    search_id: str,
+    champion_record: dict[str, Any],
+    challenger_record: dict[str, Any],
+    *,
+    top_k: int,
+) -> tuple[FamilySpec, ...]:
+    families: list[FamilySpec] = []
+    def _wide_family_method_family(variant_token: str) -> str:
+        return f"w{variant_token}"
+
+    for variant_token, record in (("0", champion_record), ("1", challenger_record)):
+        population_kind = _text(record.get("population_kind"), fallback="unknown")
+        candidate_specs: list[CandidateMethodSpec] = []
+        seen_signatures: set[str] = set()
+        seen_method_pairs: set[tuple[str, str]] = set()
+
+        def _add_candidate(spec: ScenarioSpec, *, label: str) -> None:
+            candidate_spec = _scenario_candidate_spec_with_top_k(search_id, spec, top_k=top_k, variant_label=label)
+            signature = _scenario_hash(
+                {
+                    "method_family": candidate_spec.method_family,
+                    "method_id": candidate_spec.method_id,
+                    "method_thesis": candidate_spec.method_thesis,
+                    "top_k": int(candidate_spec.plan_overrides.get("top_k") or 0),
+                }
+            )
+            method_pair = (candidate_spec.method_family, candidate_spec.method_thesis)
+            if signature in seen_signatures or method_pair in seen_method_pairs:
+                return
+            seen_signatures.add(signature)
+            seen_method_pairs.add(method_pair)
+            candidate_specs.append(candidate_spec)
+
+        _add_candidate(_scenario_spec_from_record(record, generation_index=int(record.get("generation_index") or 0)), label=f"{variant_token}-seed")
+        _add_candidate(
+            _scenario_boundary_probe_spec(
+                record,
+                generation_index=int(record.get("generation_index") or 0),
+                rng=random.Random(_seed_int(f"{search_id}:{_text(record.get('candidate_id'))}:restrictive", 17)),
+                variant="restrictive",
+            ),
+            label=f"{variant_token}-restrictive",
+        )
+        _add_candidate(
+            _scenario_boundary_probe_spec(
+                record,
+                generation_index=int(record.get("generation_index") or 0),
+                rng=random.Random(_seed_int(f"{search_id}:{_text(record.get('candidate_id'))}:permissive", 17)),
+                variant="permissive",
+            ),
+            label=f"{variant_token}-permissive",
+        )
+        families.append(
+            FamilySpec(
+                method_family=_wide_family_method_family(variant_token),
+                family_title=f"{_scenario_population_label(population_kind)} / wide top-k",
+                family_thesis=f"Wide top-k reevaluation for {_scenario_population_label(population_kind)}",
+                candidates=tuple(candidate_specs[:3]),
+            )
+        )
+    return tuple(families)
+
+
+def _scenario_group_records_by_population(records: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for record in records:
+        population_kind = _text(record.get("population_kind"), fallback="long_expert_population")
+        grouped.setdefault(population_kind, []).append(record)
+    for population_kind in grouped:
+        grouped[population_kind] = sorted(grouped[population_kind], key=_scenario_parent_priority)
+    return grouped
+
+
+def _scenario_select_survivors(
+    records: list[dict[str, Any]],
+    *,
+    max_per_population: int,
+) -> dict[str, list[dict[str, Any]]]:
+    grouped = _scenario_group_records_by_population(records)
+    survivors: dict[str, list[dict[str, Any]]] = {}
+    for population_kind, bucket in grouped.items():
+        filtered = [
+            record
+            for record in bucket
+            if _text(record.get("decision")) in {"keep", "hold"} and bool(record.get("sample_validity"))
+        ]
+        filtered.sort(key=_scenario_parent_priority)
+        survivors[population_kind] = filtered[: max(1, int(max_per_population))]
+    return survivors
+
+
+def _scenario_rollup(records: list[dict[str, Any]]) -> dict[str, Any]:
+    grouped = _scenario_group_records_by_population(records)
+    population_rows: list[dict[str, Any]] = []
+    for population_kind, bucket in grouped.items():
+        population_rows.append(
+            {
+                "population_kind": population_kind,
+                "count": len(bucket),
+                "keep_count": sum(1 for row in bucket if _text(row.get("decision")) == "keep"),
+                "hold_count": sum(1 for row in bucket if _text(row.get("decision")) == "hold"),
+                "drop_count": sum(1 for row in bucket if _text(row.get("decision")) == "drop"),
+                "sample_valid_count": sum(1 for row in bucket if bool(row.get("sample_validity"))),
+                "best_candidate_id": _text(bucket[0].get("candidate_id")) if bucket else "",
+                "best_score": float(bucket[0].get("score") or 0.0) if bucket else 0.0,
+            }
+        )
+    population_rows.sort(key=lambda row: (_text(row.get("population_kind")),))
+    return {
+        "schema_version": SCENARIO_SEARCH_ROLLUP_SCHEMA_VERSION,
+        "generated_at": _utc_now_iso(),
+        "overview": {
+            "candidate_count": len(records),
+            "population_count": len(population_rows),
+            "keep_count": sum(1 for row in records if _text(row.get("decision")) == "keep"),
+            "hold_count": sum(1 for row in records if _text(row.get("decision")) == "hold"),
+            "drop_count": sum(1 for row in records if _text(row.get("decision")) == "drop"),
+            "sample_valid_count": sum(1 for row in records if bool(row.get("sample_validity"))),
+        },
+        "population_rows": population_rows,
+        "candidate_rows": records,
+    }
+
+
+def _scenario_lineage_rows(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for record in records:
+        rows.append(
+            {
+                "candidate_id": _text(record.get("candidate_id")),
+                "population_kind": _text(record.get("population_kind")),
+                "generation_index": int(record.get("generation_index") or 0),
+                "parent_candidate_ids": list(_text(item) for item in (record.get("parent_candidate_ids") or []) if _text(item)),
+                "mutation_parent_ids": list(_text(item) for item in (record.get("parent_candidate_ids") or []) if _text(item)),
+                "decision": _text(record.get("decision"), fallback="hold"),
+                "source_kind": _text(record.get("source_kind"), fallback="unknown"),
+                "scenario_definition": dict(record.get("scenario_definition") or {}),
+                "score": float(record.get("score") or 0.0),
+                "failure_reason": _text(record.get("failure_reason"), fallback=""),
+                "source_artifact_refs": dict(record.get("source_artifact_refs") or {}),
+            }
+        )
+    return rows
+
+
+def _scenario_best_candidate(records: list[dict[str, Any]], *, population_kind: str | None = None) -> dict[str, Any]:
+    bucket = [record for record in records if population_kind is None or _text(record.get("population_kind")) == population_kind]
+    if not bucket:
+        return {}
+    def _branch_priority(row: dict[str, Any]) -> tuple[float, float, float, float, float, str]:
+        evaluation_metrics = row.get("evaluation_metrics") if isinstance(row.get("evaluation_metrics"), dict) else {}
+        branching_metrics = row.get("branching_metrics") if isinstance(row.get("branching_metrics"), dict) else {}
+        branching_priority = (
+            float(evaluation_metrics.get("changed_rank_count") or 0.0) * 10.0
+            + float(evaluation_metrics.get("changed_top5_members_count") or 0.0) * 5.0
+            + float(evaluation_metrics.get("changed_top10_members_count") or 0.0) * 3.0
+            + float(evaluation_metrics.get("top5_boundary_score_gap") or 0.0) * 100.0
+            + float(evaluation_metrics.get("top10_boundary_score_gap") or 0.0) * 80.0
+            + (2.0 if bool(branching_metrics.get("meaningful_topk_branching_possible")) else 0.0)
+        )
+        return (
+            -branching_priority,
+            -float(row.get("score") or 0.0),
+            -float((row.get("comparison") or {}).get("challenger_top5_ret20_mean") or 0.0),
+            -float((row.get("comparison") or {}).get("challenger_top10_ret20_mean") or 0.0),
+            float((row.get("comparison") or {}).get("challenger_dd") or 0.0),
+            _text(row.get("candidate_id"), fallback=_text(row.get("method_id"))),
+        )
+
+    return sorted(bucket, key=_branch_priority)[0]
+
+
+def _scenario_wide_topk_branch_candidate(candidate_results: list[dict[str, Any]]) -> dict[str, Any]:
+    if not candidate_results:
+        return {}
+
+    def _wide_branch_priority(candidate_result: dict[str, Any]) -> tuple[float, float, float, float, float, str]:
+        selection_compare = candidate_result.get("selection_compare") if isinstance(candidate_result.get("selection_compare"), dict) else {}
+        return (
+            -float(selection_compare.get("changed_top5_members_count") or 0.0),
+            -abs(float(selection_compare.get("top5_boundary_score_gap") or 0.0)),
+            -float(selection_compare.get("changed_top10_members_count") or 0.0),
+            -float(selection_compare.get("changed_rank_count") or 0.0),
+            -float(selection_compare.get("challenger_topk_ret20_mean") or 0.0),
+            _text(candidate_result.get("candidate_method", {}).get("method_id"), fallback=_text(candidate_result.get("plan_id"), fallback=_text(candidate_result.get("method_signature_hash")))),
+        )
+
+    return sorted(candidate_results, key=_wide_branch_priority)[0]
+
+
+def run_tradex_scenario_search(
+    *,
+    search_id: str,
+    generations: int = 3,
+    random_seed: int = 7,
+    universe_size: int = DEFAULT_UNIVERSE_SIZE,
+    max_candidates_per_family: int = DEFAULT_MAX_CANDIDATES_PER_FAMILY,
+    max_parents_per_population: int = 3,
+    session_scope_id: str | None = None,
+    ret20_source_mode: str = tradex.TRADEX_RET20_SOURCE_MODE_PRECOMPUTED,
+    finalize_shared_rollups: bool = False,
+    exploratory_min_trading_days: int | None = TRADEX_EXPLORATORY_EVAL_WINDOW_MIN_TRADING_DAYS,
+) -> dict[str, Any]:
+    if generations < 1:
+        raise ValueError("generations must be >= 1")
+    if max_candidates_per_family < 1:
+        raise ValueError("max_candidates_per_family must be >= 1")
+    if max_parents_per_population < 1:
+        raise ValueError("max_parents_per_population must be >= 1")
+
+    search_id = _text(search_id, fallback="scenario-search")
+    started_at = _utc_now_iso()
+    tradex_reports_root().mkdir(parents=True, exist_ok=True)
+    tradex_research_keep_root().mkdir(parents=True, exist_ok=True)
+    scope_id = _text(session_scope_id, fallback=FEATURE_SNAPSHOT_SCOPE_ID)
+    seed_memory = _scenario_seed_memory_from_sessions()
+    memory_records = list(seed_memory.get("records") or [])
+    population_history = _scenario_group_records_by_population(memory_records)
+    generation_summaries: list[dict[str, Any]] = []
+    lineage_rows: list[dict[str, Any]] = []
+    session_results: list[dict[str, Any]] = []
+    stop_reason = "max_generations_reached"
+    best_overall_score: float | None = None
+    no_improvement_streak = 0
+    no_keep_streak = 0
+    final_session_state: dict[str, Any] = {}
+    final_family_leaderboard: dict[str, Any] = {}
+
+    for generation_index in range(generations):
+        parent_groups = _scenario_select_survivors(
+            list(population_history.get("long_expert_population", []))
+            + list(population_history.get("short_expert_population", []))
+            + list(population_history.get("regime_selector_population", [])),
+            max_per_population=max_parents_per_population,
+        )
+        family_specs = _scenario_family_specs_from_records(
+            search_id,
+            parent_groups,
+            generation_index=generation_index,
+            max_candidates_per_family=max_candidates_per_family,
+            rng=random.Random(_seed_int(f"{search_id}:g{generation_index}", random_seed)),
+        )
+        generation_parent_map: dict[str, tuple[str, ...]] = {}
+        for family_spec in family_specs:
+            for candidate_spec in family_spec.candidates:
+                generation_parent_map[_text(candidate_spec.method_id)] = tuple(
+                    _text(item) for item in (candidate_spec.mutation_parent_ids or ()) if _text(item)
+                )
+        if not family_specs:
+            stop_reason = "no_family_specs"
+            break
+
+        session_id = f"{_slug(search_id)}-g{generation_index + 1:02d}"
+        session_scope = scope_id
+        session_state = run_tradex_research_session(
+            session_id=session_id,
+            random_seed=int(random_seed) + generation_index,
+            universe_size=int(universe_size),
+            max_candidates_per_family=int(max_candidates_per_family),
+            session_scope_id=session_scope,
+            ret20_source_mode=ret20_source_mode,
+            finalize_shared_rollups=bool(finalize_shared_rollups and generation_index == generations - 1),
+            family_specs=family_specs,
+            exploratory_min_trading_days=exploratory_min_trading_days,
+        )
+        session_results.append(session_state)
+
+        family_leaderboard = _read_json_file(_session_family_leaderboard_file(session_id))
+        generation_records = _scenario_records_from_session(
+            search_id=search_id,
+            session_id=session_id,
+            session_state=session_state,
+            family_leaderboard=family_leaderboard,
+            generation_index=generation_index,
+            source_kind="evaluated_generation",
+            mutation_parent_ids_by_method_id=generation_parent_map,
+        )
+        if not generation_records:
+            stop_reason = "no_generation_records"
+            final_session_state = session_state
+            final_family_leaderboard = family_leaderboard
+            break
+
+        memory_records.extend(generation_records)
+        lineage_rows.extend(_scenario_lineage_rows(generation_records))
+        final_session_state = session_state
+        final_family_leaderboard = family_leaderboard
+
+        best_record = _scenario_best_candidate(generation_records)
+        best_score = float(best_record.get("score") or 0.0) if best_record else 0.0
+        keep_count = sum(1 for row in generation_records if _text(row.get("decision")) == "keep")
+        hold_count = sum(1 for row in generation_records if _text(row.get("decision")) == "hold")
+        drop_count = sum(1 for row in generation_records if _text(row.get("decision")) == "drop")
+        sample_valid_count = sum(1 for row in generation_records if bool(row.get("sample_validity")))
+        generation_summaries.append(
+            {
+                "generation_index": generation_index,
+                "session_id": session_id,
+                "session_scope_id": session_scope,
+                "candidate_count": len(generation_records),
+                "population_count": len(_scenario_group_records_by_population(generation_records)),
+                "keep_count": keep_count,
+                "hold_count": hold_count,
+                "drop_count": drop_count,
+                "sample_valid_count": sample_valid_count,
+                "best_candidate_id": _text(best_record.get("candidate_id"), fallback=""),
+                "best_population_kind": _text(best_record.get("population_kind"), fallback=""),
+                "best_score": best_score,
+                "survivor_count": sum(
+                    1
+                    for row in generation_records
+                    if _text(row.get("decision")) in {"keep", "hold"} and bool(row.get("sample_validity"))
+                ),
+                "stop_reason": "",
+            }
+        )
+
+        if best_overall_score is None or best_score > best_overall_score + 0.5:
+            best_overall_score = best_score
+            no_improvement_streak = 0
+        else:
+            no_improvement_streak += 1
+        if keep_count <= 0:
+            no_keep_streak += 1
+        else:
+            no_keep_streak = 0
+
+        population_history = _scenario_select_survivors(
+            generation_records,
+            max_per_population=max_parents_per_population,
+        )
+        if not any(population_history.values()):
+            stop_reason = "no_survivors"
+            generation_summaries[-1]["stop_reason"] = stop_reason
+            break
+        if no_keep_streak >= 2:
+            stop_reason = "no_new_keep_candidates"
+            generation_summaries[-1]["stop_reason"] = stop_reason
+            break
+        if no_improvement_streak >= 2:
+            stop_reason = "no_meaningful_improvement"
+            generation_summaries[-1]["stop_reason"] = stop_reason
+            break
+
+    seed_records = list(seed_memory.get("records") or [])
+    final_records = list(memory_records)
+    final_population = _scenario_select_survivors(final_records, max_per_population=max_parents_per_population)
+    final_population_records = list(final_population.get("long_expert_population", [])) + list(final_population.get("short_expert_population", [])) + list(final_population.get("regime_selector_population", []))
+    rollup = _scenario_rollup(final_records)
+    memory_payload = {
+        "schema_version": SCENARIO_SEARCH_MEMORY_SCHEMA_VERSION,
+        "search_id": search_id,
+        "generated_at": _utc_now_iso(),
+        "started_at": started_at,
+        "finished_at": _utc_now_iso(),
+        "seed_artifact_refs": seed_memory.get("source_artifact_refs") if isinstance(seed_memory.get("source_artifact_refs"), list) else [],
+        "record_count": len(final_records),
+        "seed_record_count": len(seed_records),
+        "records": final_records,
+        "population_summary": rollup.get("population_rows") or [],
+        "stop_reason": stop_reason,
+    }
+    population_payload = {
+        "schema_version": SCENARIO_SEARCH_POPULATION_SCHEMA_VERSION,
+        "search_id": search_id,
+        "generated_at": _utc_now_iso(),
+        "generation_index": generation_summaries[-1]["generation_index"] if generation_summaries else 0,
+        "populations": [
+            {
+                "population_kind": population_kind,
+                "candidates": records,
+            }
+            for population_kind, records in sorted(final_population.items(), key=lambda item: item[0])
+        ],
+    }
+    generation_payload = {
+        "schema_version": SCENARIO_SEARCH_GENERATION_SUMMARY_SCHEMA_VERSION,
+        "search_id": search_id,
+        "generated_at": _utc_now_iso(),
+        "started_at": started_at,
+        "finished_at": _utc_now_iso(),
+        "generation_count": len(generation_summaries),
+        "stop_reason": stop_reason,
+        "generation_summaries": generation_summaries,
+    }
+    lineage_payload = {
+        "schema_version": SCENARIO_SEARCH_LINEAGE_SCHEMA_VERSION,
+        "search_id": search_id,
+        "generated_at": _utc_now_iso(),
+        "lineage_rows": lineage_rows,
+        "lineage_count": len(lineage_rows),
+    }
+    keep_drop_hold_payload = {
+        "schema_version": SCENARIO_SEARCH_ROLLUP_SCHEMA_VERSION,
+        "search_id": search_id,
+        "generated_at": _utc_now_iso(),
+        "overview": {
+            "candidate_count": len(final_records),
+            "seed_record_count": len(seed_records),
+            "generation_count": len(generation_summaries),
+            "keep_count": sum(1 for row in final_records if _text(row.get("decision")) == "keep"),
+            "hold_count": sum(1 for row in final_records if _text(row.get("decision")) == "hold"),
+            "drop_count": sum(1 for row in final_records if _text(row.get("decision")) == "drop"),
+            "sample_valid_count": sum(1 for row in final_records if bool(row.get("sample_validity"))),
+            "population_count": len(final_population),
+            "stop_reason": stop_reason,
+        },
+        "population_rows": rollup.get("population_rows") or [],
+        "candidate_rows": final_records,
+    }
+    regime_selector_records = [row for row in final_records if _text(row.get("population_kind")) == "regime_selector_population"]
+    regime_selector_payload = {
+        "schema_version": SCENARIO_SEARCH_ROLLUP_SCHEMA_VERSION,
+        "search_id": search_id,
+        "generated_at": _utc_now_iso(),
+        "overview": {
+            "candidate_count": len(regime_selector_records),
+            "keep_count": sum(1 for row in regime_selector_records if _text(row.get("decision")) == "keep"),
+            "hold_count": sum(1 for row in regime_selector_records if _text(row.get("decision")) == "hold"),
+            "drop_count": sum(1 for row in regime_selector_records if _text(row.get("decision")) == "drop"),
+            "sample_valid_count": sum(1 for row in regime_selector_records if bool(row.get("sample_validity"))),
+        },
+        "candidate_rows": regime_selector_records,
+    }
+    seed_best = _scenario_best_candidate(seed_records)
+    challenger_best = _scenario_best_candidate(final_records)
+    champion_challenger_payload = {
+        "schema_version": SCENARIO_SEARCH_ROLLUP_SCHEMA_VERSION,
+        "search_id": search_id,
+        "generated_at": _utc_now_iso(),
+        "champion": seed_best,
+        "challenger": challenger_best,
+        "comparison": {
+            "score_delta": float(challenger_best.get("score") or 0.0) - float(seed_best.get("score") or 0.0),
+            "population_kind_delta": _text(challenger_best.get("population_kind"), fallback="") != _text(seed_best.get("population_kind"), fallback=""),
+            "generation_index_delta": int(challenger_best.get("generation_index") or 0) - int(seed_best.get("generation_index") or 0),
+            "decision_delta": {
+                "champion": _text(seed_best.get("decision"), fallback=""),
+                "challenger": _text(challenger_best.get("decision"), fallback=""),
+            },
+        },
+    }
+
+    wide_topk_payload: dict[str, Any] = {
+        "schema_version": SCENARIO_SEARCH_WIDE_TOPK_SCHEMA_VERSION,
+        "search_id": search_id,
+        "generated_at": _utc_now_iso(),
+        "status": "skipped",
+        "wide_top_k": 5,
+        "reason": "missing_seed_or_challenger",
+    }
+    if seed_best and challenger_best:
+        wide_session_id = f"{_slug(search_id)}-wide-topk-{_seed_int(f'{search_id}:{started_at}', random_seed)}"
+        try:
+            wide_family_specs = _scenario_wide_topk_family_specs(
+                search_id,
+                seed_best,
+                challenger_best,
+                top_k=5,
+            )
+            wide_session_state = run_tradex_research_session(
+                session_id=wide_session_id,
+                random_seed=int(random_seed) + 1000,
+                universe_size=int(universe_size),
+                max_candidates_per_family=3,
+                session_scope_id=scope_id,
+                ret20_source_mode=ret20_source_mode,
+                finalize_shared_rollups=False,
+                family_specs=wide_family_specs,
+                exploratory_min_trading_days=exploratory_min_trading_days,
+            )
+            wide_family_results = [
+                family_result
+                for family_result in (wide_session_state.get("family_results") or [])
+                if isinstance(family_result, dict)
+            ]
+            wide_candidate_results = [
+                candidate_result
+                for family_result in wide_family_results
+                for candidate_result in (family_result.get("candidate_results") or [])
+                if isinstance(candidate_result, dict)
+            ]
+            wide_seed_champion_id = _text(seed_best.get("candidate_id"), fallback=_text(seed_best.get("method_signature_hash"), fallback=_text(seed_best.get("method_id"))))
+            wide_champion_result = next(
+                (
+                    candidate_result
+                    for candidate_result in wide_candidate_results
+                    if wide_seed_champion_id
+                    and wide_seed_champion_id
+                    == _text(
+                        candidate_result.get("method_signature_hash"),
+                        fallback=_text(candidate_result.get("plan_id"), fallback=_text(candidate_result.get("candidate_method", {}).get("method_id"))),
+                    )
+                ),
+                wide_candidate_results[0] if wide_candidate_results else {},
+            )
+            wide_branch_result = _scenario_wide_topk_branch_candidate(wide_candidate_results)
+            if not wide_branch_result:
+                wide_branch_result = wide_champion_result
+            wide_champion_contract = wide_champion_result.get("same_condition_contract") if isinstance(wide_champion_result.get("same_condition_contract"), dict) else {}
+            wide_branch_contract = wide_branch_result.get("same_condition_contract") if isinstance(wide_branch_result.get("same_condition_contract"), dict) else {}
+            wide_champion_compare = wide_champion_result.get("selection_compare") if isinstance(wide_champion_result.get("selection_compare"), dict) else {}
+            wide_branch_compare = wide_branch_result.get("selection_compare") if isinstance(wide_branch_result.get("selection_compare"), dict) else {}
+            wide_candidate_summaries = [
+                {
+                    "candidate_id": _text(
+                        candidate_result.get("method_signature_hash"),
+                        fallback=_text(candidate_result.get("plan_id"), fallback=_text(candidate_result.get("candidate_method", {}).get("method_id"))),
+                    ),
+                    "population_kind": _text(candidate_result.get("population_kind"), fallback=_text(candidate_result.get("candidate_method", {}).get("method_family"))),
+                    "decision": _text(candidate_result.get("candidate_local_decision"), fallback=""),
+                    "selection_compare": candidate_result.get("selection_compare") if isinstance(candidate_result.get("selection_compare"), dict) else {},
+                }
+                for candidate_result in wide_candidate_results
+            ]
+            wide_topk_payload = {
+                "schema_version": SCENARIO_SEARCH_WIDE_TOPK_SCHEMA_VERSION,
+                "search_id": search_id,
+                "generated_at": _utc_now_iso(),
+                "status": "complete",
+                "wide_top_k": 5,
+                "session_id": wide_session_id,
+                "champion": {
+                    "candidate_id": _text(wide_champion_result.get("plan_id"), fallback=_text(wide_champion_result.get("method_signature_hash"))),
+                    "decision": _text(wide_champion_result.get("candidate_local_decision"), fallback=""),
+                    "selection_compare": wide_champion_compare,
+                    "same_condition_contract_hash": _text(wide_champion_contract.get("contract_hash")),
+                },
+                "challenger": {
+                    "candidate_id": _text(wide_branch_result.get("plan_id"), fallback=_text(wide_branch_result.get("method_signature_hash"))),
+                    "decision": _text(wide_branch_result.get("candidate_local_decision"), fallback=""),
+                    "selection_compare": wide_branch_compare,
+                    "same_condition_contract_hash": _text(wide_branch_contract.get("contract_hash")),
+                },
+                "comparison": {
+                    "score_delta": float(wide_branch_compare.get("challenger_topk_ret20_mean") or 0.0) - float(wide_champion_compare.get("challenger_topk_ret20_mean") or 0.0),
+                    "decision_delta": {
+                        "champion": _text(wide_champion_result.get("candidate_local_decision"), fallback=""),
+                        "challenger": _text(wide_branch_result.get("candidate_local_decision"), fallback=""),
+                    },
+                    "changed_rank_count": int(wide_branch_compare.get("changed_rank_count") or 0),
+                    "changed_top5_members_count": int(wide_branch_compare.get("changed_top5_members_count") or 0),
+                    "changed_top10_members_count": int(wide_branch_compare.get("changed_top10_members_count") or 0),
+                    "top5_boundary_score_gap": float(wide_branch_compare.get("top5_boundary_score_gap") or 0.0),
+                    "top10_boundary_score_gap": float(wide_branch_compare.get("top10_boundary_score_gap") or 0.0),
+                },
+                "candidates": wide_candidate_summaries,
+            }
+        except Exception as exc:
+            wide_topk_payload = {
+                "schema_version": SCENARIO_SEARCH_WIDE_TOPK_SCHEMA_VERSION,
+                "search_id": search_id,
+                "generated_at": _utc_now_iso(),
+                "status": "failed",
+                "wide_top_k": 5,
+                "reason": _text(exc),
+                "champion": seed_best,
+                "challenger": challenger_best,
+            }
+
+    memory_path = _scenario_search_file(search_id, SCENARIO_SEARCH_FILE)
+    population_path = _scenario_search_file(search_id, SCENARIO_POPULATION_FILE)
+    generation_path = _scenario_search_file(search_id, SCENARIO_GENERATION_SUMMARY_FILE)
+    lineage_path = _scenario_search_file(search_id, SCENARIO_LINEAGE_FILE)
+    keep_drop_path = _scenario_search_file(search_id, SCENARIO_KEEP_DROP_HOLD_FILE)
+    selector_eval_path = _scenario_search_file(search_id, SCENARIO_SELECTOR_EVAL_FILE)
+    champion_path = _scenario_search_file(search_id, SCENARIO_CHAMPION_FILE)
+    wide_topk_path = _scenario_search_file(search_id, SCENARIO_WIDE_TOPK_FILE)
+    for path, payload, artifact_name in (
+        (memory_path, memory_payload, "research_memory"),
+        (population_path, population_payload, "candidate_population"),
+        (generation_path, generation_payload, "generation_summary"),
+        (lineage_path, lineage_payload, "evolution_lineage"),
+        (keep_drop_path, keep_drop_hold_payload, "keep_drop_hold_rollup"),
+        (selector_eval_path, regime_selector_payload, "regime_selector_eval"),
+        (champion_path, champion_challenger_payload, "champion_vs_challenger_summary"),
+        (wide_topk_path, wide_topk_payload, "practical_topk_eval"),
+    ):
+        _write_json(path, payload)
+        _verify_json_roundtrip(path, payload, artifact_name=artifact_name)
+
+    return {
+        "status": "complete",
+        "search_id": search_id,
+        "scenario_search_scope_mode": "explicit" if session_scope_id else "feature_snapshot_default",
+        "scenario_search_scope_id": scope_id,
+        "schema_version": SCENARIO_SEARCH_ROLLUP_SCHEMA_VERSION,
+        "generation_count": len(generation_summaries),
+        "stop_reason": stop_reason,
+        "memory_path": str(memory_path),
+        "candidate_population_path": str(population_path),
+        "generation_summary_path": str(generation_path),
+        "lineage_path": str(lineage_path),
+        "keep_drop_hold_rollup_path": str(keep_drop_path),
+        "regime_selector_eval_path": str(selector_eval_path),
+        "champion_vs_challenger_summary_path": str(champion_path),
+        "practical_topk_eval_path": str(wide_topk_path),
+        "memory": memory_payload,
+        "candidate_population": population_payload,
+        "generation_summary": generation_payload,
+        "lineage": lineage_payload,
+        "keep_drop_hold_rollup": keep_drop_hold_payload,
+        "regime_selector_eval": regime_selector_payload,
+        "champion_vs_challenger_summary": champion_challenger_payload,
+        "practical_topk_eval": wide_topk_payload,
+        "session_results": session_results,
+        "final_session_state": final_session_state,
+        "final_family_leaderboard": final_family_leaderboard,
+        "seed_memory": seed_memory,
+    }
 
 
 def _aggregate_logic_search_rows(rows: list[dict[str, Any]], *, group_key: str) -> list[dict[str, Any]]:
@@ -5211,11 +7157,80 @@ def _build_parser() -> argparse.ArgumentParser:
         default=TRADEX_EXPLORATORY_EVAL_WINDOW_MIN_TRADING_DAYS,
         help="Fallback minimum trading days for exploratory eval windows when standard/fallback windows are insufficient. Set to 0 to disable.",
     )
+    parser.add_argument("--scenario-search", action="store_true", help="Run the self-evolving scenario search loop instead of a single session.")
+    parser.add_argument(
+        "--scenario-search-generations",
+        type=int,
+        default=3,
+        help="Number of generations for --scenario-search.",
+    )
+    parser.add_argument(
+        "--scenario-search-max-parents-per-population",
+        type=int,
+        default=3,
+        help="Upper bound on parent candidates retained per population for --scenario-search.",
+    )
+    parser.add_argument(
+        "--scenario-search-scope-id",
+        default="",
+        help="Optional fixed session_scope_id for --scenario-search; falls back to the feature snapshot scope when omitted.",
+    )
+    parser.add_argument(
+        "--scenario-search-exploratory-min-trading-days",
+        type=int,
+        default=TRADEX_EXPLORATORY_EVAL_WINDOW_MIN_TRADING_DAYS,
+        help="Fallback minimum trading days for exploratory eval windows when scenario-search stages need a reduced window. Set to 0 to disable.",
+    )
     return parser
+
+
+def _validate_runtime_db_contract() -> dict[str, Any]:
+    readiness_report = tradex_environment_readiness.evaluate_environment_readiness()
+    readiness_summary = readiness_report.get("readiness_summary") if isinstance(readiness_report.get("readiness_summary"), dict) else {}
+    contract = {
+        "schema_version": "tradex_runtime_db_contract_validation_v1",
+        "ready": bool(readiness_report.get("ready")),
+        "cause_class": _text(readiness_report.get("cause_class"), fallback="unknown"),
+        "cause_source": _text(readiness_report.get("cause_source"), fallback="unknown"),
+        "database_path": _text(readiness_summary.get("database_path")),
+        "required_table": _text(readiness_summary.get("required_table"), fallback="market_regime_daily"),
+        "table_exists": bool(readiness_summary.get("table_exists")),
+        "table_row_count": int(readiness_summary.get("table_row_count") or 0),
+        "label_version_row_count": int(readiness_summary.get("label_version_row_count") or 0),
+        "selected_window_count": int(readiness_summary.get("selected_window_count") or 0),
+        "selected_window_issues": [str(item) for item in (readiness_summary.get("selected_window_issues") or []) if str(item).strip()],
+        "checked_at": _text(readiness_report.get("checked_at")),
+        "remediation_hint": _text(readiness_report.get("remediation_hint")),
+    }
+    if not contract["ready"]:
+        raise RuntimeError(
+            "TRADEX runtime DB contract failed: "
+            + json.dumps(_json_ready(contract), ensure_ascii=False, sort_keys=True)
+        )
+    return contract
 
 
 def main() -> int:
     args = _build_parser().parse_args()
+    _validate_runtime_db_contract()
+    if bool(args.scenario_search):
+        result = run_tradex_scenario_search(
+            search_id=str(args.session_id),
+            generations=int(args.scenario_search_generations),
+            random_seed=int(args.random_seed),
+            universe_size=int(args.universe_size),
+            max_candidates_per_family=int(args.max_candidates_per_family),
+            max_parents_per_population=int(args.scenario_search_max_parents_per_population),
+            session_scope_id=str(args.scenario_search_scope_id).strip() or None,
+            ret20_source_mode=str(args.ret20_source_mode),
+            exploratory_min_trading_days=(
+                int(args.scenario_search_exploratory_min_trading_days)
+                if int(args.scenario_search_exploratory_min_trading_days) > 0
+                else None
+            ),
+        )
+        print(json.dumps(_json_ready(result), ensure_ascii=False, indent=2))
+        return 0
     if bool(args.logic_search):
         seeds = [int(item.strip()) for item in str(args.logic_search_seeds).split(",") if item.strip()]
         if not seeds:

@@ -1,0 +1,33 @@
+{
+  "schema_version": "tradex_meemee_stock_snapshot_read_only_v2",
+  "read_only": true,
+  "source_input_path": "G:\\Tradex\\scratch\\temp\\local_meemee_research_db\\stocks_research_20230101_20260226.duckdb",
+  "derived_snapshot_path": "G:\\Tradex\\scratch\\source_snapshots\\tradex_research_snapshot_full_20230101_20260226.duckdb",
+  "snapshot_scope": "confirmed_daily_bars_only",
+  "trade_logic_boundary": "TRADEX_derives_weekly_monthly_bars_and_features_read_only_from_meemee_stock_data",
+  "daily_bars_columns": [
+    "code",
+    "date",
+    "o",
+    "h",
+    "l",
+    "c",
+    "v",
+    "source"
+  ],
+  "adjusted_price_columns": [],
+  "adjusted_price_fields_available": false,
+  "notes": "Source input is read-only. The derived snapshot was materialized under G:\\Tradex\\scratch\\source_snapshots and only used for TRADEX research execution.",
+  "derived_tables": {
+    "daily_bars": 524840,
+    "daily_ma": 524840,
+    "monthly_bars": 25939,
+    "feature_snapshot_daily": 524840,
+    "industry_master": 4097,
+    "stock_meta": 686,
+    "sell_analysis_daily": 528255,
+    "phase_pred_daily": 7392,
+    "ml_pred_20d": 516509,
+    "market_regime_daily": 770
+  }
+}

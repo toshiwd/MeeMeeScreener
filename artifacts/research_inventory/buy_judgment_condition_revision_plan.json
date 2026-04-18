@@ -1,0 +1,359 @@
+{
+  "schema_version": "tradex_buy_judgment_condition_revision_plan_v1",
+  "status": "confirmed",
+  "generated_at": "2026-04-17T08:53:43.652371+00:00",
+  "authoritative_sources": {
+    "audit_corpus": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_effectiveness_audit.json",
+    "research_inventory": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\research_inventory.json",
+    "candidate_gate_decision": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\candidate_gate_decision.json"
+  },
+  "policy": {
+    "confirmed_data_only": true,
+    "prioritize_condition_subtraction_before_addition": true,
+    "same_condition_comparison_discipline": true,
+    "no_boundary_aware_compare_execution": true,
+    "no_overwrite_provenance_change": true,
+    "no_meemee_ui_change": true,
+    "no_model_retraining": true,
+    "no_weak_recovery_redesign_outside_audit": true,
+    "no_breakout_failure_redesign_outside_audit": true
+  },
+  "evidence_summary": {
+    "total_events": 1162,
+    "events_with_20d_available": 1160,
+    "overall_20d_metrics": {
+      "sample_count_available": 1160,
+      "sample_count_total": 1162,
+      "hit_count": 628,
+      "hit_rate": 0.5413793103448276,
+      "mean_forward_return_20d": -0.00038369650105161995,
+      "median_forward_return_20d": 0.004686550702916459,
+      "bad_loss_count_20d": 200,
+      "bad_loss_rate_20d": 0.1724137931034483,
+      "ge_10pct_count_20d": 35,
+      "ge_10pct_rate_20d": 0.03017241379310345,
+      "ge_20pct_count_20d": 3,
+      "ge_20pct_rate_20d": 0.002586206896551724,
+      "large_winner_count_20d": 3,
+      "small_winner_count_20d": 32,
+      "flat_count_20d": 925,
+      "loser_count_20d": 200
+    },
+    "main_loss_buckets": [
+      {
+        "bucket": "weak liquidity continuation",
+        "loss_count": 68,
+        "loss_share": 0.34,
+        "mean_forward_return_20d": -0.0988757744669888,
+        "median_forward_return_20d": -0.0883009609794565,
+        "hit_rate_20d": 0.0,
+        "bad_loss_rate_20d": 1.0
+      },
+      {
+        "bucket": "early reversal / failed breakdown recovery",
+        "loss_count": 47,
+        "loss_share": 0.235,
+        "mean_forward_return_20d": -0.08690099314078803,
+        "median_forward_return_20d": -0.08556547619047616,
+        "hit_rate_20d": 0.0,
+        "bad_loss_rate_20d": 1.0
+      },
+      {
+        "bucket": "MA recovery",
+        "loss_count": 32,
+        "loss_share": 0.16,
+        "mean_forward_return_20d": -0.07937726362699063,
+        "median_forward_return_20d": -0.07862251514380197,
+        "hit_rate_20d": 0.0,
+        "bad_loss_rate_20d": 1.0
+      },
+      {
+        "bucket": "pullback / rebound",
+        "loss_count": 28,
+        "loss_share": 0.14,
+        "mean_forward_return_20d": -0.08592987191263436,
+        "median_forward_return_20d": -0.07924549140196568,
+        "hit_rate_20d": 0.0,
+        "bad_loss_rate_20d": 1.0
+      },
+      {
+        "bucket": "regime mismatch",
+        "loss_count": 18,
+        "loss_share": 0.09,
+        "mean_forward_return_20d": -0.12228801589222617,
+        "median_forward_return_20d": -0.10167919951099619,
+        "hit_rate_20d": 0.0,
+        "bad_loss_rate_20d": 1.0
+      },
+      {
+        "bucket": "late/stretched entry",
+        "loss_count": 7,
+        "loss_share": 0.035,
+        "mean_forward_return_20d": -0.10030943778933739,
+        "median_forward_return_20d": -0.06359781950333132,
+        "hit_rate_20d": 0.0,
+        "bad_loss_rate_20d": 1.0
+      }
+    ]
+  },
+  "condition_decisions": [
+    {
+      "scope_kind": "exact_condition",
+      "scope_name": "MA20_RECLAIM_INITIAL",
+      "classification": "gate_with_extra_condition",
+      "measured_evidence": {
+        "sample_count_total": 1162,
+        "sample_count_20d_available": 1160,
+        "hit_rate_20d": 0.5413793103448276,
+        "mean_forward_return_20d": -0.00038369650105161995,
+        "median_forward_return_20d": 0.004686550702916459,
+        "bad_loss_rate_20d": 0.1724137931034483
+      },
+      "target_problem": "The realized buy path still admits weak liquidity, regime mismatch, and stretched-entry losses.",
+      "proposed_rule_change": "Keep MA20 reclaim as the base buy trigger, but only pass it when liquidity and regime are confirmed and late/stretched entries are vetoed.",
+      "what_should_not_change": [
+        "confirmed replay data basis",
+        "same-condition audit discipline",
+        "boundary-aware compare remains backlog_only",
+        "overwrite/provenance implementation remains untouched"
+      ]
+    },
+    {
+      "scope_kind": "exact_condition",
+      "scope_name": "BOX_BREAK_INITIAL",
+      "classification": "gate_with_extra_condition",
+      "measured_evidence": {
+        "sample_count_total": 0,
+        "sample_count_20d_available": 0,
+        "evidence_state": "not_observed_in_confirmed_buy_cohort"
+      },
+      "target_problem": "No confirmed buy-cohort evidence in this audit; do not promote a breakout path on speculation.",
+      "proposed_rule_change": "Keep this path provisional and require a dedicated breakout audit before it can be widened.",
+      "what_should_not_change": [
+        "do not add score inflation for breakout-like names",
+        "do not change boundary-aware compare scope"
+      ]
+    },
+    {
+      "scope_kind": "exact_condition",
+      "scope_name": "BOTTOM_REVERSAL_INITIAL",
+      "classification": "gate_with_extra_condition",
+      "measured_evidence": {
+        "sample_count_total": 0,
+        "sample_count_20d_available": 0,
+        "evidence_state": "not_observed_in_confirmed_buy_cohort"
+      },
+      "target_problem": "No confirmed buy-cohort evidence in this audit; reversal entries need separate validation.",
+      "proposed_rule_change": "Keep as provisional and require additional confirmation instead of broadening the surface.",
+      "what_should_not_change": [
+        "do not redesign weak_recovery in this round",
+        "do not change overwrite/provenance behavior"
+      ]
+    },
+    {
+      "scope_kind": "exact_condition",
+      "scope_name": "OVEREXTENDED",
+      "classification": "drop",
+      "measured_evidence": {
+        "sample_count_total": 0,
+        "sample_count_20d_available": 0,
+        "evidence_state": "non_buy_guard_state"
+      },
+      "target_problem": "This is a veto state, not a buy condition.",
+      "proposed_rule_change": "Keep it out of the buy surface.",
+      "what_should_not_change": [
+        "do not move this into scoring",
+        "do not weaken the veto"
+      ]
+    },
+    {
+      "scope_kind": "exact_condition",
+      "scope_name": "BOX_CONSOLIDATION",
+      "classification": "drop",
+      "measured_evidence": {
+        "sample_count_total": 0,
+        "sample_count_20d_available": 0,
+        "evidence_state": "non_buy_guard_state"
+      },
+      "target_problem": "This state is not a buy trigger in the confirmed cohort.",
+      "proposed_rule_change": "Keep it out of the buy surface.",
+      "what_should_not_change": [
+        "do not convert wait states into buys"
+      ]
+    },
+    {
+      "scope_kind": "exact_condition",
+      "scope_name": "BOTTOM_BASE_WAIT",
+      "classification": "drop",
+      "measured_evidence": {
+        "sample_count_total": 0,
+        "sample_count_20d_available": 0,
+        "evidence_state": "non_buy_guard_state"
+      },
+      "target_problem": "This is a wait state, not a confirmed buy trigger.",
+      "proposed_rule_change": "Keep it out of the buy surface.",
+      "what_should_not_change": [
+        "do not add broad score inflation"
+      ]
+    },
+    {
+      "scope_kind": "exact_condition",
+      "scope_name": "WAIT",
+      "classification": "drop",
+      "measured_evidence": {
+        "sample_count_total": 0,
+        "sample_count_20d_available": 0,
+        "evidence_state": "non_buy_guard_state"
+      },
+      "target_problem": "This is a neutral state, not a buy trigger.",
+      "proposed_rule_change": "Keep it out of the buy surface.",
+      "what_should_not_change": [
+        "do not convert wait states into buy signals"
+      ]
+    },
+    {
+      "scope_kind": "context_rule",
+      "scope_name": "liquidity floor",
+      "classification": "strengthen",
+      "measured_evidence": {
+        "bucket": "weak liquidity continuation",
+        "sample_count_total": 427,
+        "sample_count_20d_available": 426,
+        "mean_forward_return_20d": -0.002193414949070977,
+        "median_forward_return_20d": 0.0018891906027669325,
+        "bad_loss_count_20d": 68
+      },
+      "target_problem": "The largest loss bucket is weak-liquidity continuation.",
+      "proposed_rule_change": "Strengthen the liquidity gate so weak-liquidity continuations do not pass just because the reclaim pattern looks acceptable.",
+      "what_should_not_change": [
+        "do not inflate scores for already-strong liquidity cases",
+        "do not change the frozen replay source"
+      ]
+    },
+    {
+      "scope_kind": "context_rule",
+      "scope_name": "regime gate",
+      "classification": "gate_with_extra_condition",
+      "measured_evidence": {
+        "bucket": "regime mismatch",
+        "sample_count_total": 77,
+        "sample_count_20d_available": 76,
+        "mean_forward_return_20d": -0.007279158863563286,
+        "median_forward_return_20d": 0.006447586024397767,
+        "bad_loss_count_20d": 18
+      },
+      "target_problem": "Regime mismatch still leaks losses into the buy surface.",
+      "proposed_rule_change": "Require a positive regime confirmation signal before allowing the buy to pass.",
+      "what_should_not_change": [
+        "do not execute boundary-aware compare in this round",
+        "do not change overwrite/provenance behavior"
+      ]
+    },
+    {
+      "scope_kind": "context_rule",
+      "scope_name": "late/stretched entry",
+      "classification": "drop",
+      "measured_evidence": {
+        "bucket": "late/stretched entry",
+        "sample_count_total": 22,
+        "sample_count_20d_available": 22,
+        "mean_forward_return_20d": -0.02593635577104384,
+        "median_forward_return_20d": -0.015790560478735505,
+        "bad_loss_count_20d": 7
+      },
+      "target_problem": "Late and stretched entries are the worst contextual loss bucket after liquidity.",
+      "proposed_rule_change": "Add a veto for high-wick, stretched entries rather than trying to rescue them with score inflation.",
+      "what_should_not_change": [
+        "do not broaden the buy surface to compensate",
+        "do not touch MeeMee UI or publish flows"
+      ]
+    },
+    {
+      "scope_kind": "context_rule",
+      "scope_name": "pullback / rebound",
+      "classification": "keep",
+      "measured_evidence": {
+        "bucket": "pullback / rebound",
+        "sample_count_total": 218,
+        "sample_count_20d_available": 218,
+        "mean_forward_return_20d": 0.003519718073367095,
+        "median_forward_return_20d": 0.008437500896128047,
+        "hit_rate_20d": 0.5963302752293578
+      },
+      "target_problem": "This is the cleanest surviving buy context and should remain available.",
+      "proposed_rule_change": "Keep this as the preferred buy context inside the MA20 reclaim surface.",
+      "what_should_not_change": [
+        "do not gate away the clean rebound path"
+      ]
+    },
+    {
+      "scope_kind": "context_rule",
+      "scope_name": "MA recovery",
+      "classification": "weaken",
+      "measured_evidence": {
+        "bucket": "MA recovery",
+        "sample_count_total": 281,
+        "sample_count_20d_available": 281,
+        "mean_forward_return_20d": 0.009037301158168939,
+        "median_forward_return_20d": 0.011058451816745585,
+        "hit_rate_20d": 0.594306049822064,
+        "bad_loss_count_20d": 32
+      },
+      "target_problem": "MA recovery is positive on average but still contributes many losses and is weaker than the pullback/rebound subset.",
+      "proposed_rule_change": "Narrow the MA recovery window or require stronger confirmation before admitting it into the buy surface.",
+      "what_should_not_change": [
+        "do not inflate the score just because price is above MA20"
+      ]
+    },
+    {
+      "scope_kind": "context_rule",
+      "scope_name": "early reversal / failed breakdown recovery",
+      "classification": "gate_with_extra_condition",
+      "measured_evidence": {
+        "bucket": "early reversal / failed breakdown recovery",
+        "sample_count_total": 135,
+        "sample_count_20d_available": 135,
+        "mean_forward_return_20d": -0.012515410469347737,
+        "median_forward_return_20d": -0.006550105730053102,
+        "bad_loss_count_20d": 47
+      },
+      "target_problem": "Early reversals are fragile and still produce a negative mean return in this cohort.",
+      "proposed_rule_change": "Require extra confirmation before admitting failed-breakdown recovery patterns.",
+      "what_should_not_change": [
+        "do not redesign breakout_failure in this round"
+      ]
+    },
+    {
+      "scope_kind": "context_rule",
+      "scope_name": "box breakout",
+      "classification": "gate_with_extra_condition",
+      "measured_evidence": {
+        "bucket": "box breakout",
+        "sample_count_total": 2,
+        "sample_count_20d_available": 2,
+        "mean_forward_return_20d": -0.0020385121997115174,
+        "median_forward_return_20d": -0.0020385121997115174,
+        "bad_loss_count_20d": 0
+      },
+      "target_problem": "Box-breakout evidence is too sparse in the confirmed buy cohort to justify broad promotion.",
+      "proposed_rule_change": "Keep box breakout provisional and require more evidence before changing the buy surface.",
+      "what_should_not_change": [
+        "do not add score inflation for sparse breakout samples"
+      ]
+    }
+  ],
+  "not_observed_in_confirmed_buy_cohort": [
+    {
+      "scope_kind": "exact_condition",
+      "scope_name": "BOX_BREAK_INITIAL",
+      "status": "provisional",
+      "sample_count_total": 0
+    },
+    {
+      "scope_kind": "exact_condition",
+      "scope_name": "BOTTOM_REVERSAL_INITIAL",
+      "status": "provisional",
+      "sample_count_total": 0
+    }
+  ]
+}

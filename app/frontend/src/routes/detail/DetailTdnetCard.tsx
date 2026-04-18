@@ -1,7 +1,8 @@
-import type { Dispatch, SetStateAction } from "react";
+﻿import type { Dispatch, SetStateAction } from "react";
 
 import type { TdnetDisclosureItem, TdnetReactionSummary } from "./detailTypes";
 import { formatTdnetEventTypeLabel, formatTdnetSentimentLabel } from "./detailHelpers";
+import { formatDateTimeLabel, formatIsoDateLabel } from "../../utils/dateLabels";
 
 type FormatNumber = (value: number | null | undefined, digits?: number) => string;
 type FormatSignedPercentLabel = (value: number | null | undefined, digits?: number) => string;
@@ -32,7 +33,7 @@ export function DetailTdnetCard(props: Props) {
   return (
     <div className="detail-tdnet-card">
       <div className="detail-tdnet-card-header">
-        <div className="detail-tdnet-card-title">TDNET開示</div>
+        <div className="detail-tdnet-card-title">TDNET髢狗､ｺ</div>
         <div className="detail-tdnet-card-actions">
           {selectedTdnetDisclosures.length > 1 && (
             <div className="detail-tdnet-card-pager">
@@ -42,7 +43,7 @@ export function DetailTdnetCard(props: Props) {
                 onClick={() => setSelectedTdnetDisclosureIndex((prev) => Math.max(0, prev - 1))}
                 disabled={selectedTdnetDisclosureIndex <= 0}
               >
-                前
+                蜑・
               </button>
               <span className="detail-tdnet-card-page">
                 {selectedTdnetDisclosureIndex + 1}/{selectedTdnetDisclosures.length}
@@ -55,7 +56,7 @@ export function DetailTdnetCard(props: Props) {
                 }
                 disabled={selectedTdnetDisclosureIndex >= selectedTdnetDisclosures.length - 1}
               >
-                次
+                谺｡
               </button>
             </div>
           )}
@@ -67,7 +68,7 @@ export function DetailTdnetCard(props: Props) {
               setSelectedTdnetDisclosureIndex(0);
             }}
           >
-            閉じる
+            髢峨§繧・
           </button>
         </div>
       </div>
@@ -75,11 +76,11 @@ export function DetailTdnetCard(props: Props) {
         <div className="detail-tdnet-card-headline">{activeTdnetDisclosure.title ?? "--"}</div>
         <div className="detail-analysis-meta">
           {[
-            activeTdnetDisclosure.eventType ? `種別 ${formatTdnetEventTypeLabel(activeTdnetDisclosure.eventType)}` : null,
-            activeTdnetDisclosure.sentiment ? `評価 ${formatTdnetSentimentLabel(activeTdnetDisclosure.sentiment)}` : null,
-            activeTdnetDisclosure.importanceScore != null ? `重要度 ${formatNumber(activeTdnetDisclosure.importanceScore, 2)}` : null,
+            activeTdnetDisclosure.eventType ? `遞ｮ蛻･ ${formatTdnetEventTypeLabel(activeTdnetDisclosure.eventType)}` : null,
+            activeTdnetDisclosure.sentiment ? `隧穂ｾ｡ ${formatTdnetSentimentLabel(activeTdnetDisclosure.sentiment)}` : null,
+            activeTdnetDisclosure.importanceScore != null ? `驥崎ｦ∝ｺｦ ${formatNumber(activeTdnetDisclosure.importanceScore, 2)}` : null,
             activeTdnetDisclosure.publishedAt
-              ? `開示 ${new Date(activeTdnetDisclosure.publishedAt).toLocaleString("ja-JP")}`
+              ? `髢狗､ｺ ${formatDateTimeLabel(activeTdnetDisclosure.publishedAt)}`
               : null,
           ].filter(Boolean).join(" / ")}
         </div>
@@ -88,13 +89,13 @@ export function DetailTdnetCard(props: Props) {
         )}
         {activeTdnetReaction && (
           <div className="detail-tdnet-reaction">
-            <div className="detail-tdnet-reaction-header">株価反応</div>
+            <div className="detail-tdnet-reaction-header">Reaction</div>
             <div className="detail-tdnet-reaction-meta">
               {[
-                activeTdnetReaction.baseDate ? `基準日 ${activeTdnetReaction.baseDate}` : null,
-                activeTdnetReaction.baseClose != null ? `終値 ${formatNumber(activeTdnetReaction.baseClose, 2)}` : null,
+                activeTdnetReaction.baseDate ? `Base ${formatIsoDateLabel(activeTdnetReaction.baseDate)}` : null,
+                activeTdnetReaction.baseClose != null ? `邨ょ､ ${formatNumber(activeTdnetReaction.baseClose, 2)}` : null,
                 activeTdnetReaction.volumeRatio != null
-                  ? `出来高 ${formatNumber(activeTdnetReaction.volumeRatio, 2)}x`
+                  ? `蜃ｺ譚･鬮・${formatNumber(activeTdnetReaction.volumeRatio, 2)}x`
                   : null,
               ].filter(Boolean).join(" / ")}
             </div>
@@ -105,7 +106,7 @@ export function DetailTdnetCard(props: Props) {
                   <div className="detail-tdnet-reaction-value">
                     {formatSignedPercentLabel(reaction.returnRatio, 1)}
                   </div>
-                  <div className="detail-tdnet-reaction-date">{reaction.targetDate ?? "--"}</div>
+                  <div className="detail-tdnet-reaction-date">{formatIsoDateLabel(reaction.targetDate)}</div>
                 </div>
               ))}
             </div>
@@ -133,3 +134,4 @@ export function DetailTdnetCard(props: Props) {
     </div>
   );
 }
+

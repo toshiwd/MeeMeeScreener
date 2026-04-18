@@ -1,0 +1,184 @@
+{
+  "schema_version": "tradex_outcome_only_core_track_plan_v1",
+  "generated_at": "2026-04-17T13:55:30+09:00",
+  "status": "evidence_bearing_compare_executed",
+  "track_name": "outcome_only_ranking",
+  "track_role": "main_compare_ready_lane",
+  "main_model_objective": "direct_future_outcome_ranking",
+  "target_label": "future_outcome",
+  "target_label_details": {
+    "surface": "future-horizon label surface already used for TRADEX outcome evaluation",
+    "horizon_policy": "future 20-day outcome / teacher-evaluation equivalent",
+    "label_dependency": "outcome_only_core_track does not depend on historical judgment history"
+  },
+  "core_model_scope": "outcome_only_baseline",
+  "allowed_core_feature_families": [
+    "ohlcv_derived_features",
+    "price_volume_derived_features",
+    "regime_aware_market_features",
+    "liquidity_related_market_features"
+  ],
+  "excluded_core_feature_families": [
+    "historical_buy_sell_judgment"
+  ],
+  "allowed_secondary_layers": [
+    "operator_explanation",
+    "operator_review",
+    "optional_future_auxiliary_only_ablation"
+  ],
+  "compare_contract": {
+    "same_universe": true,
+    "same_period": true,
+    "same_top_k": true,
+    "same_regime": true,
+    "same_cost": true,
+    "same_artifact_detail_level": true,
+    "leakage_safe_out_of_sample": true,
+    "time_block_split": true,
+    "embargo": true,
+    "no_shuffle": true
+  },
+  "success_metrics": {
+    "selection_usefulness": [
+      "top_k_uplift",
+      "bad_pick_removal",
+      "changed_top10_members_count",
+      "changed_top20_members_count",
+      "boundary_score_gap"
+    ],
+    "trade_usefulness": [
+      "hit_rate",
+      "expectancy",
+      "drawdown_profile"
+    ]
+  },
+  "decision_rules": {
+    "keep": [
+      "positive same-condition top-K movement",
+      "no obvious worst-regime collapse",
+      "no evidence of leakage dependence"
+    ],
+    "hold": [
+      "compare-ready but incomplete evidence",
+      "missing corpus still blocks judgment validation only"
+    ],
+    "fail": [
+      "no-op movement",
+      "unstable sign across comparable scopes",
+      "dependence on historical judgment history"
+    ]
+  },
+  "dependency_status_on_missing_trade_value_corpus": {
+    "core_track": "not blocked",
+    "judgment_history_validation": "blocked",
+    "reason": "complete_horizon_count is still zero in the judgment trade-value corpus, so the judgment-history lane remains research-fallback only."
+  },
+  "explicit_exclusions": {
+    "historical_judgment": "not a core ranking input",
+    "boundary_aware_execution": "not started",
+    "meeMee_reflection": "not started"
+  },
+  "authoritative_artifacts": {
+    "judgment_role_decision": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\judgment_signal_role_decision.json",
+    "judgment_trade_validation_blocker": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\judgment_trade_validation_blocker.json"
+  },
+  "latest_execution": {
+    "session_id": "outcome-only-core-20260417-r2",
+    "random_seed": 29,
+    "session_scope_id": "rr_confirmed_20260323_fix6",
+    "compare_status": "compared",
+    "compare_path": "G:\\Tradex\\scratch\\research_families\\tradex-research-outcome-only-core-20260417-r2-outcome_only_ranking\\compare.json",
+    "family_leaderboard_path": "G:\\Tradex\\scratch\\research_families\\tradex-research-outcome-only-core-20260417-r2-outcome_only_ranking\\family.json",
+    "session_leaderboard_rollup_path": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\outcome_only_core_track_session_rollup.json",
+    "run_summary_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\outcome_only_core_track_run_summary.json",
+    "gate_decision_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\outcome_only_core_track_gate_decision.json",
+    "decision": "drop",
+    "decision_reason": "no_meaningful_branching_no_op",
+    "historical_judgment_excluded_from_core": true,
+    "same_condition_verification": {
+      "same_universe": true,
+      "same_period": true,
+      "same_top_k": true,
+      "same_regime": true,
+      "same_cost": true,
+      "same_artifact_detail_level": true,
+      "time_block_split": true,
+      "embargo": true,
+      "no_shuffle": true,
+      "historical_judgment_excluded": true,
+      "boundary_aware_compare_executed": false
+    },
+    "selection_metrics": {
+      "top5_uplift": 0.0,
+      "top10_uplift": 0.0,
+      "bad_pick_removal": 0.0,
+      "changed_top5_members_count": 0,
+      "changed_top10_members_count": 0,
+      "changed_top20_members_count": 0,
+      "changed_rank_count": 0,
+      "selection_divergence_reason": "no_meaningful_branching",
+      "boundary_score_gap_top5": 0.0,
+      "boundary_score_gap_top10": 0.0
+    },
+    "trade_metrics": {
+      "hit_rate": 1.0,
+      "expectancy_top5_delta": 0.0,
+      "expectancy_top10_delta": 0.0,
+      "drawdown_proxy_delta": 0.0,
+      "champion_top5_ret20_mean": -0.01082344090424695,
+      "challenger_top5_ret20_mean": -0.01082344090424695,
+      "champion_top10_ret20_mean": -0.01082344090424695,
+      "challenger_top10_ret20_mean": -0.01082344090424695,
+      "champion_monthly_top5_capture_mean": 1.0,
+      "challenger_monthly_top5_capture_mean": 1.0,
+      "champion_dd_proxy": 0.07576408632972864,
+      "challenger_dd_proxy": 0.07576408632972864,
+      "champion_turnover_proxy": 0.0,
+      "challenger_turnover_proxy": 0.0,
+      "champion_liquidity_fail_rate": 1.0,
+      "challenger_liquidity_fail_rate": 1.0,
+      "monthly_improvement_rate": 1.0,
+      "worst_regime_delta": 0.0
+    }
+  },
+  "execution_status": "evidence_bearing_compare_executed",
+  "compare_ready_status": "executed",
+  "core_feature_family_exclusions": [
+    "historical_buy_sell_judgment"
+  ],
+  "status_note": "historical_judgment_remains_explainability_only; current outcome-only baseline is closed as drop/no_op; the next compare-ready track is the single cutoff-margin redesign.",
+  "current_baseline_outcome": {
+    "session_id": "outcome-only-core-20260417-r2",
+    "decision": "drop",
+    "decision_reason": "no_meaningful_branching_no_op",
+    "compare_engine_local_decision": "hold",
+    "compare_engine_local_reason": "topk_boundary_absent",
+    "closure_state": "drop/no_op_closed",
+    "selection_metrics": {
+      "top5_uplift": 0.0,
+      "top10_uplift": 0.0,
+      "bad_pick_removal": 0.0,
+      "changed_top5_members_count": 0,
+      "changed_top10_members_count": 0,
+      "changed_top20_members_count": 0,
+      "changed_rank_count": 0,
+      "selection_divergence_reason": "no_meaningful_branching"
+    },
+    "trade_metrics": {
+      "hit_rate": 1.0,
+      "expectancy_top5_delta": 0.0,
+      "expectancy_top10_delta": 0.0,
+      "drawdown_proxy_delta": 0.0,
+      "worst_regime_delta": 0.0
+    }
+  },
+  "next_compare_ready_track": {
+    "candidate_name": "outcome_only_cutoff_margin_branch_v1",
+    "purpose": "improve_top_k_branching_near_cutoff",
+    "runtime_db_contract_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\tradex_runtime_db_contract.json",
+    "plan_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\outcome_only_branching_redesign_plan.json",
+    "status": "planned"
+  },
+  "runtime_db_contract_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\tradex_runtime_db_contract.json",
+  "next_redesign_plan_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\outcome_only_branching_redesign_plan.json"
+}

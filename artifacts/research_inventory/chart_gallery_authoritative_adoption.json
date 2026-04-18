@@ -1,0 +1,22 @@
+{
+  "schema_version": "chart_gallery_authoritative_adoption_v1",
+  "generated_at": "2026-04-17T15:14:08+09:00",
+  "status": "authoritative",
+  "intended_contract": "chart_gallery_is_the_confirmed_source_yahoo_is_the_provisional_lane",
+  "actual_daily_confirmed_source": "chart_gallery_confirmed_source(runtime_stock_db.daily_bars)",
+  "actual_daily_provisional_source": "yahoo_intraday_unconfirmed_source",
+  "overwrite_rule_status": "implemented",
+  "provisional_judgment_lane_status": "active_but_explicitly_labeled",
+  "confirmed_judgment_lane_status": "active_and_authoritative",
+  "cache_invalidation_status": "implemented_in_backend_contracts",
+  "adoption_status": "complete",
+  "remaining_gap": [
+    "live_browser_cache_state_not_directly_inspected",
+    "historical_traces_generated_before_this_contract_may_remain_misleading_until_regenerated"
+  ],
+  "evidence": {
+    "chart_data_provenance_contract": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\chart_data_provenance_contract.json",
+    "overwrite_contract": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\chart_gallery_authoritative_overwrite_contract.json",
+    "trace_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\2531_chart_source_trace_20260416.json"
+  }
+}

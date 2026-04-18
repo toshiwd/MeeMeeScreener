@@ -1,0 +1,78 @@
+{
+  "schema_version": "tradex_buy_surface_operational_diagnosis_r8_gate_decision_v1",
+  "status": "confirmed",
+  "generated_at": "2026-04-18T13:16:11+09:00",
+  "compare_family_id": "tradex-research-buy-surface-operational-diagnosis-r8-r6-by-regime",
+  "compare_path": "G:\\Tradex\\scratch\\research_families\\tradex-research-buy-surface-operational-diagnosis-r8-r6-by-regime\\compare.json",
+  "compare_unit": "symbol",
+  "selection_unit": "symbol",
+  "symbol_level_validation_status": "partial",
+  "regime_segments_evaluated": [
+    "risk_off",
+    "neutral",
+    "risk_on"
+  ],
+  "allowed_regimes": [
+    "risk_on",
+    "risk_off"
+  ],
+  "blocked_regimes": [
+    "neutral"
+  ],
+  "reason_for_blocked_regimes": {
+    "neutral": "negative_regime_local_delta_on_symbol_level"
+  },
+  "regime_segment_blocker_reason": "neutral_regime_regression_on_symbol_level",
+  "compare_engine_local_decision": "hold",
+  "compare_engine_local_reason": "neutral_regime_regression_on_symbol_level",
+  "selection_compare": {
+    "changed_top5_members_count": 10,
+    "changed_top10_members_count": 20,
+    "changed_top20_members_count": 36,
+    "changed_rank_count": 20,
+    "selection_divergence_reason": "top5_member_replacement",
+    "top5_boundary_score_gap": 0.0025000000000000022,
+    "top10_boundary_score_gap": 0.007692307692307693,
+    "top20_boundary_score_gap": 0.0005649717514124158,
+    "top5_uplift": 0.0,
+    "top10_uplift": 0.0,
+    "top20_uplift": 0.0,
+    "bad_pick_removal": 0
+  },
+  "regime_deltas": {
+    "neutral": {
+      "before": 0.002047365818819919,
+      "after": -0.008185442582773973,
+      "delta": -0.010232808401593891
+    },
+    "risk_on": {
+      "before": 0.00046413160334364973,
+      "after": 0.007637827730620171,
+      "delta": 0.007173696127276521
+    },
+    "risk_off": {
+      "before": -0.00420665833092244,
+      "after": 0.02813494419249551,
+      "delta": 0.03234160252341795
+    }
+  },
+  "decision": "keep_regime_scoped",
+  "decision_reason": "risk_off_and_risk_on_are_positive_while_neutral_regresses_so_scope_to_favorable_regimes",
+  "verify": {
+    "json_load_valid": true,
+    "compare_unit": "symbol",
+    "symbol_level_validation_status": "partial",
+    "boundary_aware_compare_executed": false,
+    "branching_happened": true,
+    "regime_segments_evaluated": 3,
+    "allowed_regimes": [
+      "risk_on",
+      "risk_off"
+    ],
+    "blocked_regimes": [
+      "neutral"
+    ],
+    "no_overwrite_provenance_regression": true,
+    "no_meemee_ui_files_modified": true
+  }
+}

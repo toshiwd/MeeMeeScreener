@@ -212,8 +212,9 @@ const ChartListCard = memo(function ChartListCard({
 }: ChartListCardProps) {
   const { ref, inView } = useInView(deferUntilInView, rootMargin);
   const maxTime = useMemo(() => parseMaxDate(maxDate), [maxDate]);
+  const livePayload = payload?.bars?.length ? payload : null;
   const basePayload = useMemo(() => {
-    if (payload?.bars?.length) return payload;
+    if (livePayload) return livePayload;
     if (fallbackSeries?.length) {
       return {
         bars: fallbackSeries,
@@ -221,16 +222,21 @@ const ChartListCard = memo(function ChartListCard({
       };
     }
     return null;
-  }, [payload, fallbackSeries]);
+  }, [fallbackSeries, livePayload]);
   const barsPayload = useMemo(() => {
     if (!basePayload) return null;
+    if (livePayload) {
+      // Live bars already come from the current chart-data path; keep them intact so
+      // intraday provisional rows are visible even when the ranking snapshot is older.
+      return basePayload;
+    }
     if (maxTime === null) return basePayload;
     const filteredBars = basePayload.bars.filter((row) => {
       const time = normalizeTime(row[0]);
       return time != null && time <= maxTime;
     });
     return { ...basePayload, bars: filteredBars };
-  }, [basePayload, maxTime]);
+  }, [basePayload, livePayload, maxTime]);
   const chartKey = `${code}-${rangeBars ?? "all"}-${densityKey ?? "default"}`;
 
   const handleOpen = () => onOpenDetail(code);

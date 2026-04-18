@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+from datetime import date
 from pathlib import Path
 
 import duckdb
@@ -10,6 +11,7 @@ import pytest
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from app.backend.services import toredex_simulation_service
+from app.backend.services.toredex.toredex_repository import ToredexRepository
 
 
 def _seed_toredex_tables(db_path: Path) -> None:
@@ -198,3 +200,124 @@ def test_get_validate_simulation_applies_limit(monkeypatch: pytest.MonkeyPatch, 
     assert len(result["items"]) == 2
     assert [item["season_id"] for item in result["items"]] == ["validate_gamma", "validate_alpha"]
     assert result["summary"]["count"] == 3
+
+
+def test_ensure_season_handles_table_without_primary_key(tmp_path: Path) -> None:
+    db_path = tmp_path / "toredex_repo_compat.duckdb"
+    conn = duckdb.connect(str(db_path))
+    try:
+        conn.execute(
+            """
+            CREATE TABLE toredex_seasons (
+                season_id VARCHAR,
+                mode VARCHAR,
+                start_date DATE,
+                end_date DATE,
+                initial_cash BIGINT,
+                policy_version VARCHAR,
+                config_json VARCHAR,
+                config_hash VARCHAR,
+                created_at TIMESTAMP
+            )
+            """
+        )
+        repo = ToredexRepository(conn=conn)
+        repo.ensure_season(
+            season_id="season_compat",
+            mode="BACKTEST",
+            start_date=date(2024, 1, 1),
+            initial_cash=10_000_000,
+            policy_version="toredex.v8",
+            config_json="{}",
+            config_hash="hash123",
+        )
+        row = conn.execute(
+            "SELECT season_id, mode, initial_cash, policy_version, config_hash FROM toredex_seasons WHERE season_id = ?",
+            ["season_compat"],
+        ).fetchone()
+        assert row == ("season_compat", "BACKTEST", 10000000, "toredex.v8", "hash123")
+    finally:
+        conn.close()
+
+
+def test_save_trades_handles_table_without_primary_key(tmp_path: Path) -> None:
+    db_path = tmp_path / "toredex_trades_compat.duckdb"
+    conn = duckdb.connect(str(db_path))
+    try:
+        conn.execute(
+            """
+            CREATE TABLE toredex_trades (
+                season_id VARCHAR,
+                "asOf" DATE,
+                trade_id VARCHAR,
+                ticker VARCHAR,
+                side VARCHAR,
+                delta_units INTEGER,
+                price DOUBLE,
+                reason_id VARCHAR,
+                fees_bps DOUBLE,
+                slippage_bps DOUBLE,
+                borrow_bps_annual DOUBLE,
+                notional DOUBLE,
+                fees_cost DOUBLE,
+                slippage_cost DOUBLE,
+                borrow_cost DOUBLE,
+                created_at TIMESTAMP
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO toredex_trades (
+                season_id, "asOf", trade_id, ticker, side, delta_units, price, reason_id,
+                fees_bps, slippage_bps, borrow_bps_annual, notional, fees_cost, slippage_cost, borrow_cost, created_at
+            ) VALUES ('season_compat', DATE '2024-01-01', 'dup_trade', '1301', 'long', 2, 100.0, 'R1',
+                      0.0, 0.0, 0.0, 200.0, 0.0, 0.0, 0.0, CURRENT_TIMESTAMP)
+            """
+        )
+        repo = ToredexRepository(conn=conn)
+        repo.save_trades(
+            [
+                {
+                    "season_id": "season_compat",
+                    "asOf": date(2024, 1, 1),
+                    "trade_id": "dup_trade",
+                    "ticker": "1301",
+                    "side": "long",
+                    "delta_units": 2,
+                    "price": 100.0,
+                    "reason_id": "R1",
+                    "fees_bps": 0.0,
+                    "slippage_bps": 0.0,
+                    "borrow_bps_annual": 0.0,
+                    "notional": 200.0,
+                    "fees_cost": 0.0,
+                    "slippage_cost": 0.0,
+                    "borrow_cost": 0.0,
+                },
+                {
+                    "season_id": "season_compat",
+                    "asOf": date(2024, 1, 2),
+                    "trade_id": "new_trade",
+                    "ticker": "1301",
+                    "side": "long",
+                    "delta_units": 3,
+                    "price": 101.0,
+                    "reason_id": "R2",
+                    "fees_bps": 0.0,
+                    "slippage_bps": 0.0,
+                    "borrow_bps_annual": 0.0,
+                    "notional": 303.0,
+                    "fees_cost": 0.0,
+                    "slippage_cost": 0.0,
+                    "borrow_cost": 0.0,
+                },
+            ]
+        )
+        rows = conn.execute(
+            "SELECT trade_id, COUNT(*) FROM toredex_trades WHERE season_id = ? GROUP BY trade_id ORDER BY trade_id",
+            ["season_compat"],
+        ).fetchall()
+        assert rows == [("dup_trade", 1), ("new_trade", 1)]
+    finally:
+        conn.close()

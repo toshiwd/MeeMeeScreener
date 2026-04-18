@@ -1,0 +1,63 @@
+{
+  "schema_version": "chart_gallery_authoritative_overwrite_contract_v1",
+  "generated_at": "2026-04-17T15:14:08+09:00",
+  "status": "authoritative",
+  "scope": "meeMee_detail_chart_source_overwrite_contract",
+  "intended_contract": {
+    "confirmed_chart_source_priority": "chart_gallery_confirmed_source",
+    "provisional_chart_source_priority": "yahoo_intraday_unconfirmed_source",
+    "confirmed_judgment_basis": "chart_gallery_confirmed_source_only",
+    "provisional_judgment_basis": "yahoo_intraday_unconfirmed_source_only"
+  },
+  "overlap_replacement_rule": {
+    "rule": "confirmed_import_replaces_overlapping_provisional_yahoo_coverage",
+    "replacement_scope": "full_overlap_interval",
+    "display_result": "confirmed_or_mixed_by_coverage",
+    "judgment_result": "confirmed_only_when_confirmed_coverage_exists"
+  },
+  "overwrite_trigger_condition_after_import": {
+    "trigger": "confirmed_chart_gallery_import_with_overlapping_date_or_range",
+    "required_action": "replace_overlapping_provisional_chart_and_judgment_basis"
+  },
+  "overwrite_scope": "full_range_for_overlapping_rows",
+  "judgment_cache_invalidation": {
+    "required": true,
+    "action": "invalidate_or_recompute_overlapping_provisional_judgment_artifacts",
+    "stale_cache_visibility": "must_not_mask_confirmed_coverage"
+  },
+  "partial_import_fail_behavior": {
+    "status": "fail_closed",
+    "rule": "if_confirmed_import_is_partial_confirmed_judgment_must_not_be_promoted"
+  },
+  "overwrite_contract_status": "verified_live",
+  "live_validation_status": "verified",
+  "browser_cache_validation_status": "verified",
+  "remaining_browser_cache_risk": "none",
+  "remaining_cache_aliasing_risk": "present",
+  "verification_artifacts": {
+    "status": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\chart_gallery_overwrite_e2e_status.json",
+    "trace_sample": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\chart_gallery_overwrite_trace_sample.json"
+  },
+  "verification_summary": {
+    "overlap_replacement_applied": true,
+    "cache_invalidation_applied": true,
+    "judgment_basis_after_import": "confirmed"
+  },
+  "allowed_payload_classifications": {
+    "display_basis_classification": ["confirmed", "provisional", "mixed"],
+    "judgment_basis_classification": ["confirmed", "provisional", "dual"],
+    "overwrite_status": [
+      "authoritative_confirmed",
+      "provisional_only",
+      "provisional_replaced_by_confirmed"
+    ]
+  },
+  "implementation_references": {
+    "confirmed_store": "runtime_stock_db.daily_bars",
+    "provisional_store": "yahoo_chart_overlay",
+    "daily_chart_endpoint": "app/backend/api/routers/ticker.py",
+    "batch_chart_endpoint": "app/backend/api/routers/bars.py",
+    "provisional_ingest_cleanup": "app/backend/services/data/yahoo_daily_ingest.py",
+    "confirmed_import_overwrite": "app/backend/ingest_txt.py"
+  }
+}

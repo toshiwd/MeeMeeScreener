@@ -1,0 +1,171 @@
+{
+  "authoritative_sources": {
+    "baseline_path": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_revision_r4_reclaim_quality_gate.json",
+    "candidate_gate_decision": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\candidate_gate_decision.json",
+    "challenger_path": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_surface_operational_challenger_r9_r6_regime_scoped.json",
+    "research_inventory": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\research_inventory.json",
+    "source_challenger_surface": "buy_surface_operational_challenger_r9_r6_regime_scoped",
+    "source_compare_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-buy-surface-operational-diagnosis-r8-r6-by-regime\\compare.json",
+    "source_diagnosis_lane": "buy_surface_operational_diagnosis_r8_r6_by_regime"
+  },
+  "baseline_path": {
+    "artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_revision_r4_reclaim_quality_gate.json",
+    "name": "current_operational_baseline_path",
+    "source_surface": "buy_judgment_revision_r4_reclaim_quality_gate"
+  },
+  "challenger_path": {
+    "artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_surface_operational_challenger_r9_r6_regime_scoped.json",
+    "name": "buy_surface_operational_challenger_r9_r6_regime_scoped",
+    "scope_policy_source": "buy_surface_operational_diagnosis_r8_r6_by_regime",
+    "source_surface": "buy_surface_operational_challenger_r6_r4_default"
+  },
+  "compare_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-buy-surface-operational-compare-r10-r9-scope-aware\\compare.json",
+  "compare_contract": {
+    "allowed_regimes": [
+      "risk_off",
+      "risk_on"
+    ],
+    "blocked_regimes": [
+      "neutral"
+    ],
+    "boundary_aware_compare_executed": false,
+    "compare_unit": "symbol",
+    "confirmed_data_only": true,
+    "confirmed_symbol_universe_count": 671,
+    "fallback_policy": "baseline_in_blocked_regime",
+    "regime_segments_evaluated": [
+      "risk_off",
+      "neutral",
+      "risk_on"
+    ],
+    "same_artifact_detail_level": true,
+    "same_cost": true,
+    "same_period": true,
+    "same_regime": true,
+    "same_top_k": true,
+    "same_universe": true,
+    "scope_application_mode": "regime_scoped_operational_overlay",
+    "scope_aware_compare_executed": true,
+    "scope_aware_metric_source": "direct_rerun",
+    "selection_unit": "symbol",
+    "symbol_level_validation_status": "partial"
+  },
+  "compare_engine": {
+    "candidate_local_decision": "hold",
+    "compare_engine_local_decision": "hold",
+    "compare_engine_local_reason": "liquidity_quality_not_improved",
+    "decision_reasons": [
+      "risk_off_and_risk_on_positive_regime_delta",
+      "neutral_regime_falls_back_to_baseline",
+      "global_symbol_level_uplift_flat",
+      "scope_aware_metric_source_direct_rerun",
+      "liquidity_quality_not_improved"
+    ],
+    "promote_ready": false,
+    "promote_reasons": [
+      "liquidity_quality_not_improved",
+      "scope_aware_metric_source_direct_rerun"
+    ],
+    "scope_application_mode": "regime_scoped_operational_overlay",
+    "scope_aware_authoritative_decision": "hold",
+    "scope_aware_compare_executed": true,
+    "scope_aware_local_decision": "hold",
+    "scope_aware_metric_source": "direct_rerun",
+    "scope_aware_promote_ready": false
+  },
+  "compare_engine_local_decision": "hold",
+  "compare_engine_local_reason": "raw_symbol_level_pair_still_flat_without_scope_aware_rerun",
+  "decision": "hold",
+  "decision_reason": "scope_aware_rerun_completed; allowed regimes remain positive; neutral falls back to baseline; liquidity_quality_not_improved",
+  "fallback_to_baseline_counts": {
+    "neutral": 45,
+    "risk_off": 0,
+    "risk_on": 0
+  },
+  "generated_at": "2026-04-18T10:17:38.065006+00:00",
+  "global_scoped_policy_mean_return_after_estimate": 0.013237526093267248,
+  "global_scoped_policy_mean_return_before_estimate": -0.0012504576636076592,
+  "global_scoped_policy_mean_return_delta_estimate": 0.014487983756874906,
+  "liquidity_quality_delta": -799222037.3266587,
+  "materialization_mode": "scope_aware_direct_rerun_from_confirmed_compare",
+  "regime_wise_result_deltas_after_scoping": {
+    "neutral": {
+      "after": 0.002047365818819919,
+      "before": 0.002047365818819919,
+      "delta": 0.0
+    },
+    "risk_off": {
+      "after": 0.02813494419249551,
+      "before": -0.00420665833092244,
+      "delta": 0.03234160252341795
+    },
+    "risk_on": {
+      "after": 0.007637827730620171,
+      "before": 0.00046413160334364973,
+      "delta": 0.007173696127276521
+    }
+  },
+  "schema_version": "tradex_buy_surface_operational_compare_r10_r9_scope_aware_v1",
+  "scope_application_mode": "regime_scoped_operational_overlay",
+  "scope_aware_authoritative_decision": "hold",
+  "scope_aware_compare_executed": true,
+  "scope_aware_local_decision": "hold",
+  "scope_aware_metric_source": "direct_rerun",
+  "scope_aware_promote_ready": false,
+  "scope_policy": {
+    "allowed_regimes": [
+      "risk_off",
+      "risk_on"
+    ],
+    "blocked_regimes": [
+      "neutral"
+    ],
+    "fallback_policy": "baseline_in_blocked_regime",
+    "scope_aware_compare_executed": true,
+    "scope_aware_metric_source": "direct_rerun",
+    "scope_mode": "regime_scoped_operational_overlay"
+  },
+  "scoped_activation_counts": {
+    "neutral": 0,
+    "risk_off": 65,
+    "risk_on": 83
+  },
+  "scoped_weighted_regime_delta_estimate": 0.016639588333345962,
+  "selection_compare": {
+    "bad_pick_removal": 0,
+    "changed_rank_count": 20,
+    "changed_top10_members_count": 20,
+    "changed_top20_members_count": 36,
+    "changed_top5_members_count": 10,
+    "selection_divergence_reason": "top5_member_replacement",
+    "top10_boundary_score_gap": 0.007692307692307693,
+    "top10_uplift": 0.0,
+    "top20_boundary_score_gap": 0.0005649717514124158,
+    "top20_uplift": 0.0,
+    "top5_boundary_score_gap": 0.0025000000000000022,
+    "top5_uplift": 0.0
+  },
+  "source_diagnosis_lane": "buy_surface_operational_diagnosis_r8_r6_by_regime",
+  "source_surface": "buy_surface_operational_challenger_r6_r4_default",
+  "status": "confirmed",
+  "verify": {
+    "allowed_regimes": [
+      "risk_off",
+      "risk_on"
+    ],
+    "blocked_regimes": [
+      "neutral"
+    ],
+    "boundary_aware_compare_executed": false,
+    "branching_happened": true,
+    "compare_unit": "symbol",
+    "json_load_valid": true,
+    "no_meemee_ui_files_modified": true,
+    "no_overwrite_provenance_regression": true,
+    "regime_segments_evaluated": 3,
+    "scope_aware_compare_executed": true,
+    "scope_aware_metric_source": "direct_rerun",
+    "scope_overlay_confirmed_data_only": true,
+    "symbol_level_validation_status": "partial"
+  }
+}

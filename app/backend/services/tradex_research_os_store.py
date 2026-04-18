@@ -158,7 +158,18 @@ def _atomic_write_json(path: Path, payload: dict[str, Any]) -> Path:
             handle.write("\n")
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(tmp_path, path)
+        try:
+            os.replace(tmp_path, path)
+        except PermissionError:
+            # Windows can transiently block atomic replace when the target tree is under test or AV scans.
+            # Fall back to an in-place write so research artifacts are still emitted deterministically.
+            path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
+            for _ in range(3):
+                try:
+                    os.remove(tmp_path)
+                    break
+                except OSError:
+                    time.sleep(0.02)
         return path
     except Exception:
         try:

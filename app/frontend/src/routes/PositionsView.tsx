@@ -18,6 +18,7 @@ import {
 import { downloadChartScreenshots } from "../utils/chartScreenshot";
 import { useVisibleCodesPrefetch } from "./list/useVisibleCodesPrefetch";
 import { openDetailWithPrefetch } from "./detail/openDetailWithPrefetch";
+import { formatIsoDateLabel } from "../utils/dateLabels";
 
 type HeldItem = {
   symbol: string;
@@ -54,13 +55,7 @@ type RoundEvent = {
 };
 
 const formatDate = (value: string | null | undefined) => {
-  if (!value) return "--";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "--";
-  const yyyy = date.getFullYear();
-  const mm = String(date.getMonth() + 1).padStart(2, "0");
-  const dd = String(date.getDate()).padStart(2, "0");
-  return `${yyyy}/${mm}/${dd}`;
+  return formatIsoDateLabel(value);
 };
 
 const extractErrorMessage = (err: unknown, fallback = "不明なエラー") => {

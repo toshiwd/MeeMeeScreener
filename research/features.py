@@ -76,6 +76,11 @@ FEATURE_COLUMNS: tuple[str, ...] = (
     "atr_pct_rank60",          # ATR60日パーセンタイルランク
     "upper_shadow_ratio",      # 上ヒゲ/レンジ比（天井抵抗）
     "lower_shadow_ratio",      # 下ヒゲ/レンジ比（下値サポート）
+    # --- v3_short: Ceiling Stall family ---
+    # "cs_failed_breakout_high20",
+    # "cs_upper_wick_reject_high",
+    # "cs_vol_climax_stall",
+    # "cs_weak_close_high_area",
 )
 T = TypeVar("T")
 
@@ -232,7 +237,10 @@ def build_features_for_asof(
     if not universe_codes:
         raise ValueError(f"no universe codes for asof={asof_str}")
 
-    source = daily[(daily["code"].isin(universe_codes)) & (daily["date"] <= asof_ts)].copy()
+    # Memory Equivalence Fix: Limit history load to 1500 days (~4.1 years).
+    # This safely encompasses the max 252-day shift and 20-month rolling ops even for sparsely traded/suspended stocks.
+    min_date = asof_ts - pd.Timedelta(days=1500)
+    source = daily[(daily["code"].isin(universe_codes)) & (daily["date"] <= asof_ts) & (daily["date"] >= min_date)].copy()
     if source.empty:
         raise ValueError(f"daily rows are empty for asof={asof_str}")
     source = source.sort_values(["code", "date"]).reset_index(drop=True)
@@ -443,6 +451,10 @@ def build_features_for_asof(
     source["cs_pinbar_bear"] = (
         (_upper_wick >= 3.0 * _body_abs) & (_upper_wick >= _range * 0.55)
     ).astype(float)
+    
+    # Stability fix: Defragment after v3 patterns
+    source = source.copy()
+    g = source.groupby("code", sort=False)
 
     # 丸坊主: ヒゲが短く実体が大きい
     _wick_total = _upper_wick + _lower_wick
@@ -595,6 +607,10 @@ def build_features_for_asof(
         lambda w: float(np.sum(w <= w[-1]) / len(w)) if len(w) > 0 else 0.5, raw=True
     )
     source["market_ret20_rank"] = source["date"].map(_daily_mret_rank)
+    
+    # Stability fix: Defragment after Regime features
+    source = source.copy()
+    g = source.groupby("code", sort=False)
 
     # ボラティリティレジーム: ATR14の60日パーセンタイルで3段階
     _atr_pct_fn = lambda s: s.rolling(60, min_periods=10).apply(
@@ -615,6 +631,10 @@ def build_features_for_asof(
         _mkt_bull > 0.5, 2.0,
         np.where(_mkt_bear > 0.5, 0.0, 1.0)
     )
+
+    # Stability fix: Consolidate DataFrame to prevent fragmentation degradation
+    source = source.copy()
+    g = source.groupby("code", sort=False)
 
     # ================================================================
     # v3_deep 新特徴量: クロスセクション強度
@@ -640,6 +660,10 @@ def build_features_for_asof(
 
     # セクター内出来高ランク
     source["cs_vol_rank_sector"] = source.groupby("date")["vol_ratio20"].rank(pct=True)
+    
+    # Stability fix: Defragment after Cross-section features
+    source = source.copy()
+    g = source.groupby("code", sort=False)
 
     # ================================================================
     # v3_deep 新特徴量: ボラティリティ構造
@@ -653,6 +677,40 @@ def build_features_for_asof(
     _lower_lo = source[["close", "open"]].min(axis=1) - source["low"]
     source["upper_shadow_ratio"] = _upper_hi / _total_range
     source["lower_shadow_ratio"] = _lower_lo / _total_range
+
+    # ================================================================
+    # v3_short: Ceiling Stall family (天井失速)
+    # 目的: pattern-miss-driven な short false positive の bad-pick removal
+    # ================================================================
+    _prev_high20 = g["high20"].shift(1)
+    _vol_ma20_prev = g["vol_ma20"].shift(1)
+    _prev_close = g["close"].shift(1)
+    _prev_open = g["open"].shift(1)
+    _prev_up_day = (_prev_close > _prev_open)
+
+    # source["cs_failed_breakout_high20"] = (
+    #     (source["high"] > _prev_high20) &
+    #     (source["close"] < _prev_close) &
+    #     (source["close"] <= source["open"])
+    # ).astype(float)
+    #
+    # source["cs_upper_wick_reject_high"] = (
+    #     (source["high"] >= _prev_high20 * 0.98) &
+    #     (_upper_hi / _total_range >= 0.5)
+    # ).astype(float)
+    #
+    # source["cs_vol_climax_stall"] = (
+    #     (source["volume"] >= _vol_ma20_prev * 2.0) &
+    #     _prev_up_day &
+    #     (source["high"] >= _prev_high20 * 0.98) &
+    #     (source["close"] < source["open"])
+    # ).astype(float)
+    #
+    # _close_pos = (source["close"] - source["low"]) / _total_range
+    # source["cs_weak_close_high_area"] = (
+    #     (source["high"] >= _prev_high20 * 0.98) &
+    #     (_close_pos <= 0.25)
+    # ).astype(float)
 
     asof_rows = source[source["date"] == asof_ts].copy()
     if asof_rows.empty:

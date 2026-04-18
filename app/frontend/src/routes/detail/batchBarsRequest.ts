@@ -13,6 +13,7 @@ export type BatchBarsRequestPayload = {
 export type BatchBarsFramePayload = {
   bars?: number[][];
   boxes?: import("../../storeTypes").Box[];
+  provenance?: import("../../storeTypes").ChartDataProvenance | null;
 };
 
 export type BatchBarsResponseMeta = {

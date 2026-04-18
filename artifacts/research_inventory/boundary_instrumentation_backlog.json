@@ -1,0 +1,60 @@
+{
+  "schema_version": "tradex_boundary_instrumentation_backlog_v1",
+  "generated_at": "2026-04-17T13:05:00+09:00",
+  "candidate_name": "bp_liquidity_trap_penalty/v1",
+  "instrumentation_completion_status": "partial",
+  "backlog_state": "partial_compare_ready",
+  "items": [
+    {
+      "item_name": "top10_boundary_thickness_measure",
+      "status": "completed",
+      "source_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\boundary_instrumentation_status.json"
+    },
+    {
+      "item_name": "top10_boundary_score_gap_measure",
+      "status": "completed",
+      "source_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\boundary_instrumentation_status.json"
+    },
+    {
+      "item_name": "changed_top5_near_boundary_measure",
+      "status": "completed",
+      "source_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\boundary_instrumentation_status.json"
+    },
+    {
+      "item_name": "changed_top10_near_boundary_measure",
+      "status": "completed",
+      "source_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\boundary_instrumentation_status.json"
+    },
+    {
+      "item_name": "top20_boundary_instrumentation_requirement",
+      "status": "remaining_gap_measured",
+      "source_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_keep_envelope.json",
+      "missing_fields": [
+        "top20_measurements_not_directly_scored_in_current_contract"
+      ],
+      "observability_state": "contract_limited_not_observable",
+      "remaining_gap": [
+        "current_contract_top_k_is_5",
+        "top20_rankings_not_exposed_in_authoritative_compare_summary"
+      ],
+      "measured_state": "top20_not_observable_in_current_contract"
+    }
+  ],
+  "readiness_gap_summary": {
+    "completed_measurements": 4,
+    "missing_measurements": 1,
+    "blocking_reason": "top20_not_instrumented",
+    "compare_execution_allowed": false,
+    "remaining_gap_state": "top20_not_observable_in_current_contract",
+    "remaining_gap_items": [
+      "current_contract_top_k_is_5",
+      "top20_rankings_not_exposed_in_authoritative_compare_summary"
+    ]
+  },
+  "source_artifacts": {
+    "boundary_instrumentation_status": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\boundary_instrumentation_status.json",
+    "keep_envelope": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_keep_envelope.json",
+    "compare_summary": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_trap_penalty_v2_compare_summary.json",
+    "turnover_shadow_blocker_eval": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_turnover_blocker_shadow_eval.json"
+  }
+}

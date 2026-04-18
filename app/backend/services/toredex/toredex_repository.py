@@ -32,34 +32,39 @@ class ToredexRepository:
         config_hash: str,
     ) -> None:
         with self._conn_ctx() as conn:
-            conn.execute(
-                """
-                INSERT OR IGNORE INTO toredex_seasons (
-                    season_id,
-                    mode,
-                    start_date,
-                    end_date,
-                    initial_cash,
-                    policy_version,
-                    config_json,
-                    config_hash,
-                    created_at
-                ) VALUES (?, ?, ?, NULL, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                """,
-                [
-                    season_id,
-                    mode,
-                    start_date,
-                    int(initial_cash),
-                    policy_version,
-                    config_json,
-                    config_hash,
-                ],
-            )
             row = conn.execute(
                 "SELECT config_hash, policy_version FROM toredex_seasons WHERE season_id = ?",
                 [season_id],
             ).fetchone()
+            if not row:
+                conn.execute(
+                    """
+                    INSERT INTO toredex_seasons (
+                        season_id,
+                        mode,
+                        start_date,
+                        end_date,
+                        initial_cash,
+                        policy_version,
+                        config_json,
+                        config_hash,
+                        created_at
+                    ) VALUES (?, ?, ?, NULL, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    """,
+                    [
+                        season_id,
+                        mode,
+                        start_date,
+                        int(initial_cash),
+                        policy_version,
+                        config_json,
+                        config_hash,
+                    ],
+                )
+                row = conn.execute(
+                    "SELECT config_hash, policy_version FROM toredex_seasons WHERE season_id = ?",
+                    [season_id],
+                ).fetchone()
         if not row:
             raise RuntimeError(f"season create failed: {season_id}")
         if row[0] is not None and str(row[0]) != str(config_hash):
@@ -352,13 +357,23 @@ class ToredexRepository:
         if not trades:
             return
         with self._conn_ctx() as conn:
+            existing_trade_ids = {
+                str(row[0])
+                for row in conn.execute(
+                    "SELECT trade_id FROM toredex_trades WHERE trade_id IN (" + ",".join(["?"] * len(trades)) + ")",
+                    [str(trade["trade_id"]) for trade in trades],
+                ).fetchall()
+            }
             rows: list[list[Any]] = []
             for trade in trades:
+                trade_id = str(trade["trade_id"])
+                if trade_id in existing_trade_ids:
+                    continue
                 rows.append(
                     [
                         trade["season_id"],
                         trade["asOf"],
-                        trade["trade_id"],
+                        trade_id,
                         trade["ticker"],
                         trade["side"],
                         trade["delta_units"],
@@ -373,29 +388,30 @@ class ToredexRepository:
                         trade.get("borrow_cost", 0.0),
                     ]
                 )
-            conn.executemany(
-                """
-                INSERT OR IGNORE INTO toredex_trades (
-                    season_id,
-                    "asOf",
-                    trade_id,
-                    ticker,
-                    side,
-                    delta_units,
-                    price,
-                    reason_id,
-                    fees_bps,
-                    slippage_bps,
-                    borrow_bps_annual,
-                    notional,
-                    fees_cost,
-                    slippage_cost,
-                    borrow_cost,
-                    created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                """,
-                rows,
-            )
+            if rows:
+                conn.executemany(
+                    """
+                    INSERT INTO toredex_trades (
+                        season_id,
+                        "asOf",
+                        trade_id,
+                        ticker,
+                        side,
+                        delta_units,
+                        price,
+                        reason_id,
+                        fees_bps,
+                        slippage_bps,
+                        borrow_bps_annual,
+                        notional,
+                        fees_cost,
+                        slippage_cost,
+                        borrow_cost,
+                        created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    """,
+                    rows,
+                )
 
     def save_daily_metrics(self, metric: dict[str, Any]) -> None:
         with self._conn_ctx() as conn:

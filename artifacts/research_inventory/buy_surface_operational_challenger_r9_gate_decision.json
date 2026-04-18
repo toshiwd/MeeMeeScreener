@@ -1,0 +1,92 @@
+{
+  "schema_version": "tradex_buy_surface_operational_challenger_r9_gate_decision_v1",
+  "status": "confirmed",
+  "generated_at": "2026-04-18T13:30:02+09:00",
+  "compare_family_id": "tradex-research-buy-surface-operational-challenger-r9-r6-regime-scoped",
+  "compare_path": "G:\\Tradex\\scratch\\research_families\\tradex-research-buy-surface-operational-challenger-r9-r6-regime-scoped\\compare.json",
+  "compare_unit": "symbol",
+  "selection_unit": "symbol",
+  "symbol_level_validation_status": "partial",
+  "regime_segments_evaluated": [
+    "risk_off",
+    "neutral",
+    "risk_on"
+  ],
+  "allowed_regimes": [
+    "risk_off",
+    "risk_on"
+  ],
+  "blocked_regimes": [
+    "neutral"
+  ],
+  "reason_for_blocked_regimes": {
+    "neutral": "negative_regime_local_delta_on_symbol_level"
+  },
+  "regime_segment_blocker_reason": "neutral_regime_regression_on_symbol_level",
+  "compare_engine_local_decision": "hold",
+  "compare_engine_local_reason": "raw_symbol_level_pair_still_flat_without_scope_aware_rerun",
+  "selection_compare": {
+    "changed_top5_members_count": 10,
+    "changed_top10_members_count": 20,
+    "changed_top20_members_count": 36,
+    "changed_rank_count": 20,
+    "selection_divergence_reason": "top5_member_replacement",
+    "top5_boundary_score_gap": 0.0025000000000000022,
+    "top10_boundary_score_gap": 0.007692307692307693,
+    "top20_boundary_score_gap": 0.0005649717514124158,
+    "top5_uplift": 0.0,
+    "top10_uplift": 0.0,
+    "top20_uplift": 0.0,
+    "bad_pick_removal": 0
+  },
+  "scoped_activation_counts": {
+    "risk_off": 65,
+    "neutral": 0,
+    "risk_on": 83
+  },
+  "fallback_to_baseline_counts": {
+    "risk_off": 0,
+    "neutral": 45,
+    "risk_on": 0
+  },
+  "regime_deltas_after_scoping": {
+    "risk_off": {
+      "before": -0.00420665833092244,
+      "after": 0.02813494419249551,
+      "delta": 0.03234160252341795
+    },
+    "neutral": {
+      "before": 0.002047365818819919,
+      "after": 0.002047365818819919,
+      "delta": 0.0
+    },
+    "risk_on": {
+      "before": 0.00046413160334364973,
+      "after": 0.007637827730620171,
+      "delta": 0.007173696127276521
+    }
+  },
+  "global_scoped_policy_mean_return_before_estimate": -0.0012504576636076592,
+  "global_scoped_policy_mean_return_after_estimate": 0.013237526093267248,
+  "global_scoped_policy_mean_return_delta_estimate": 0.014487983756874906,
+  "scoped_weighted_regime_delta_estimate": 0.016639588333345962,
+  "liquidity_quality_delta": -799222037.3266587,
+  "decision": "keep",
+  "decision_reason": "risk_off_and_risk_on_positive_while_neutral_falls_back_to_baseline; scoped_policy_mean_return_delta_estimate_positive",
+  "verify": {
+    "json_load_valid": true,
+    "compare_unit": "symbol",
+    "symbol_level_validation_status": "partial",
+    "boundary_aware_compare_executed": false,
+    "branching_happened": true,
+    "allowed_regimes": [
+      "risk_off",
+      "risk_on"
+    ],
+    "blocked_regimes": [
+      "neutral"
+    ],
+    "no_overwrite_provenance_regression": true,
+    "no_meemee_ui_files_modified": true
+  }
+}

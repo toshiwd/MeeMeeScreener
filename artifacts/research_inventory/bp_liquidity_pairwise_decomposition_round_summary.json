@@ -1,0 +1,86 @@
+{
+  "baseline_keep_candidate": "bp_liquidity_trap_penalty/v1",
+  "baseline_run_id": "tradex-research-bp-liquidity-keep-stability-combo-20260417-v1-baseline",
+  "compare_family_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1\\compare.json",
+  "confirmed_findings": [
+    "The monolithic liquidity keep remains the only keep candidate under the fixed same-condition contract.",
+    "The turnover warning is explicitly modeled as a soft warning rather than a silent fallback.",
+    "All three 2-element liquidity branches were compare-ready but no-op relative to the monolithic keep."
+  ],
+  "dropped_branches": [
+    {
+      "candidate_name": "liq_adv20_plus_turnover_penalty_v1",
+      "compare_engine_local_decision": "hold",
+      "compare_engine_local_reason": "topk_boundary_absent",
+      "compare_ready_run_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1\\runs\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1-liq_adv20_plus_turnover_penalty_v1\\run.json",
+      "decision": "drop",
+      "decision_reason": "no_meaningful_branching_no_op"
+    },
+    {
+      "candidate_name": "liq_turnover_plus_followthrough_penalty_v1",
+      "compare_engine_local_decision": "hold",
+      "compare_engine_local_reason": "topk_boundary_absent",
+      "compare_ready_run_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1\\runs\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1-liq_turnover_plus_followthrough_penalty_v1\\run.json",
+      "decision": "drop",
+      "decision_reason": "no_meaningful_branching_no_op"
+    },
+    {
+      "candidate_name": "liq_adv20_plus_followthrough_penalty_v1",
+      "compare_engine_local_decision": "hold",
+      "compare_engine_local_reason": "topk_boundary_absent",
+      "compare_ready_run_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1\\runs\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1-liq_adv20_plus_followthrough_penalty_v1\\run.json",
+      "decision": "drop",
+      "decision_reason": "no_meaningful_branching_no_op"
+    }
+  ],
+  "family_id": "tradex-research-bp-liquidity-keep-stability-combo-20260417-v1",
+  "generated_at": "2026-04-17T11:19:40.889510+09:00",
+  "monolithic_keep_state": {
+    "authoritative_candidate_gate": "keep",
+    "authoritative_gate_reason": "positive_bad_pick_removal_with_completed_coverage",
+    "authoritative_override_reason_code": "coverage_restored_keep_with_turnover_warning",
+    "compare_engine_local_decision": "hold",
+    "compare_engine_local_reason": "turnover_too_high",
+    "turnover_warning_classification": "soft_warning_non_blocking"
+  },
+  "pairwise_branching_state": {
+    "authoritative_decisions": [
+      "drop",
+      "drop",
+      "drop"
+    ],
+    "branch_overlap_state": "overlap_heavy_no_op",
+    "candidate_count": 3,
+    "candidate_local_decisions": [
+      "hold",
+      "hold",
+      "hold"
+    ],
+    "pairwise_any_branching": false,
+    "pairwise_minimal_structure_state": "monolithic_keep_only",
+    "pairwise_overlap_vs_monolithic_keep_mean": 1.0,
+    "pairwise_overlap_vs_peer_candidates_mean": 1.0,
+    "pairwise_unique_top10_signatures": 1
+  },
+  "provisional_findings": [
+    "Pairwise decomposition did not isolate a smaller causal liquidity component in this round.",
+    "The current minimal stable structure is still the monolithic liquidity keep, but only provisionally pending future blocker evidence."
+  ],
+  "research_contract_status": "provisional_keep_with_soft_warning",
+  "schema_version": "tradex_liquidity_pairwise_decomposition_round_v1",
+  "source_artifacts": {
+    "candidate_compare_summaries": [
+      "C:\\work\\meemee-screener\\artifacts\\research_inventory\\liq_adv20_plus_turnover_penalty_v1_compare_summary.json",
+      "C:\\work\\meemee-screener\\artifacts\\research_inventory\\liq_turnover_plus_followthrough_penalty_v1_compare_summary.json",
+      "C:\\work\\meemee-screener\\artifacts\\research_inventory\\liq_adv20_plus_followthrough_penalty_v1_compare_summary.json"
+    ],
+    "candidate_run_artifacts": [
+      "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1\\runs\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1-liq_adv20_plus_turnover_penalty_v1\\run.json",
+      "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1\\runs\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1-liq_turnover_plus_followthrough_penalty_v1\\run.json",
+      "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1\\runs\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1-liq_adv20_plus_followthrough_penalty_v1\\run.json"
+    ],
+    "compare_family_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1\\compare.json",
+    "turnover_warning_policy": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_turnover_warning_policy.json"
+  },
+  "turnover_warning_policy_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_turnover_warning_policy.json"
+}

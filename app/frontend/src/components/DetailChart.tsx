@@ -1678,7 +1678,11 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
         return;
       }
       suppressVisibleRangeEvents();
-      chart.timeScale().setVisibleRange(range);
+      try {
+        chart.timeScale().setVisibleRange(range);
+      } catch {
+        chart.timeScale().fitContent();
+      }
     },
     fitContent: () => {
       chartRef.current?.timeScale().fitContent();
@@ -1794,7 +1798,11 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     }
     hasAppliedVisibleRangeRef.current = true;
     suppressVisibleRangeEvents();
-    chart.timeScale().setVisibleRange(visibleRange);
+    try {
+      chart.timeScale().setVisibleRange(visibleRange);
+    } catch {
+      chart.timeScale().fitContent();
+    }
   }, [visibleRange]);
 
   useEffect(() => {

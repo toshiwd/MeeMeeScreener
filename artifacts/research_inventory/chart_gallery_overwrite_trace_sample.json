@@ -1,0 +1,79 @@
+{
+  "schema_version": "chart_gallery_overwrite_trace_sample_v1",
+  "generated_at": "2026-04-17T16:10:00+09:00",
+  "status": "verified",
+  "scope": "meeMee_chart_gallery_overlap_replacement_sample",
+  "symbol": "7203",
+  "overlap_date": 20260416,
+  "before_import": {
+    "chart_source_provider": "runtime_stock_db.daily_bars+yahoo_chart_overlay",
+    "chart_source_type": "mixed",
+    "chart_data_classification": "mixed",
+    "chart_aggregation_source": "direct",
+    "confirmed_chart_source_provider": "chart_gallery_confirmed_source",
+    "provisional_chart_source_provider": "yahoo_intraday_unconfirmed_source",
+    "confirmed_judgment_basis": null,
+    "provisional_judgment_basis": "yahoo_intraday_unconfirmed_source_only",
+    "confirmed_judgment_available": false,
+    "provisional_judgment_available": true,
+    "display_basis_classification": "mixed",
+    "judgment_basis_classification": "provisional",
+    "confirmed_last_available_date": 20260415,
+    "provisional_last_available_date": 20260416,
+    "overwrite_status": "provisional_only",
+    "cache_effect": {
+      "backend_batch_cache_key": [
+        "codes:7203",
+        "timeframes:daily",
+        "runtime_db_path:C:\\Users\\enish\\AppData\\Local\\MeeMeeScreener-dev\\data\\stocks.duckdb",
+        "data_version:duckdb-mtime:1700000000.000000|yf-live:202604160900"
+      ],
+      "frontend_persistent_cache_key": "7203|daily|120||boxes:0|version:duckdb-mtime:1700000000.000000|yf-live:202604160900",
+      "derived_judgment_cache_marker": [
+        "C:\\Users\\enish\\AppData\\Local\\MeeMeeScreener-dev\\data\\stocks.duckdb",
+        1700000000.0
+      ]
+    }
+  },
+  "after_import": {
+    "chart_source_provider": "runtime_stock_db.daily_bars",
+    "chart_source_type": "confirmed",
+    "chart_data_classification": "confirmed",
+    "chart_aggregation_source": "direct",
+    "confirmed_chart_source_provider": "chart_gallery_confirmed_source",
+    "provisional_chart_source_provider": null,
+    "confirmed_judgment_basis": "chart_gallery_confirmed_source_only",
+    "provisional_judgment_basis": null,
+    "confirmed_judgment_available": true,
+    "provisional_judgment_available": false,
+    "display_basis_classification": "confirmed",
+    "judgment_basis_classification": "confirmed",
+    "confirmed_last_available_date": 20260416,
+    "provisional_last_available_date": null,
+    "overwrite_status": "provisional_replaced_by_confirmed",
+    "cache_effect": {
+      "backend_batch_cache_key": [
+        "codes:7203",
+        "timeframes:daily",
+        "runtime_db_path:C:\\Users\\enish\\AppData\\Local\\MeeMeeScreener-dev\\data\\stocks.duckdb",
+        "data_version:duckdb-mtime:1700000100.000000"
+      ],
+      "frontend_persistent_cache_key": "7203|daily|120||boxes:0|version:duckdb-mtime:1700000100.000000",
+      "derived_judgment_cache_marker": [
+        "C:\\Users\\enish\\AppData\\Local\\MeeMeeScreener-dev\\data\\stocks.duckdb",
+        1700000100.0
+      ]
+    }
+  },
+  "source_change": {
+    "provisional_lane": "yahoo_intraday_unconfirmed_source",
+    "confirmed_lane": "chart_gallery_confirmed_source",
+    "replacement_rule": "confirmed_import_replaces_overlapping_provisional_yahoo_coverage",
+    "judgment_result": "confirmed_only_when_confirmed_coverage_exists"
+  },
+  "judgment_transition": {
+    "before": "provisional",
+    "after": "confirmed",
+    "mixed_judgment_allowed": false
+  }
+}

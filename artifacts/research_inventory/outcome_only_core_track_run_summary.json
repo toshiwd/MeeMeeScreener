@@ -1,0 +1,185 @@
+{
+  "schema_version": "tradex_outcome_only_core_track_run_summary_v1",
+  "generated_at": "2026-04-17T13:55:30+09:00",
+  "session_id": "outcome-only-core-20260417-r2",
+  "random_seed": 29,
+  "session_scope_id": "rr_confirmed_20260323_fix6",
+  "ret20_source_mode": "derived_from_daily_bars",
+  "family_id": "tradex-research-outcome-only-core-20260417-r2-outcome_only_ranking",
+  "family_title": "Outcome-only core track",
+  "compare_status": "compared",
+  "compare_path": "G:\\Tradex\\scratch\\research_families\\tradex-research-outcome-only-core-20260417-r2-outcome_only_ranking\\compare.json",
+  "family_leaderboard_path": "G:\\Tradex\\scratch\\research_families\\tradex-research-outcome-only-core-20260417-r2-outcome_only_ranking\\family.json",
+  "session_leaderboard_rollup_path": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\outcome_only_core_track_session_rollup.json",
+  "candidate_method": {
+    "feature_family": "common_pattern",
+    "method_family": "outcome_only_ranking",
+    "method_id": "outcome_only_ranking_v1",
+    "method_thesis": "Direct future outcome ranking using outcome and market features only; historical judgment excluded.",
+    "method_title": "Outcome-only baseline"
+  },
+  "same_condition_contract": {
+    "artifact_detail_level": "authoritative_full",
+    "cost_model": {
+      "fee_bps": 0.0,
+      "mode": "flat_zero_cost",
+      "schema_version": "tradex_cost_model_v1",
+      "slippage_bps": 0.0,
+      "transaction_cost_bps": 0.0
+    },
+    "fallback_status": "authoritative",
+    "period": [
+      {
+        "end_date": "2012-04-02",
+        "label": "up:up:1326758400:1333324800",
+        "start_date": "2012-01-17"
+      },
+      {
+        "end_date": "2008-12-19",
+        "label": "down:down:1225324800:1229644800",
+        "start_date": "2008-10-30"
+      },
+      {
+        "end_date": "2000-01-05",
+        "label": "flat:flat:941155200:947030400",
+        "start_date": "1999-10-29"
+      }
+    ],
+    "regime": "multi_regime",
+    "schema_version": "tradex_research_contract_v1",
+    "top_k": 5,
+    "universe": [
+      "1332",
+      "1803",
+      "1808",
+      "1893",
+      "1911",
+      "2492",
+      "3626",
+      "3655",
+      "4023",
+      "4206",
+      "4452",
+      "4568",
+      "5233",
+      "5602",
+      "5802",
+      "5938",
+      "6448",
+      "6845",
+      "6954",
+      "7004",
+      "7550",
+      "7717",
+      "7927",
+      "8150",
+      "8306",
+      "8368",
+      "9022",
+      "9432",
+      "9531",
+      "9697"
+    ]
+  },
+  "same_condition_verification": {
+    "same_universe": true,
+    "same_period": true,
+    "same_top_k": true,
+    "same_regime": true,
+    "same_cost": true,
+    "same_artifact_detail_level": true,
+    "time_block_split": true,
+    "embargo": true,
+    "no_shuffle": true,
+    "historical_judgment_excluded": true,
+    "boundary_aware_compare_executed": false
+  },
+  "selection_metrics": {
+    "top5_uplift": 0.0,
+    "top10_uplift": 0.0,
+    "bad_pick_removal": 0.0,
+    "changed_top5_members_count": 0,
+    "changed_top10_members_count": 0,
+    "changed_top20_members_count": 0,
+    "changed_rank_count": 0,
+    "selection_divergence_reason": "no_meaningful_branching",
+    "boundary_score_gap_top5": 0.0,
+    "boundary_score_gap_top10": 0.0
+  },
+  "trade_metrics": {
+    "hit_rate": 1.0,
+    "expectancy_top5_delta": 0.0,
+    "expectancy_top10_delta": 0.0,
+    "drawdown_proxy_delta": 0.0,
+    "champion_top5_ret20_mean": -0.01082344090424695,
+    "challenger_top5_ret20_mean": -0.01082344090424695,
+    "champion_top10_ret20_mean": -0.01082344090424695,
+    "challenger_top10_ret20_mean": -0.01082344090424695,
+    "champion_monthly_top5_capture_mean": 1.0,
+    "challenger_monthly_top5_capture_mean": 1.0,
+    "champion_dd_proxy": 0.07576408632972864,
+    "challenger_dd_proxy": 0.07576408632972864,
+    "champion_turnover_proxy": 0.0,
+    "challenger_turnover_proxy": 0.0,
+    "champion_liquidity_fail_rate": 1.0,
+    "challenger_liquidity_fail_rate": 1.0,
+    "monthly_improvement_rate": 1.0,
+    "worst_regime_delta": 0.0
+  },
+  "regime_breakdown": [
+    {
+      "evaluation_window_id": "up:up:1326758400:1333324800",
+      "regime_tag": "up",
+      "champion_top5_ret20_mean": -0.009420082551827347,
+      "challenger_top5_ret20_mean": -0.009420082551827347,
+      "delta_top5_ret20_mean": 0.0,
+      "champion_top10_ret20_mean": -0.009420082551827347,
+      "challenger_top10_ret20_mean": -0.009420082551827347,
+      "delta_top10_ret20_mean": 0.0,
+      "window_win": true
+    },
+    {
+      "evaluation_window_id": "down:down:1225324800:1229644800",
+      "regime_tag": "down",
+      "champion_top5_ret20_mean": -0.012988622362265764,
+      "challenger_top5_ret20_mean": -0.012988622362265764,
+      "delta_top5_ret20_mean": 0.0,
+      "champion_top10_ret20_mean": -0.012988622362265764,
+      "challenger_top10_ret20_mean": -0.012988622362265764,
+      "delta_top10_ret20_mean": 0.0,
+      "window_win": true
+    },
+    {
+      "evaluation_window_id": "flat:flat:941155200:947030400",
+      "regime_tag": "flat",
+      "champion_top5_ret20_mean": 0.0,
+      "challenger_top5_ret20_mean": 0.0,
+      "delta_top5_ret20_mean": 0.0,
+      "champion_top10_ret20_mean": 0.0,
+      "challenger_top10_ret20_mean": 0.0,
+      "delta_top10_ret20_mean": 0.0,
+      "window_win": true
+    }
+  ],
+  "recommendation": {
+    "typed_gate_decision": "drop",
+    "decision_reason": "no_meaningful_branching_no_op",
+    "compare_engine_local_decision": "hold",
+    "compare_engine_local_reason": "topk_boundary_absent",
+    "authoritative_candidate_gate": "drop",
+    "authoritative_gate_reason": "no_meaningful_branching_no_topk_change",
+    "authoritative_override_reason_code": "coverage_restored_drop_with_noop_branch",
+    "keep_hold_drop": "drop"
+  },
+  "authoritative_artifacts": {
+    "compare": "G:\\Tradex\\scratch\\research_families\\tradex-research-outcome-only-core-20260417-r2-outcome_only_ranking\\compare.json",
+    "family_leaderboard": "G:\\Tradex\\scratch\\research_families\\tradex-research-outcome-only-core-20260417-r2-outcome_only_ranking\\family.json",
+    "session_leaderboard_rollup": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\outcome_only_core_track_session_rollup.json"
+  },
+  "blocked_lanes": {
+    "judgment_signal_trade_value_summary": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\judgment_signal_trade_value_summary.json",
+    "judgment_trade_validation_blocker": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\judgment_trade_validation_blocker.json",
+    "boundary_aware_status": "backlog_not_ready",
+    "boundary_aware_compare_run_status": "not_executed"
+  }
+}

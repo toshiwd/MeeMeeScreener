@@ -138,6 +138,70 @@ def test_refresh_caps_snapshot_items_to_requested_limit(tmp_path, monkeypatch: p
     assert payload["items"][-1]["code"] == "1049"
 
 
+def test_refresh_with_zero_limit_keeps_all_items(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    db_path = tmp_path / "stocks.duckdb"
+    service.invalidate_screener_snapshot_cache()
+
+    monkeypatch.setattr(
+        service,
+        "_compute_snapshot_items",
+        lambda limit, screener_repo, stock_repo: [
+            {"code": "1000", "name": "Name0", "asOf": "2026-03-13"},
+            {"code": "1001", "name": "Name1", "asOf": "2026-03-13"},
+            {"code": "9104", "name": "Mitsui O.S.K.", "asOf": "2026-03-13"},
+        ],
+    )
+
+    payload = service.refresh_screener_snapshot(limit=0, source="all-test", db_path=str(db_path))
+    assert payload["rowCount"] == 3
+    assert len(payload["items"]) == 3
+
+    service.invalidate_screener_snapshot_cache()
+    cached = service.get_screener_snapshot_response(limit=0, db_path=str(db_path))
+    assert len(cached["items"]) == 3
+    assert {row["code"] for row in cached["items"]} == {"1000", "1001", "9104"}
+
+
+def test_refresh_handles_legacy_snapshot_table_without_primary_key(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import duckdb
+
+    db_path = tmp_path / "legacy_snapshot.duckdb"
+    con = duckdb.connect(str(db_path))
+    con.execute(
+        """
+        CREATE TABLE screener_snapshot_state (
+            slot TEXT,
+            generation TEXT,
+            as_of TEXT,
+            updated_at TIMESTAMP,
+            last_attempt_at TIMESTAMP,
+            payload_json TEXT,
+            row_count INTEGER,
+            source TEXT,
+            build_ms INTEGER,
+            last_status TEXT,
+            last_error TEXT
+        )
+        """
+    )
+    con.close()
+
+    service.invalidate_screener_snapshot_cache()
+    monkeypatch.setattr(
+        service,
+        "_compute_snapshot_items",
+        lambda limit, screener_repo, stock_repo: [
+            {"code": "9104", "name": "Mitsui O.S.K.", "asOf": "2026-03-13"},
+        ],
+    )
+
+    payload = service.refresh_screener_snapshot(limit=0, source="legacy", db_path=str(db_path))
+
+    assert payload["items"][0]["code"] == "9104"
+    assert payload["rowCount"] == 1
+    assert payload["buildFailed"] is False
+
+
 def test_get_response_serves_stale_snapshot_and_enqueues_single_refresh(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,

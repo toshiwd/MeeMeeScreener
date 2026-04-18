@@ -3,6 +3,12 @@ import type { CSSProperties, ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import TopNav from "../components/TopNav";
+import { formatIsoDateLabel } from "../utils/dateLabels";
+import {
+  formatTradeStrengthCaption,
+  formatTradeStrengthPoints,
+  tradeStrengthToneClass,
+} from "../utils/tradeStrength";
 
 type TrackingStatus = "active" | "completed" | "archive";
 type TrackingSide = "buy" | "sell";
@@ -534,6 +540,7 @@ type SignalEvent = {
   break_status: "alive" | "broken" | "completed_clean" | null;
   break_reason: string | null;
   reason_summary: string[];
+  priority_score?: number | null;
 };
 
 type SignalEventDetail = {
@@ -651,6 +658,13 @@ const formatPercent = (value: number | null | undefined) => {
 const formatPrice = (value: number | null | undefined) => {
   if (typeof value !== "number" || !Number.isFinite(value)) return "--";
   return value.toLocaleString("ja-JP", { maximumFractionDigits: 2 });
+};
+
+const formatSignalStateLabel = (value: "buy" | "sell" | "wait" | "both") => {
+  if (value === "sell") return "売り";
+  if (value === "both") return "両方";
+  if (value === "wait") return "待機";
+  return "買い";
 };
 
 const metricTone = (value: number | null | undefined) => {
@@ -856,8 +870,8 @@ function TrackingDrawer({
             </div>
             <div className="tracking-drawer-sub">
               {mode === "signal"
-                ? `${activeSignal?.event.signalDate ?? "--"} / ${activeSignal?.event.side === "sell" ? "売り" : "買い"}`
-                : `${activeRanking?.appearance.date_iso ?? "--"} / ${activeRanking?.appearance.dir === "down" ? "下落側" : "上昇側"} / ${activeRanking?.appearance.rank ?? "--"}位`}
+                ? `${formatIsoDateLabel(activeSignal?.event.signalDate)} / ${activeSignal?.event.side === "sell" ? "売り" : "買い"}`
+                : `${formatIsoDateLabel(activeRanking?.appearance.date_iso)} / ${activeRanking?.appearance.dir === "down" ? "下落側" : "上昇側"} / ${activeRanking?.appearance.rank ?? "--"}位`}
             </div>
           </div>
           <button type="button" className="tracking-drawer-close" onClick={onClose}>
@@ -907,8 +921,8 @@ function TrackingDrawer({
                 <div className="tracking-occurrence-list">
                   {(activeSignal.occurrences ?? []).length > 0 ? (
                     activeSignal.occurrences?.map((occurrence) => (
-                      <div className="tracking-occurrence-item" key={occurrence.occurrence_id}>
-                        <span>{occurrence.signalDate ?? "--"}</span>
+                    <div className="tracking-occurrence-item" key={occurrence.occurrence_id}>
+                        <span>{formatIsoDateLabel(occurrence.signalDate)}</span>
                         <strong>{occurrence.is_additional ? "追加判定" : "初回判定"}</strong>
                       </div>
                     ))
@@ -927,7 +941,7 @@ function TrackingDrawer({
                   </div>
                   {(activeSignal.price_series ?? []).map((row) => (
                     <div className="tracking-series-row" key={`${row.date_iso ?? "na"}-signal`}>
-                      <span>{row.date_iso ?? "--"}</span>
+                      <span>{formatIsoDateLabel(row.date_iso)}</span>
                       <span>{formatPrice(row.close)}</span>
                       <span>{formatPercent(row.return_close_basis)}</span>
                     </div>
@@ -958,11 +972,16 @@ function TrackingDrawer({
                   </div>
                   <div>
                     <span>掲載時売買判定</span>
-                    <strong>{activeRanking.appearance.signal_state_at_appearance}</strong>
+                    <strong>
+                      {formatTradeStrengthCaption(
+                        formatSignalStateLabel(activeRanking.appearance.signal_state_at_appearance),
+                        activeRanking.appearance.display_score
+                      )}
+                    </strong>
                   </div>
                   <div>
                     <span>掲載時スコア</span>
-                    <strong>{formatPrice(activeRanking.appearance.display_score)}</strong>
+                    <strong>{formatTradeStrengthPoints(activeRanking.appearance.display_score)}</strong>
                   </div>
                   <div>
                     <span>現在損益</span>
@@ -988,7 +1007,7 @@ function TrackingDrawer({
                   </div>
                   {(activeRanking.price_series ?? []).map((row) => (
                     <div className="tracking-series-row" key={`${row.date_iso ?? "na"}-ranking`}>
-                      <span>{row.date_iso ?? "--"}</span>
+                      <span>{formatIsoDateLabel(row.date_iso)}</span>
                       <span>{formatPrice(row.close)}</span>
                       <span>{formatPercent(row.return_close_basis)}</span>
                     </div>
@@ -1797,7 +1816,7 @@ export default function TrackingView() {
     const historyCount = view === "signal" ? runtimeStatus.signal_occurrence_count : runtimeStatus.ranking_appearance_count;
     const latestDate = view === "signal" ? runtimeStatus.signal_latest_date_iso : runtimeStatus.ranking_latest_date_iso;
     const historyLabel = view === "signal" ? "売買判定履歴" : "ランキング掲載履歴";
-    return `${historyLabel} ${historyCount.toLocaleString("ja-JP")}件 / latest ${latestDate ?? "--"} / DB ${runtimeStatus.resolved_stocks_db_path}`;
+    return `${historyLabel} ${historyCount.toLocaleString("ja-JP")}件 / latest ${latestDate ? formatIsoDateLabel(latestDate) : "--"} / DB ${runtimeStatus.resolved_stocks_db_path}`;
   }, [runtimeStatus, view]);
 
   const tableStyle = useMemo(
@@ -2476,7 +2495,7 @@ export default function TrackingView() {
                       setSelectedSignalId(item.event_id);
                     }}
                   >
-                    <div className="tracking-cell tracking-sticky-left">{item.signalDate ?? "--"}</div>
+                    <div className="tracking-cell tracking-sticky-left">{formatIsoDateLabel(item.signalDate)}</div>
                     <div className="tracking-cell tracking-sticky-left second">
                       <Link
                         className="tracking-code-link"
@@ -2487,7 +2506,13 @@ export default function TrackingView() {
                       </Link>
                     </div>
                     <div className="tracking-cell tracking-sticky-left third">{item.name ?? "--"}</div>
-                    <div className="tracking-cell">{item.side === "sell" ? "売り" : "買い"}</div>
+                    <div className="tracking-cell">
+                      <span
+                        className={`rank-score-badge tracking-strength-badge ${tradeStrengthToneClass(item.priority_score)}`.trim()}
+                      >
+                        {formatTradeStrengthCaption(formatSignalStateLabel(item.side), item.priority_score)}
+                      </span>
+                    </div>
                     <div className="tracking-cell tracking-price-cell">
                       <strong>{formatPrice(item.anchor_price_close)}</strong>
                       <small>open {formatPrice(item.anchor_price_next_open)}</small>
@@ -2540,7 +2565,7 @@ export default function TrackingView() {
                       setSelectedRankingId(item.appearance_id);
                     }}
                   >
-                    <div className="tracking-cell tracking-sticky-left">{item.date_iso ?? "--"}</div>
+                    <div className="tracking-cell tracking-sticky-left">{formatIsoDateLabel(item.date_iso)}</div>
                     <div className="tracking-cell tracking-sticky-left second">
                       <Link
                         className="tracking-code-link"
@@ -2558,8 +2583,14 @@ export default function TrackingView() {
                     </div>
                     <div className="tracking-cell tracking-sticky-left third">{item.name ?? "--"}</div>
                     <div className="tracking-cell">{item.rank}位</div>
-                    <div className="tracking-cell">{item.signal_state_at_appearance}</div>
-                    <div className="tracking-cell">{formatPrice(item.display_score)}</div>
+                    <div className="tracking-cell">
+                      <span
+                        className={`rank-score-badge tracking-strength-badge ${tradeStrengthToneClass(item.display_score)}`.trim()}
+                      >
+                        {formatTradeStrengthCaption(formatSignalStateLabel(item.signal_state_at_appearance), item.display_score)}
+                      </span>
+                    </div>
+                    <div className="tracking-cell">{formatTradeStrengthPoints(item.display_score)}</div>
                     <div className="tracking-cell tracking-price-cell">
                       <strong>{formatPrice(item.anchor_price_close)}</strong>
                       <small>open {formatPrice(item.anchor_price_next_open)}</small>

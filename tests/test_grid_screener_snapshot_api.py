@@ -42,10 +42,16 @@ def test_grid_screener_returns_snapshot_payload(monkeypatch, tmp_path) -> None:
         "generation": "g1",
         "lastError": "forced_build_failure",
     }
+    called: dict[str, object] = {}
+
+    def _fake_get_screener_snapshot_response(**kwargs):
+        called.update(kwargs)
+        return expected_payload
+
     monkeypatch.setattr(
         grid_router.screener_snapshot_service,
         "get_screener_snapshot_response",
-        lambda **_kwargs: expected_payload,
+        _fake_get_screener_snapshot_response,
     )
 
     app = main_module.create_app()
@@ -57,6 +63,8 @@ def test_grid_screener_returns_snapshot_payload(monkeypatch, tmp_path) -> None:
 
     assert response.status_code == 200
     assert response.json() == expected_payload
+    assert called["limit"] == 0
+    assert called["force_refresh"] is False
 
 
 def test_grid_ranking_fallback_exposes_display_score_sources(monkeypatch) -> None:

@@ -1,0 +1,42 @@
+{
+  "schema_version": "tradex_core_method_recentering_decision_v1",
+  "generated_at": "2026-04-17T14:00:00+09:00",
+  "status": "confirmed",
+  "decision": "core_method_recentering",
+  "main_model_objective": "direct_future_outcome_ranking",
+  "main_quality_target": "top_k_practical_quality",
+  "active_core_feature_families": [
+    "direct_future_outcome_ranking"
+  ],
+  "excluded_core_feature_families": [
+    "historical_buy_sell_judgment"
+  ],
+  "allowed_secondary_layers": [
+    "operator_explanation",
+    "weak_auxiliary_review"
+  ],
+  "next_compare_ready_track": {
+    "main_path": "outcome_only_cutoff_margin_branch_v1",
+    "optional_path": "auxiliary_only_comparison_path",
+    "core_scorer_uses_judgment_history": false,
+    "same_condition_compare_required": true,
+    "time_block_split_required": true,
+    "embargo_required": true,
+    "no_shuffle_required": true,
+    "main_path_purpose": "improve_top_k_branching_near_cutoff",
+    "current_baseline_state": "drop/no_op_closed",
+    "runtime_db_contract_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\tradex_runtime_db_contract.json",
+    "branching_redesign_plan_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\outcome_only_branching_redesign_plan.json",
+    "historical_judgment_uses_core_scoring": false
+  },
+  "trade_value_validation_state": {
+    "status": "blocked",
+    "blocked_by": "complete_horizon_count_is_zero",
+    "authoritative_blocker_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\judgment_trade_validation_blocker.json",
+    "authoritative_trade_summary": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\judgment_signal_trade_value_summary.json"
+  },
+  "notes": [
+    "Historical judgment signals are not part of active core feature-family competition.",
+    "They remain available for explanation and operator review only until same-condition out-of-sample evidence exists."
+  ]
+}

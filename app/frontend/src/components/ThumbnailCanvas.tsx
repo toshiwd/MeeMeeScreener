@@ -3,6 +3,7 @@
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { BarsPayload, Box, MaSetting } from "../store";
 import { getDomTheme } from "../utils/theme";
+import { formatCompactDateLabel } from "../utils/dateLabels";
 import { getBodyRangeFromBars, getBoxFill, getBoxStroke } from "../utils/boxes";
 import {
   buildThumbnailSizeKey,
@@ -31,35 +32,7 @@ type CanvasSize = {
   ratio: number;
 };
 
-const formatDate = (value: number) => {
-  if (!Number.isFinite(value)) return "--";
-  const raw = Number(value);
-  const formatParts = (year: number, month: number, day: number) => {
-    const yy = String(year % 100).padStart(2, "0");
-    const mm = String(month).padStart(2, "0");
-    const dd = String(day).padStart(2, "0");
-    return `${yy}/${mm}/${dd}`;
-  };
-  if (raw >= 10000000 && raw < 100000000) {
-    const year = Math.floor(raw / 10000);
-    const month = Math.floor((raw % 10000) / 100);
-    const day = raw % 100;
-    return formatParts(year, month, day);
-  }
-  if (raw > 1000000000000) {
-    const date = new Date(raw);
-    if (Number.isNaN(date.getTime())) return "--";
-    return formatParts(date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate());
-  }
-  if (raw > 1000000000) {
-    const date = new Date(raw * 1000);
-    if (Number.isNaN(date.getTime())) return "--";
-    return formatParts(date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate());
-  }
-  return "--";
-};
-
-const formatDateShort = (value: number) => formatDate(value);
+const formatDateShort = (value: number) => formatCompactDateLabel(value);
 
 const formatPrice = (value: number) => {
   if (!Number.isFinite(value)) return "--";
@@ -751,7 +724,7 @@ export default function ThumbnailCanvas({
       {activeBar && (
         <div className="thumb-overlay">
           <div className="thumb-overlay-label">日付</div>
-          <div className="thumb-overlay-value">{formatDate(activeBar[0])}</div>
+          <div className="thumb-overlay-value">{formatDateShort(activeBar[0])}</div>
           <div className="thumb-overlay-label">終値</div>
           <div className="thumb-overlay-value">{formatPrice(activeBar[4])}</div>
           <div className="thumb-overlay-label">前日比</div>

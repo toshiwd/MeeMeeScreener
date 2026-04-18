@@ -1,0 +1,171 @@
+{
+  "schema_version": "tradex_bad_pick_removal_candidate_compare_v2",
+  "candidate_name": "liq_atr_turnover_penalty_v1",
+  "family_name": "bp_liquidity_trap_penalty",
+  "feature_class": "bad_pick_removal",
+  "target_failure_bucket": "liquidity_trap",
+  "session_id": "bp-liquidity-keep-stability-atr",
+  "compare_ready_run_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-atr-bad-pick-prune\\compare.json",
+  "compare_status": "compared",
+  "compare_engine_local_decision": "hold",
+  "compare_engine_local_reason": "topk_boundary_absent",
+  "compare_engine_decision_reasons": [
+    "topk_boundary_absent"
+  ],
+  "candidate_local_decision": "drop",
+  "authoritative_candidate_gate": "drop",
+  "authoritative_gate_reason": "no_meaningful_branching_no_topk_change",
+  "authoritative_override_reason_code": "coverage_restored_drop_with_noop_branch",
+  "decision": "drop",
+  "decision_reason": "no_meaningful_branching_no_op",
+  "coverage_status": {
+    "evaluation_window_count": 3,
+    "evaluation_window_ids": [
+      "up:up:1326758400:1333324800",
+      "down:down:1225324800:1229644800",
+      "flat:flat:941155200:947030400"
+    ],
+    "insufficient_samples": false,
+    "status_reasons": [
+      "topk_boundary_absent"
+    ],
+    "window_source": "family_period_segments",
+    "window_source_reason": "explicit_family_period_segments_available"
+  },
+  "window_source": "family_period_segments",
+  "window_source_reason": "explicit_family_period_segments_available",
+  "bad_pick_removal": 0,
+  "changed_top5_members_count": 0,
+  "changed_top10_members_count": 0,
+  "changed_rank_count": 0,
+  "top5_uplift": 0.0,
+  "top10_uplift": 0.0,
+  "worst_regime_delta": 0.0,
+  "overlap_vs_champion": "high",
+  "overlap_vs_peer_candidates": "high",
+  "selection_divergence_reason": "no_meaningful_branching",
+  "peer_duplicate_state": "overlap_heavy_no_op",
+  "status": "evaluated",
+  "finding_state": "dropped",
+  "feature_note": {
+    "target_failure_bucket": "liquidity_trap",
+    "expected_effect": "Target ATR / turnover mismatch without changing non-liquidity ranking behavior.",
+    "must_not_change": [
+      "comparability_contract",
+      "artifact_detail_level",
+      "same_topK_definition",
+      "MeeMee read-only source boundary"
+    ]
+  },
+  "decision_source_json": {
+    "kind": "compare_summary",
+    "source_path": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\liq_atr_turnover_penalty_v1_compare_summary.json",
+    "supporting_tests": []
+  },
+  "authoritative_sources": {
+    "keep_candidate_source": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_trap_penalty_v2_compare_summary.json",
+    "raw_compare_source": "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-atr-bad-pick-prune\\compare.json"
+  },
+  "evidence": {
+    "compare_engine_local_decision": "hold",
+    "compare_engine_local_reason": "topk_boundary_absent",
+    "authoritative_candidate_gate": "drop",
+    "authoritative_gate_reason": "no_meaningful_branching_no_topk_change",
+    "authoritative_override_reason_code": "coverage_restored_drop_with_noop_branch",
+    "compare_status": "compared",
+    "coverage_status": {
+      "evaluation_window_count": 3,
+      "evaluation_window_ids": [
+        "up:up:1326758400:1333324800",
+        "down:down:1225324800:1229644800",
+        "flat:flat:941155200:947030400"
+      ],
+      "insufficient_samples": false,
+      "status_reasons": [
+        "topk_boundary_absent"
+      ],
+      "window_source": "family_period_segments",
+      "window_source_reason": "explicit_family_period_segments_available"
+    },
+    "bad_pick_removal": 0,
+    "changed_top5_members_count": 0,
+    "changed_top10_members_count": 0,
+    "changed_rank_count": 0,
+    "top5_uplift": 0.0,
+    "top10_uplift": 0.0,
+    "worst_regime_delta": 0.0,
+    "overlap_vs_champion": "high",
+    "overlap_vs_peer_candidates": "high",
+    "selection_divergence_reason": "no_meaningful_branching",
+    "peer_duplicate_state": "overlap_heavy_no_op",
+    "removed_bucket_counts": {},
+    "removed_codes": [],
+    "added_codes": [],
+    "target_removed_count": 0,
+    "same_condition_contract": {
+      "artifact_detail_level": "authoritative_full",
+      "cost_model": {
+        "fee_bps": 0.0,
+        "mode": "flat_zero_cost",
+        "schema_version": "tradex_cost_model_v1",
+        "slippage_bps": 0.0,
+        "transaction_cost_bps": 0.0
+      },
+      "fallback_status": "authoritative",
+      "period": [
+        {
+          "end_date": "2012-04-02",
+          "label": "up:up:1326758400:1333324800",
+          "start_date": "2012-01-17"
+        },
+        {
+          "end_date": "2008-12-19",
+          "label": "down:down:1225324800:1229644800",
+          "start_date": "2008-10-30"
+        },
+        {
+          "end_date": "2000-01-05",
+          "label": "flat:flat:941155200:947030400",
+          "start_date": "1999-10-29"
+        }
+      ],
+      "regime": "multi_regime",
+      "schema_version": "tradex_research_contract_v1",
+      "top_k": 5,
+      "universe": [
+        "1308",
+        "1898",
+        "2002",
+        "2327",
+        "2371",
+        "2700",
+        "2726",
+        "2730",
+        "2782",
+        "3116",
+        "4063",
+        "4293",
+        "4519",
+        "4568",
+        "4631",
+        "4902",
+        "4967",
+        "5721",
+        "6417",
+        "6504",
+        "6752",
+        "6986",
+        "7231",
+        "7867",
+        "8002",
+        "8334",
+        "8584",
+        "8766",
+        "9076",
+        "9513"
+      ]
+    },
+    "window_source": "family_period_segments",
+    "window_source_reason": "explicit_family_period_segments_available"
+  }
+}

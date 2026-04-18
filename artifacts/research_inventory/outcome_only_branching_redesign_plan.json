@@ -1,0 +1,98 @@
+{
+  "schema_version": "tradex_outcome_only_branching_redesign_plan_v1",
+  "generated_at": "2026-04-17T14:20:00+09:00",
+  "status": "planned",
+  "track_name": "outcome_only_branching_redesign",
+  "parent_track": "outcome_only_ranking",
+  "purpose": "improve_top_k_branching_near_cutoff",
+  "current_baseline": {
+    "session_id": "outcome-only-core-20260417-r2",
+    "decision": "drop",
+    "decision_reason": "no_meaningful_branching_no_op",
+    "compare_engine_local_decision": "hold",
+    "compare_engine_local_reason": "topk_boundary_absent",
+    "selection_metrics": {
+      "top5_uplift": 0.0,
+      "top10_uplift": 0.0,
+      "bad_pick_removal": 0.0,
+      "changed_top5_members_count": 0,
+      "changed_top10_members_count": 0,
+      "changed_top20_members_count": 0,
+      "changed_rank_count": 0,
+      "selection_divergence_reason": "no_meaningful_branching",
+      "boundary_score_gap_top5": 0.0,
+      "boundary_score_gap_top10": 0.0
+    },
+    "trade_metrics": {
+      "hit_rate": 1.0,
+      "expectancy_top5_delta": 0.0,
+      "expectancy_top10_delta": 0.0,
+      "drawdown_proxy_delta": 0.0,
+      "worst_regime_delta": 0.0
+    },
+    "closure_state": "drop/no_op_closed"
+  },
+  "next_challenger": {
+    "candidate_name": "outcome_only_cutoff_margin_branch_v1",
+    "candidate_count": 1,
+    "purpose": "improve_top_k_branching_near_cutoff",
+    "expected_scoring_change": "add a small cutoff-margin pressure term derived from outcome-only and market features so near-boundary items can swap membership without historical judgment history",
+    "allowed_core_feature_families": [
+      "ohlcv_derived_features",
+      "price_volume_derived_features",
+      "regime_aware_market_features",
+      "liquidity_related_market_features"
+    ],
+    "excluded_core_feature_families": [
+      "historical_buy_sell_judgment"
+    ],
+    "must_not_change": [
+      "same_universe",
+      "same_period",
+      "same_top_k",
+      "same_regime",
+      "same_cost",
+      "same_artifact_detail_level",
+      "time_block_split",
+      "embargo",
+      "no_shuffle",
+      "historical_judgment_excluded_from_core"
+    ]
+  },
+  "compare_contract": {
+    "same_universe": true,
+    "same_period": true,
+    "same_top_k": true,
+    "same_regime": true,
+    "same_cost": true,
+    "same_artifact_detail_level": true,
+    "leakage_safe_out_of_sample": true,
+    "time_block_split": true,
+    "embargo": true,
+    "no_shuffle": true
+  },
+  "success_gate": {
+    "changed_top10_members_count_min": 1,
+    "top10_uplift_min": 0.0,
+    "bad_pick_removal_min": 0.0,
+    "no_obvious_worst_regime_collapse": true,
+    "no_historical_judgment_dependence": true,
+    "drop_if_not_met": true
+  },
+  "blocked_lanes": {
+    "judgment_signal_trade_value_summary": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\judgment_signal_trade_value_summary.json",
+    "judgment_trade_validation_blocker": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\judgment_trade_validation_blocker.json",
+    "boundary_aware_status": "backlog_not_ready",
+    "boundary_aware_compare_run_status": "not_executed"
+  },
+  "runtime_db_contract_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\tradex_runtime_db_contract.json",
+  "authoritative_artifacts": {
+    "outcome_only_core_track_plan": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\outcome_only_core_track_plan.json",
+    "runtime_db_contract": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\tradex_runtime_db_contract.json"
+  },
+  "notes": [
+    "The first outcome-only formulation was a no-op because top-k membership never moved and selection_divergence_reason stayed no_meaningful_branching.",
+    "The next challenger is intentionally narrow: one cutoff-margin redesign, no broad family sweep, no historical judgment input.",
+    "If the next run does not produce branching or positive same-condition value, the challenger is dropped."
+  ]
+}

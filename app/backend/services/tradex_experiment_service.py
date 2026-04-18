@@ -51,7 +51,8 @@ from app.backend.services.tradex_research_contracts import (
     validate_scope_rollup_artifact,
     validate_session_rollup_artifact,
 )
-from app.db.session import get_conn
+from app.core.config import config
+from app.db.session import get_conn, get_conn_for_path
 from external_analysis.contracts.analysis_input import AnalysisInputContract
 from external_analysis.contracts.analysis_output import ANALYSIS_OUTPUT_SCHEMA_VERSION
 from external_analysis.runtime.input_normalization import normalize_tradex_analysis_input
@@ -424,11 +425,31 @@ def _bad_pick_penalty_scale(plan: dict[str, Any] | None) -> float:
     return max(0.0, scale) if scale is not None else 1.0
 
 
+def _bad_pick_penalty_profile(plan: dict[str, Any] | None) -> str:
+    profile = _text((plan or {}).get("bad_pick_penalty_profile"))
+    if not profile:
+        profile = _text((plan or {}).get("target_failure_bucket"))
+    if profile in {
+        "bp_liquidity_trap_penalty",
+        "bp_weak_recovery_penalty",
+        "bp_breakout_failure_penalty",
+        "liq_adv20_quality_penalty_v1",
+        "liq_atr_turnover_penalty_v1",
+        "liq_breakout_followthrough_penalty_v1",
+        "liq_adv20_plus_turnover_penalty_v1",
+        "liq_turnover_plus_followthrough_penalty_v1",
+        "liq_adv20_plus_followthrough_penalty_v1",
+    }:
+        return profile
+    return "shared"
+
+
 def _selection_rank_score(
     row: dict[str, Any],
     *,
     variant: str,
     bad_pick_penalty_scale: float = 1.0,
+    bad_pick_penalty_profile: str = "shared",
 ) -> float:
     analysis_ev_net = _float((row.get("analysis_ev_net") or {}).get("mean")) or 0.0
     ret_20 = _float((row.get("ret_20") or {}).get("mean")) or 0.0
@@ -444,12 +465,111 @@ def _selection_rank_score(
     environment_unresolved_rate = _float(row.get("environment_unresolved_rate")) or 0.0
     liquidity_fail_rate = _float(row.get("liquidity_fail_rate")) or 0.0
     zero_pass_rate = _float(row.get("zero_pass_rate")) or max(0.0, 1.0 - signal_rate)
+    ret_5 = _float((row.get("ret_5") or {}).get("mean")) or 0.0
+    positive_contribution_rate = _float(row.get("positive_contribution_rate")) or 0.0
+    turnover20 = _float(row.get("turnover20")) or 0.0
+    turnover_z20 = _float(row.get("turnover_z20")) or 0.0
+    atr14_pct = _float(row.get("atr14_pct")) or 0.0
+    breakout20_up = _float(row.get("breakout20_up")) or 0.0
+    breakout20_down = _float(row.get("breakout20_down")) or 0.0
+    weekly_breakout_up_prob = _float(row.get("weekly_breakout_up_prob")) or 0.0
+    monthly_breakout_up_prob = _float(row.get("monthly_breakout_up_prob")) or 0.0
+    candle_body_ratio = _float(row.get("candle_body_ratio")) or 0.0
+    candle_upper_wick_ratio = _float(row.get("candle_upper_wick_ratio")) or 0.0
+    vol_ratio5_20 = _float(row.get("vol_ratio5_20")) or 0.0
+    adv20_gap = max(0.0, 1.0 - liquidity_quality)
+    turnover_gap = max(0.0, -turnover_z20)
+    followthrough_failure = (
+        max(0.0, 0.03 - ret_5)
+        + max(0.0, 0.05 - ret_10)
+        + max(0.0, 0.08 - ret_20)
+    )
+    breakout_context = max(0.0, breakout20_up)
+    breakout_weakness = (
+        max(0.0, 0.55 - weekly_breakout_up_prob)
+        + max(0.0, 0.50 - monthly_breakout_up_prob)
+        + max(0.0, breakout20_down)
+    )
+    candle_quality = (
+        max(0.0, candle_upper_wick_ratio - 0.45)
+        + max(0.0, 0.45 - candle_body_ratio)
+    )
     penalty_bucket = (
         0.10 * missing_feature_rate
         + 0.08 * environment_unresolved_rate
         + 0.05 * liquidity_fail_rate
         + 0.05 * zero_pass_rate
     )
+    if bad_pick_penalty_profile == "bp_liquidity_trap_penalty":
+        penalty_bucket += (
+            0.14 * max(0.0, 1.0 - liquidity_quality)
+            + 0.08 * max(0.0, 0.50 - publish_ready_rate)
+            + 0.05 * max(0.0, 0.45 - signal_rate)
+            + 0.04 * max(0.0, 0.35 - regime_stability)
+        )
+    elif bad_pick_penalty_profile == "bp_weak_recovery_penalty":
+        penalty_bucket += (
+            0.12 * max(0.0, 0.55 - publish_ready_rate)
+            + 0.10 * max(0.0, 0.55 - signal_rate)
+            + 0.08 * max(0.0, 0.40 - regime_stability)
+            + 0.10 * max(0.0, -ret_20)
+            + 0.06 * max(0.0, -ret_10)
+        )
+    elif bad_pick_penalty_profile == "bp_breakout_failure_penalty":
+        penalty_bucket += (
+            0.12 * max(0.0, -ret_5)
+            + 0.08 * max(0.0, -ret_10)
+            + 0.10 * max(0.0, 1.0 - positive_contribution_rate)
+            + 0.05 * max(0.0, 0.50 - signal_rate)
+            + 0.05 * max(0.0, 0.30 - liquidity_quality)
+        )
+    elif bad_pick_penalty_profile == "liq_adv20_quality_penalty_v1":
+        penalty_bucket += (
+            0.16 * max(0.0, 1.0 - liquidity_quality)
+            + 0.10 * max(0.0, -turnover_z20)
+            + 0.06 * max(0.0, 0.55 - vol_ratio5_20)
+            + 0.05 * max(0.0, 0.45 - signal_rate)
+            + 0.04 * max(0.0, 0.45 - publish_ready_rate)
+        )
+    elif bad_pick_penalty_profile == "liq_atr_turnover_penalty_v1":
+        penalty_bucket += (
+            0.12 * max(0.0, atr14_pct - 0.08)
+            + 0.11 * max(0.0, -turnover_z20)
+            + 0.08 * max(0.0, 1.0 - liquidity_quality)
+            + 0.05 * max(0.0, 0.35 - regime_stability)
+            + 0.04 * max(0.0, 0.40 - signal_rate)
+        )
+    elif bad_pick_penalty_profile == "liq_breakout_followthrough_penalty_v1":
+        penalty_bucket += (
+            0.10 * followthrough_failure
+            + 0.08 * breakout_context * breakout_weakness
+            + 0.05 * candle_quality
+            + 0.04 * max(0.0, 0.25 - signal_rate)
+        )
+    elif bad_pick_penalty_profile == "liq_adv20_plus_turnover_penalty_v1":
+        penalty_bucket += (
+            0.18 * adv20_gap
+            + 0.12 * turnover_gap
+            + 0.06 * max(0.0, 0.55 - vol_ratio5_20)
+            + 0.04 * max(0.0, 0.45 - publish_ready_rate)
+            + 0.03 * max(0.0, 0.45 - signal_rate)
+        )
+    elif bad_pick_penalty_profile == "liq_turnover_plus_followthrough_penalty_v1":
+        penalty_bucket += (
+            0.12 * turnover_gap
+            + 0.10 * followthrough_failure
+            + 0.07 * breakout_context * breakout_weakness
+            + 0.05 * candle_quality
+            + 0.03 * max(0.0, 0.35 - regime_stability)
+        )
+    elif bad_pick_penalty_profile == "liq_adv20_plus_followthrough_penalty_v1":
+        penalty_bucket += (
+            0.16 * adv20_gap
+            + 0.09 * followthrough_failure
+            + 0.05 * candle_quality
+            + 0.04 * max(0.0, 0.45 - signal_rate)
+            + 0.03 * max(0.0, 0.45 - publish_ready_rate)
+        )
     return float(
         0.45 * analysis_ev_net
         + 0.30 * ret_20
@@ -485,18 +605,32 @@ def _selection_period_label(date_text: str, segments: list[dict[str, Any]] | Non
             return label or f"{start}..{end}"
     return ""
 
-
-def _selection_challenger_score(row: dict[str, Any], *, bad_pick_penalty_scale: float = 1.0) -> float:
+def _selection_challenger_score(
+    row: dict[str, Any],
+    *,
+    bad_pick_penalty_scale: float = 1.0,
+    bad_pick_penalty_profile: str = "shared",
+) -> float:
     return _selection_rank_score(
         row,
         variant=TRADEX_CHALLENGER_SELECTION_VARIANT,
         bad_pick_penalty_scale=bad_pick_penalty_scale,
+        bad_pick_penalty_profile=bad_pick_penalty_profile,
     )
 
 
-def _challenger_rank_key(row: dict[str, Any], *, bad_pick_penalty_scale: float = 1.0) -> tuple[float, float, str]:
+def _challenger_rank_key(
+    row: dict[str, Any],
+    *,
+    bad_pick_penalty_scale: float = 1.0,
+    bad_pick_penalty_profile: str = "shared",
+) -> tuple[float, float, str]:
     return (
-        -_selection_challenger_score(row, bad_pick_penalty_scale=bad_pick_penalty_scale),
+        -_selection_challenger_score(
+            row,
+            bad_pick_penalty_scale=bad_pick_penalty_scale,
+            bad_pick_penalty_profile=bad_pick_penalty_profile,
+        ),
         -float((row.get("ret_20") or {}).get("mean") or 0.0),
         _text(row.get("code")),
     )
@@ -863,12 +997,14 @@ def _ranked_selection_code_summary(
     segments: list[dict[str, Any]] | None,
     variant: str,
     bad_pick_penalty_scale: float,
+    bad_pick_penalty_profile: str,
 ) -> dict[str, Any]:
     summary = _selection_code_summary(code, code_samples, segments=segments)
     summary["ranking_score"] = _selection_rank_score(
         summary,
         variant=variant,
         bad_pick_penalty_scale=bad_pick_penalty_scale,
+        bad_pick_penalty_profile=bad_pick_penalty_profile,
     )
     return summary
 
@@ -881,10 +1017,15 @@ def _selection_summary(
     plan: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     bad_pick_penalty_scale = _bad_pick_penalty_scale(plan)
+    bad_pick_penalty_profile = _bad_pick_penalty_profile(plan)
     if variant != TRADEX_CHALLENGER_SELECTION_VARIANT:
         rank_key = _selection_rank_key
     else:
-        rank_key = lambda row: _challenger_rank_key(row, bad_pick_penalty_scale=bad_pick_penalty_scale)
+        rank_key = lambda row: _challenger_rank_key(
+            row,
+            bad_pick_penalty_scale=bad_pick_penalty_scale,
+            bad_pick_penalty_profile=bad_pick_penalty_profile,
+        )
     if not samples:
         return {
             "kind": "proxy",
@@ -892,6 +1033,7 @@ def _selection_summary(
             "diagnostics_schema_version": TRADEX_DIAGNOSTICS_SCHEMA_VERSION,
             "selection_variant": variant,
             "bad_pick_penalty_scale": bad_pick_penalty_scale,
+            "bad_pick_penalty_profile": bad_pick_penalty_profile,
             "selection_formula": "analysis_ev_net -> short_ret_20 -> code"
             if variant != TRADEX_CHALLENGER_SELECTION_VARIANT
             else TRADEX_CHALLENGER_SELECTION_FORMULA,
@@ -949,6 +1091,7 @@ def _selection_summary(
                 segments=segments,
                 variant=variant,
                 bad_pick_penalty_scale=bad_pick_penalty_scale,
+                bad_pick_penalty_profile=bad_pick_penalty_profile,
             )
             for code, code_samples in by_code.items()
         ),
@@ -993,6 +1136,7 @@ def _selection_summary(
                         segments=segments,
                         variant=variant,
                         bad_pick_penalty_scale=bad_pick_penalty_scale,
+                        bad_pick_penalty_profile=bad_pick_penalty_profile,
                     )
                     for code, code_samples in code_samples_map.items()
                 ),
@@ -1080,6 +1224,7 @@ def _selection_summary(
         "diagnostics_schema_version": TRADEX_DIAGNOSTICS_SCHEMA_VERSION,
         "selection_variant": variant,
         "bad_pick_penalty_scale": bad_pick_penalty_scale,
+        "bad_pick_penalty_profile": bad_pick_penalty_profile,
         "sample_count": len(samples),
         "selection_formula": "analysis_ev_net -> short_ret_20 -> code"
         if variant != TRADEX_CHALLENGER_SELECTION_VARIANT
@@ -1268,7 +1413,7 @@ def _normalize_point_join_key(point: dict[str, Any], *, code: str) -> dict[str, 
 
 def _load_evaluation_regime_rows(*, label_version: str = TRADEX_EVAL_REGIME_LABEL_VERSION) -> tuple[list[dict[str, Any]], list[str]]:
     try:
-        with get_conn() as conn:
+        with get_conn_for_path(str(config.DB_PATH), timeout_sec=2.5, read_only=True) as conn:
             rows = conn.execute(
                 """
                 SELECT dt, regime_id, regime_score, label_version
@@ -1677,8 +1822,17 @@ def _write_champion_challenger_evaluation_report(
     candidate_run_id: str,
 ) -> tuple[Path, Path]:
     report_dir = tradex_reports_root()
-    report_path = report_dir / f"tradex_champion_challenger_eval_{family_id}_{candidate_run_id}.md"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    report_key = _stable_hash(
+        {
+            "family_id": family_id,
+            "baseline_run_id": baseline_run_id,
+            "candidate_run_id": candidate_run_id,
+        }
+    )
+    report_path = report_dir / f"tradex_champion_challenger_eval_{report_key}.md"
     latest_report_path = report_dir / "tradex_champion_challenger_eval.md"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
     markdown = _format_champion_challenger_evaluation_markdown(
         evaluation,
         family_id=family_id,
@@ -1736,7 +1890,16 @@ def _build_champion_challenger_evaluation(
     baseline_plan = baseline.get("plan") if isinstance(baseline.get("plan"), dict) else {}
     candidate_plan = candidate.get("plan") if isinstance(candidate.get("plan"), dict) else {}
     regime_rows, regime_issues = _load_evaluation_regime_rows()
-    windows, window_issues = _select_evaluation_windows(regime_rows)
+    family_windows = _family_period_windows(family, regime_rows=regime_rows)
+    if len(family_windows) >= 3:
+        windows = family_windows[:3]
+        window_issues: list[str] = []
+        window_source = "family_period_segments"
+        window_source_reason = "explicit_family_period_segments_available"
+    else:
+        windows, window_issues = _select_evaluation_windows(regime_rows)
+        window_source = "regime_rows"
+        window_source_reason = "market_regime_daily_selection"
     window_summaries = []
     for window in windows:
         champion_window_samples = _window_filter_samples(baseline_samples, window)
@@ -1839,6 +2002,8 @@ def _build_champion_challenger_evaluation(
     overview.update(
         {
             "evaluation_window_id": evaluation_window_id,
+            "window_source": window_source,
+            "window_source_reason": window_source_reason,
             "family_id": family.get("family_id"),
             "baseline_run_id": baseline.get("run_id"),
             "candidate_run_id": candidate.get("run_id"),
@@ -2288,6 +2453,8 @@ def _normalize_plan(plan: dict[str, Any], *, default_plan_id: str) -> dict[str, 
         "signal_bias": signal_bias,
         "top_k": max(1, _int(plan.get("top_k")) or 3),
         "bad_pick_penalty_scale": _bad_pick_penalty_scale(plan),
+        "bad_pick_penalty_profile": _bad_pick_penalty_profile(plan),
+        "target_failure_bucket": _text(plan.get("target_failure_bucket")),
         "ret20_source_mode": _ret20_source_mode(plan.get("ret20_source_mode")),
         "playbook_up_score_bonus": _float(plan.get("playbook_up_score_bonus")) or 0.0,
         "playbook_down_score_bonus": _float(plan.get("playbook_down_score_bonus")) or 0.0,
@@ -2409,6 +2576,50 @@ def _period_segments(family: dict[str, Any]) -> list[dict[str, str]]:
     period = family.get("period") if isinstance(family.get("period"), dict) else {}
     segments = period.get("segments") if isinstance(period, dict) else []
     return _normalize_segments(segments)
+
+
+def _family_period_windows(
+    family: dict[str, Any],
+    *,
+    regime_rows: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    segments = _period_segments(family)
+    if len(segments) < 3:
+        return []
+    rows = regime_rows if isinstance(regime_rows, list) else []
+    windows: list[dict[str, Any]] = []
+    for segment in segments[:3]:
+        start_date = _text(segment.get("start_date"))
+        end_date = _text(segment.get("end_date"))
+        if not start_date or not end_date:
+            continue
+        label = _text(segment.get("label"))
+        label_parts = [part for part in label.split(":") if part] if label else []
+        regime_tag = label_parts[0] if label_parts else "flat"
+        if regime_tag not in TRADEX_EVAL_REGIME_BUCKET_ORDER:
+            regime_tag = _evaluation_regime_bucket(regime_tag)
+        regime_id = label_parts[1] if len(label_parts) > 1 else label or regime_tag
+        trading_day_count = 0
+        if rows:
+            trading_day_count = sum(
+                1
+                for row in rows
+                if start_date <= _text(row.get("date"), fallback=_format_ymd_int(row.get("dt"))) <= end_date
+            )
+        windows.append(
+            {
+                "evaluation_window_id": label or f"{regime_tag}:{start_date}:{end_date}",
+                "regime_tag": regime_tag,
+                "regime_id": regime_id,
+                "regime_ids": [regime_id] if regime_id else [],
+                "start_date": start_date,
+                "end_date": end_date,
+                "start_dt": int(start_date.replace("-", "")),
+                "end_dt": int(end_date.replace("-", "")),
+                "trading_day_count": int(trading_day_count),
+            }
+        )
+    return windows
 
 
 def _analysis_points(repo: StockRepository, code: str, start_date: str, end_date: str) -> list[dict[str, Any]]:

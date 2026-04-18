@@ -1,0 +1,127 @@
+{
+  "schema_version": "tradex_runtime_db_contract_v1",
+  "generated_at": "2026-04-17T14:20:00+09:00",
+  "status": "authoritative",
+  "scope": "tradex_only",
+  "purpose": "fail_closed_against_empty_or_insufficient_stocks_duckdb_stores",
+  "active_deep_dive_candidate": "bp_liquidity_trap_penalty/v1",
+  "exact_path_used_in_evidence_bearing_run": "C:\\Users\\enish\\AppData\\Local\\MeeMeeScreener-dev\\data\\stocks.duckdb",
+  "validated_runtime_selection_source": "LOCALAPPDATA_DEV",
+  "runtime_db_resolution_order": [
+    {
+      "priority": 1,
+      "source": "STOCKS_DB_PATH",
+      "behavior": "explicit_runtime_override",
+      "notes": "compare runner reads this first through app.core.config.config.DB_PATH"
+    },
+    {
+      "priority": 2,
+      "source": "TRADEX_LIVE_STOCKS_DB_PATH",
+      "behavior": "legacy_live_override",
+      "notes": "used by the live verification launcher and kept for compatibility"
+    },
+    {
+      "priority": 3,
+      "source": "MEEMEE_DATA_DIR\\stocks.duckdb",
+      "behavior": "validated_meemee_data_dir_fallback",
+      "notes": "preferred runtime fallback when MeeMee data dir is available"
+    },
+    {
+      "priority": 4,
+      "source": "%LOCALAPPDATA%\\MeeMeeScreener-dev\\data\\stocks.duckdb",
+      "behavior": "validated_local_appdata_dev_fallback",
+      "notes": "the populated store currently used for MeeMee runtime and TRADEX fallback"
+    },
+    {
+      "priority": 5,
+      "source": "%LOCALAPPDATA%\\MeeMeeScreener\\data\\stocks.duckdb",
+      "behavior": "validated_local_appdata_legacy_fallback",
+      "notes": "legacy compatibility fallback"
+    },
+    {
+      "priority": 6,
+      "source": "G:\\Tradex\\db\\stocks.duckdb",
+      "behavior": "default_tradex_runtime_store",
+      "notes": "last fallback only; do not silently rely on this when a fresher appdata DB exists"
+    }
+  ],
+  "required_tables": [
+    {
+      "table_name": "market_regime_daily",
+      "expected_label_version": "v1",
+      "required_columns": [
+        "dt",
+        "regime_id",
+        "breadth_above_ma20",
+        "breadth_above_ma60",
+        "advancers_ratio",
+        "index_close_vs_ma20",
+        "index_close_vs_ma60",
+        "market_atr_pct",
+        "sector_dispersion",
+        "regime_score",
+        "label_version",
+        "created_at"
+      ],
+      "required_row_sanity_checks": [
+        "table_exists",
+        "table_row_count > 0",
+        "label_version_row_count > 0"
+      ],
+      "minimum_row_count": 1,
+      "minimum_label_version_row_count": 1,
+      "required_regime_buckets": [
+        "up",
+        "down",
+        "flat"
+      ]
+    }
+  ],
+  "required_regime_row_presence_check": {
+    "minimum_window_count": 3,
+    "required_window_tags": [
+      "up",
+      "down",
+      "flat"
+    ],
+    "evaluation_mode": "time_block_split_with_embargo",
+    "same_condition_contract_required": true,
+    "failure_class_if_missing": "genuine_data_unavailable"
+  },
+  "required_sanity_checks": [
+    "table exists",
+    "row count > 0",
+    "label_version = v1 row count > 0",
+    "selected evaluation windows >= 3",
+    "selected evaluation windows cover up/down/flat",
+    "no_shuffle leakage controls remain on"
+  ],
+  "failure_mode_when_incomplete": {
+    "compare_behavior": "abort_before_compare",
+    "raised_error": "RuntimeError",
+    "failure_state": "runtime_db_contract_failed",
+    "blocked_reason": "empty_or_insufficient_market_regime_daily_store"
+  },
+  "validation_step": {
+    "validator": "app.backend.services.tradex_research_environment_readiness.evaluate_environment_readiness",
+    "enforcement_point": "app.backend.tools.tradex_research_runner.main",
+    "mode": "fail_closed",
+    "pass_condition": "ready=true and selected_window_count>=3",
+    "non_pass_conditions": [
+      "database_dependency_missing",
+      "required_table_missing",
+      "required_table_empty",
+      "schema_mismatch",
+      "genuine_data_unavailable"
+    ]
+  },
+  "evidence_bearing_run_summary": {
+    "same_condition_contract_preserved": true,
+    "historical_judgment_excluded_from_core": true,
+    "compare_status": "compared",
+    "selection_divergence_reason": "no_meaningful_branching",
+    "top5_uplift": 0.0,
+    "top10_uplift": 0.0,
+    "changed_top10_members_count": 0
+  }
+}

@@ -14,6 +14,7 @@ import {
 
 import ScreenPanel from "../../components/ScreenPanel";
 import type { EdinetFinancialPanel, EdinetFinancialPoint } from "./detailTypes";
+import { formatDateTimeLabel } from "../../utils/dateLabels";
 
 type FormatNumber = (value: number | null | undefined, digits?: number) => string;
 type FormatPercentLabel = (value: number | null | undefined, digits?: number) => string;
@@ -179,7 +180,7 @@ export function DetailFinancialPanel(props: Props) {
             {financialFetchedLabel && <div className="detail-financial-meta-pill">取得 {financialFetchedLabel}</div>}
             {financialPanel?.lastCheckedAt && (
               <div className="detail-financial-meta-pill">
-                最終確認 {new Date(financialPanel.lastCheckedAt).toLocaleString("ja-JP")}
+                最終確認 {formatDateTimeLabel(financialPanel.lastCheckedAt)}
               </div>
             )}
           </div>

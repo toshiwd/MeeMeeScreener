@@ -176,6 +176,55 @@ export type Box = {
   breakout: "up" | "down" | null;
 };
 
+export type ChartDataClassification = "confirmed" | "provisional" | "mixed";
+
+export type ChartAggregationSource = "direct" | "derived" | "mixed";
+
+export type ChartSourceType = "confirmed" | "provisional" | "mixed";
+
+export type ChartCacheSource = "memory" | "indexeddb";
+
+export type ChartDateMatchStatus = "exact" | "lagged_provisional" | "blocked";
+
+export type ChartSourceFreshnessStatus = "exact" | "lagged" | "stale_blocking";
+
+export type ChartDisplayBasisClassification = "confirmed" | "provisional" | "mixed";
+
+export type ChartJudgmentBasisClassification = "confirmed" | "provisional" | "dual";
+
+export type ChartOverwriteStatus =
+  | "authoritative_confirmed"
+  | "provisional_only"
+  | "provisional_replaced_by_confirmed";
+
+export type ChartDataProvenance = {
+  chart_source_provider?: string;
+  chart_source_type?: ChartSourceType;
+  chart_source_path_or_identifier?: string;
+  chart_requested_date?: number | null;
+  chart_last_confirmed_date?: number | null;
+  chart_last_provisional_date?: number | null;
+  chart_date_match_status?: ChartDateMatchStatus;
+  chart_source_freshness_status?: ChartSourceFreshnessStatus;
+  chart_data_classification?: ChartDataClassification;
+  chart_aggregation_source?: ChartAggregationSource;
+  confirmed_chart_source_provider?: string | null;
+  provisional_chart_source_provider?: string | null;
+  confirmed_judgment_basis?: string | null;
+  provisional_judgment_basis?: string | null;
+  confirmed_judgment_available?: boolean | null;
+  provisional_judgment_available?: boolean | null;
+  display_basis_classification?: ChartDisplayBasisClassification | null;
+  judgment_basis_classification?: ChartJudgmentBasisClassification | null;
+  confirmed_last_available_date?: number | null;
+  provisional_last_available_date?: number | null;
+  overwrite_status?: ChartOverwriteStatus | null;
+  chart_cache_source?: ChartCacheSource | null;
+  chart_cache_generated_at?: string | null;
+  chart_cache_upstream_source_class?: ChartDataClassification | null;
+  chart_cache_freshness_status?: string | null;
+};
+
 export type BarsPayload = {
   bars: number[][];
   ma: {
@@ -184,6 +233,7 @@ export type BarsPayload = {
     ma60: number[][];
   };
   boxes?: Box[];
+  provenance?: ChartDataProvenance | null;
 };
 
 export type BatchBarsLoadOptions = {

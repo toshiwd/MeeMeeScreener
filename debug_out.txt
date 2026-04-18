@@ -1,0 +1,34 @@
+C:\work\meemee-screener\research\features.py:548: FutureWarning: DataFrameGroupBy.apply operated on the grouping columns. This behavior is deprecated, and in a future version of pandas the grouping columns will be excluded from the operation. Either pass `include_groups=False` to exclude the groupings or explicitly select the grouping columns after groupby to silence this warning.
+  source["ma7_cross_up_days_ago"] = g.apply(
+C:\work\meemee-screener\research\features.py:551: FutureWarning: DataFrameGroupBy.apply operated on the grouping columns. This behavior is deprecated, and in a future version of pandas the grouping columns will be excluded from the operation. Either pass `include_groups=False` to exclude the groupings or explicitly select the grouping columns after groupby to silence this warning.
+  source["ma20_cross_up_days_ago"] = g.apply(
+C:\work\meemee-screener\research\features.py:610: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  source["vol_regime"] = pd.cut(
+C:\work\meemee-screener\research\features.py:619: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  source["market_trend_state"] = np.where(
+C:\work\meemee-screener\research\features.py:629: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  source["cs_ret5_vs_market"] = source["ret5"] - _market_ret5_mean
+C:\work\meemee-screener\research\features.py:634: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  source["cs_ret20_sector_pct"] = source.groupby(["date", "sector"], group_keys=False).apply(
+C:\work\meemee-screener\research\features.py:644: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  source["cs_rel_strength_52w"] = _ret252 - _market_avg_ret252
+C:\work\meemee-screener\research\features.py:647: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  source["cs_vol_rank_sector"] = source.groupby("date")["vol_ratio20"].rank(pct=True)
+C:\work\meemee-screener\research\features.py:652: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  source["rv5"] = g["ret1"].transform(lambda s: s.rolling(5, min_periods=2).std()) * np.sqrt(5)
+C:\work\meemee-screener\research\features.py:653: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  source["rv20"] = g["ret1"].transform(lambda s: s.rolling(20, min_periods=5).std()) * np.sqrt(20)
+C:\work\meemee-screener\research\features.py:654: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  source["rv_ratio"] = source["rv5"] / (source["rv20"] + 1e-9)
+C:\work\meemee-screener\research\features.py:659: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  source["upper_shadow_ratio"] = _upper_hi / _total_range
+C:\work\meemee-screener\research\features.py:660: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  source["lower_shadow_ratio"] = _lower_lo / _total_range
+{
+  "ok": false,
+  "error": ""
+}
+  [run_train] Full history: 381 months (1994-06-30 to 2026-02-27)
+  [run_train] Split config: train=5y, valid=6m, test=6m
+  [run_train] Build range: 72 months (2020-03-31 to 2026-02-27)
+  [run_train] building features/labels for 72 required months (split-window) ...

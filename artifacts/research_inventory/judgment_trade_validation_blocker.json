@@ -1,0 +1,51 @@
+{
+  "schema_version": "tradex_judgment_trade_validation_blocker_v1",
+  "generated_at": "2026-04-17T13:55:30+09:00",
+  "status": "blocked",
+  "blocking_reason": "complete_horizon_count_is_zero",
+  "authoritative_source": {
+    "benchmark_manifest": "G:\\Tradex\\keep\\research_os\\trader_benchmark\\v1\\trader_benchmark_manifest.json",
+    "benchmark_rows": "G:\\Tradex\\keep\\research_os\\trader_benchmark\\v1\\trader_benchmark_rows.jsonl",
+    "benchmark_scoreboard": "G:\\Tradex\\keep\\research_os\\trader_benchmark\\v1\\trader_adapter_scoreboard.json",
+    "trade_value_summary": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\judgment_signal_trade_value_summary.json"
+  },
+  "observed_blocker_state": {
+    "complete_horizon_count": 0,
+    "labeled_sample_count": 0,
+    "same_condition_compare_materialized": false,
+    "leakage_safe_trade_ablation_executable": false
+  },
+  "why_the_block_exists": [
+    "The authoritative benchmark corpus currently has no fully labeled future-horizon rows.",
+    "Without completed horizons, a same-condition trade-value ablation would be research-fallback rather than empirical confirmation.",
+    "Historical judgment usefulness cannot be distinguished from narrative until the labeled corpus is complete."
+  ],
+  "minimum_dataset_needed": {
+    "required_condition": "leakage_safe_out_of_sample",
+    "required_split": "time_block_split_with_embargo",
+    "required_labels": "future_20_day_outcomes_or_equivalent_confirmed_future_horizon_labels",
+    "required_measurement": [
+      "selection_usefulness",
+      "trade_usefulness"
+    ],
+    "required_baselines": [
+      "outcome_only_baseline",
+      "outcome_plus_historical_judgment",
+      "judgment_only_proxy"
+    ]
+  },
+  "unlock_conditions": [
+    "complete_horizon_count > 0",
+    "same_condition_compare_materialized = true",
+    "no_shuffle = true",
+    "embargo_applied = true"
+  ],
+  "decision_effect": {
+    "trade_value_validation_state": "blocked",
+    "core_scoring_implication": "historical_judgment_not_core",
+    "separate_from_core_track": true,
+    "core_track_dependency": "none"
+  },
+  "still_blocked": true,
+  "unblocked": false
+}

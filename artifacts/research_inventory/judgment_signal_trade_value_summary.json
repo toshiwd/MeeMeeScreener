@@ -1,0 +1,69 @@
+{
+  "schema_version": "tradex_judgment_signal_trade_value_summary_v1",
+  "generated_at": "2026-04-17T14:00:00+09:00",
+  "study_status": "research_fallback",
+  "authoritative_source": {
+    "benchmark_manifest": "G:\\Tradex\\keep\\research_os\\trader_benchmark\\v1\\trader_benchmark_manifest.json",
+    "benchmark_rows": "G:\\Tradex\\keep\\research_os\\trader_benchmark\\v1\\trader_benchmark_rows.jsonl",
+    "benchmark_scoreboard": "G:\\Tradex\\keep\\research_os\\trader_benchmark\\v1\\trader_adapter_scoreboard.json"
+  },
+  "same_condition_compare": {
+    "status": "not_executed",
+    "reason": "The authoritative benchmark corpus has zero complete-horizon rows, so a leakage-safe same-condition trade comparison cannot be honestly evaluated yet.",
+    "same_universe": null,
+    "same_period": null,
+    "same_top_k": null,
+    "same_regime": null,
+    "same_cost": null
+  },
+  "ablation_baselines": [
+    {
+      "baseline_id": "outcome_only_baseline",
+      "feature_set": "ohlcv_derived_only",
+      "status": "defined_not_executed"
+    },
+    {
+      "baseline_id": "outcome_plus_historical_judgment",
+      "feature_set": "ohlcv_derived_plus_historical_buy_sell_judgment",
+      "status": "defined_not_executed"
+    },
+    {
+      "baseline_id": "judgment_only_proxy",
+      "feature_set": "historical_buy_sell_judgment_only",
+      "status": "defined_not_executed"
+    }
+  ],
+  "observed_corpus": {
+    "experiment_count": 10,
+    "row_count": 12,
+    "adapter_count": 2,
+    "complete_horizon_count": 0,
+    "labeled_sample_count": 0,
+    "enter_count": 2,
+    "skip_count": 9,
+    "primary_count": 10
+  },
+  "selection_usefulness": {
+    "status": "not_measurable",
+    "top_k_uplift": null,
+    "bad_pick_removal": null,
+    "changed_top10_count": null,
+    "changed_top20_count": null,
+    "boundary_score_gap": null
+  },
+  "trade_usefulness": {
+    "status": "not_measurable",
+    "hit_rate": null,
+    "expectancy": null,
+    "drawdown_profile": null
+  },
+  "protocol": {
+    "time_block_split": "defined",
+    "embargo": "defined",
+    "shuffle": "disabled",
+    "leakage_safe": true,
+    "same_condition_contract": "defined_but_not_materialized"
+  },
+  "evidence_summary": "The current benchmark rows all have incomplete horizons, so the study cannot support a positive incremental-value claim for historical judgments.",
+  "binary_role_decision": "explainability_only"
+}

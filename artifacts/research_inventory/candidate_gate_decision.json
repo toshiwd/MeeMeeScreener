@@ -1,0 +1,1089 @@
+{
+  "authoritative_sources": {
+    "buy_judgment_condition_revision_plan": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_condition_revision_plan.json",
+    "buy_judgment_effectiveness_audit": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_effectiveness_audit.json",
+    "buy_judgment_policy_selection_r5_default_surface_choice": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_policy_selection_r5_default_surface_choice.json",
+    "buy_judgment_policy_selection_r5_default_surface_choice_plan": "C:\\work\\meemee-screener\\docs\\plans\\buy_judgment_policy_selection_r5_default_surface_choice.md",
+    "buy_judgment_policy_selection_r5_gate_decision": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_policy_selection_r5_gate_decision.json",
+    "buy_judgment_revision_r1_gate_decision": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_revision_r1_gate_decision.json",
+    "buy_judgment_revision_r1_weak_liquidity_gate": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_revision_r1_weak_liquidity_gate.json",
+    "buy_judgment_revision_r1_weak_liquidity_gate_plan": "C:\\work\\meemee-screener\\docs\\plans\\buy_judgment_revision_r1_weak_liquidity_gate.md",
+    "buy_judgment_revision_r2_gate_decision": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_revision_r2_gate_decision.json",
+    "buy_judgment_revision_r2_regime_mismatch_gate": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_revision_r2_regime_mismatch_gate.json",
+    "buy_judgment_revision_r2_regime_mismatch_gate_plan": "C:\\work\\meemee-screener\\docs\\plans\\buy_judgment_revision_r2_regime_mismatch_gate.md",
+    "buy_judgment_revision_r3_gate_decision": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_revision_r3_gate_decision.json",
+    "buy_judgment_revision_r3_liquidity_plus_regime_gate": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_revision_r3_liquidity_plus_regime_gate.json",
+    "buy_judgment_revision_r3_liquidity_plus_regime_gate_plan": "C:\\work\\meemee-screener\\docs\\plans\\buy_judgment_revision_r3_liquidity_plus_regime_gate.md",
+    "buy_judgment_revision_r4_gate_decision": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_revision_r4_gate_decision.json",
+    "buy_judgment_revision_r4_reclaim_quality_gate": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_revision_r4_reclaim_quality_gate.json",
+    "buy_judgment_revision_r4_reclaim_quality_gate_plan": "C:\\work\\meemee-screener\\docs\\plans\\buy_judgment_revision_r4_reclaim_quality_gate.md",
+    "buy_surface_operational_challenger_r9_gate_decision": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_surface_operational_challenger_r9_gate_decision.json",
+    "buy_surface_operational_challenger_r9_r6_regime_scoped": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_surface_operational_challenger_r9_r6_regime_scoped.json",
+    "buy_surface_operational_challenger_r9_r6_regime_scoped_compare_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-buy-surface-operational-challenger-r9-r6-regime-scoped\\compare.json",
+    "buy_surface_operational_challenger_r9_r6_regime_scoped_plan": "C:\\work\\meemee-screener\\docs\\plans\\buy_surface_operational_challenger_r9_r6_regime_scoped.md",
+    "chart_data_provenance_contract": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\chart_data_provenance_contract.json",
+    "chart_source_trace_20260416": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\2531_chart_source_trace_20260416.json"
+  },
+  "bad_pick_removal_status": {
+    "breakout_failure": "drop",
+    "liq_adv20_plus_followthrough_penalty_v1": "drop",
+    "liq_adv20_plus_turnover_penalty_v1": "drop",
+    "liq_adv20_quality_penalty_v1": "drop",
+    "liq_atr_turnover_penalty_v1": "drop",
+    "liq_breakout_followthrough_penalty_v1": "drop",
+    "liq_turnover_plus_followthrough_penalty_v1": "drop",
+    "liquidity_trap": "keep",
+    "ranking_no_op": "research_failure",
+    "weak_recovery": "drop"
+  },
+  "buy_surface_allowed_regimes": [
+    "risk_on",
+    "risk_off"
+  ],
+  "buy_surface_blocked_regimes": [
+    "neutral"
+  ],
+  "buy_surface_compare_unit": "symbol",
+  "buy_surface_default_candidate": "buy_judgment_revision_r4_reclaim_quality_gate",
+  "buy_surface_dropped_closed_candidates": [
+    "buy_judgment_revision_r3_liquidity_plus_regime_gate"
+  ],
+  "buy_surface_operational_challenger": "buy_surface_operational_compare_r10_r9_scope_aware",
+  "buy_surface_operational_challenger_r9_gate_decision_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_surface_operational_challenger_r9_gate_decision.json",
+  "buy_surface_operational_challenger_r9_r6_regime_scoped_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_surface_operational_challenger_r9_r6_regime_scoped.json",
+  "buy_surface_operational_compare_r10_gate_decision_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_surface_operational_compare_r10_gate_decision.json",
+  "buy_surface_operational_compare_r10_r9_scope_aware_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_surface_operational_compare_r10_r9_scope_aware.json",
+  "buy_surface_operational_diagnosis_r8_gate_decision_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_surface_operational_diagnosis_r8_gate_decision.json",
+  "buy_surface_operational_diagnosis_r8_r6_by_regime_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_surface_operational_diagnosis_r8_r6_by_regime.json",
+  "buy_surface_operational_diagnosis_status": "active",
+  "buy_surface_operational_validation_r7_gate_decision_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_surface_operational_validation_r7_gate_decision.json",
+  "buy_surface_operational_validation_r7_r6_symbol_level_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_surface_operational_validation_r7_r6_symbol_level.json",
+  "buy_surface_operational_validation_status": "active",
+  "buy_surface_regime_blocker_reason": "neutral_regime_regression_on_symbol_level",
+  "buy_surface_regime_diagnosis_status": "active",
+  "buy_surface_regime_scoped_allowed_regimes": [
+    "risk_off",
+    "risk_on"
+  ],
+  "buy_surface_regime_scoped_blocked_regimes": [
+    "neutral"
+  ],
+  "buy_surface_regime_scoped_candidate_status": "keep_regime_scoped",
+  "buy_surface_regime_scoped_fallback_policy": "baseline_in_blocked_regime",
+  "buy_surface_regime_scoped_operational_status": "active",
+  "buy_surface_scope_aware_allowed_regimes": [
+    "risk_off",
+    "risk_on"
+  ],
+  "buy_surface_scope_aware_authoritative_decision": "hold",
+  "buy_surface_scope_aware_blocked_regimes": [
+    "neutral"
+  ],
+  "buy_surface_scope_aware_compare_executed": true,
+  "buy_surface_scope_aware_compare_status": "completed",
+  "buy_surface_scope_aware_compare_unit": "symbol",
+  "buy_surface_scope_aware_fallback_policy": "baseline_in_blocked_regime",
+  "buy_surface_scope_aware_local_decision": "hold",
+  "buy_surface_scope_aware_metric_source": "direct_rerun",
+  "buy_surface_scope_aware_promote_ready": false,
+  "buy_surface_secondary_defensive_candidate": "buy_judgment_revision_r1_weak_liquidity_gate",
+  "buy_surface_secondary_reference_candidate": "buy_judgment_revision_r2_regime_mismatch_gate",
+  "buy_surface_symbol_level_blocker_reason": "neutral_regime_regression_on_symbol_level",
+  "buy_surface_symbol_level_validation_status": "partial",
+  "comparability_contract": {
+    "artifact_detail_level": "minimal",
+    "candidate_build_order_mode": "propagate_date_before_scope_filter",
+    "ret20_source_mode": "derived_from_daily_bars",
+    "same_artifact_detail_level": true,
+    "same_cost": true,
+    "same_period": true,
+    "same_regime": true,
+    "same_top_k": true,
+    "same_universe": true,
+    "silent_fallback_allowed": false
+  },
+  "current_state_summary": {
+    "active_core_feature_families": [
+      "direct_future_outcome_ranking"
+    ],
+    "active_deep_dive_candidate": "bp_liquidity_trap_penalty/v1",
+    "bad_pick_removal_focus_bucket": "liquidity_trap",
+    "bad_pick_removal_status": {
+      "breakout_failure": "drop",
+      "liq_adv20_quality_penalty_v1": "drop",
+      "liq_atr_turnover_penalty_v1": "drop",
+      "liq_breakout_followthrough_penalty_v1": "drop",
+      "liquidity_trap": "keep",
+      "ranking_no_op": "research_failure",
+      "weak_recovery": "drop"
+    },
+    "baseline_keep": "regime-aware/v2",
+    "boundary_aware_compare_executed": false,
+    "boundary_aware_compare_run_status": "not_executed",
+    "boundary_aware_readiness_contract_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\boundary_aware_readiness_contract.json",
+    "boundary_aware_status": "backlog_not_ready",
+    "boundary_instrumentation_backlog_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\boundary_instrumentation_backlog.json",
+    "boundary_instrumentation_completion_status": "partial",
+    "boundary_instrumentation_phase": "active",
+    "boundary_instrumentation_status_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\boundary_instrumentation_status.json",
+    "breakout_failure_status": "frozen_drop",
+    "browser_cache_validation_status": "verified",
+    "buy_judgment_condition_revision_plan_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_condition_revision_plan.json",
+    "buy_judgment_effectiveness_audit_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_effectiveness_audit.json",
+    "buy_judgment_effectiveness_audit_status": "active",
+    "buy_judgment_policy_selection_r5_default_surface_choice_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_policy_selection_r5_default_surface_choice.json",
+    "buy_judgment_policy_selection_r5_default_surface_choice_decision": "select_default_surface",
+    "buy_judgment_policy_selection_r5_default_surface_choice_status": "active",
+    "buy_judgment_policy_selection_r5_gate_decision_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_policy_selection_r5_gate_decision.json",
+    "buy_judgment_revision_r1_gate_decision_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_revision_r1_gate_decision.json",
+    "buy_judgment_revision_r1_weak_liquidity_gate_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_revision_r1_weak_liquidity_gate.json",
+    "buy_judgment_revision_r1_weak_liquidity_gate_decision": "keep",
+    "buy_judgment_revision_r1_weak_liquidity_gate_status": "active",
+    "buy_judgment_revision_r2_gate_decision_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_revision_r2_gate_decision.json",
+    "buy_judgment_revision_r2_regime_mismatch_gate_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_revision_r2_regime_mismatch_gate.json",
+    "buy_judgment_revision_r2_regime_mismatch_gate_decision": "keep",
+    "buy_judgment_revision_r2_regime_mismatch_gate_status": "active",
+    "buy_judgment_revision_r3_gate_decision_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_revision_r3_gate_decision.json",
+    "buy_judgment_revision_r3_liquidity_plus_regime_gate_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_revision_r3_liquidity_plus_regime_gate.json",
+    "buy_judgment_revision_r3_liquidity_plus_regime_gate_decision": "drop",
+    "buy_judgment_revision_r3_liquidity_plus_regime_gate_status": "dropped_closed",
+    "buy_judgment_revision_r4_gate_decision_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_revision_r4_gate_decision.json",
+    "buy_judgment_revision_r4_reclaim_quality_gate_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_revision_r4_reclaim_quality_gate.json",
+    "buy_judgment_revision_r4_reclaim_quality_gate_decision": "keep",
+    "buy_judgment_revision_r4_reclaim_quality_gate_status": "active",
+    "buy_surface_compare_unit": "symbol",
+    "buy_surface_default_candidate": "buy_judgment_revision_r4_reclaim_quality_gate",
+    "buy_surface_dropped_closed_candidates": [
+      "buy_judgment_revision_r3_liquidity_plus_regime_gate"
+    ],
+    "buy_surface_operational_challenger": "buy_surface_operational_challenger_r6_r4_default",
+    "buy_surface_operational_challenger_r9_r6_regime_scoped_compare_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-buy-surface-operational-challenger-r9-r6-regime-scoped\\compare.json",
+    "buy_surface_operational_validation_r7_gate_decision_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_surface_operational_validation_r7_gate_decision.json",
+    "buy_surface_operational_validation_r7_r6_symbol_level_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_surface_operational_validation_r7_r6_symbol_level.json",
+    "buy_surface_operational_validation_status": "active",
+    "buy_surface_secondary_defensive_candidate": "buy_judgment_revision_r1_weak_liquidity_gate",
+    "buy_surface_secondary_reference_candidate": "buy_judgment_revision_r2_regime_mismatch_gate",
+    "buy_surface_symbol_level_blocker_reason": "neutral_regime_regression_on_symbol_level",
+    "buy_surface_symbol_level_validation_status": "partial",
+    "chart_adoption_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\chart_gallery_authoritative_adoption.json",
+    "chart_confirmed_basis_status": "authoritative_confirmed",
+    "chart_display_status": "provisional_current_day_labeled",
+    "chart_gallery_adoption_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\chart_gallery_authoritative_adoption.json",
+    "chart_gallery_overwrite_contract_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\chart_gallery_authoritative_overwrite_contract.json",
+    "chart_gallery_overwrite_e2e_status_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\chart_gallery_overwrite_e2e_status.json",
+    "chart_gallery_overwrite_trace_sample_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\chart_gallery_overwrite_trace_sample.json",
+    "chart_overwrite_contract_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\chart_gallery_authoritative_overwrite_contract.json",
+    "chart_overwrite_contract_status": "verified_live",
+    "chart_overwrite_status": "verified",
+    "chart_provisional_basis_status": "active_provisional_lane",
+    "chart_source_alignment_status": "mixed_confirmed_provisional_display",
+    "chart_source_contract_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\chart_data_provenance_contract.json",
+    "chart_source_trace_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\2531_chart_source_trace_20260416.json",
+    "comparability_completed": true,
+    "core_method_recentering_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\core_method_recentering_decision.json",
+    "core_method_recentering_status": "active",
+    "drop_count": 5,
+    "excluded_core_feature_families": [
+      "historical_buy_sell_judgment"
+    ],
+    "hold_count": 0,
+    "judgment_signal_binary_role": "explainability_only",
+    "judgment_signal_core_scoring_enabled": false,
+    "judgment_signal_definition_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\judgment_signal_definition.json",
+    "judgment_signal_role_decision_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\judgment_signal_role_decision.json",
+    "judgment_signal_trade_value_summary_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\judgment_signal_trade_value_summary.json",
+    "judgment_signal_validation_status": "research_fallback_blocked_by_incomplete_horizon",
+    "judgment_signal_validation_track": "parallel_validation",
+    "keep_count": 1,
+    "keep_envelope_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_keep_envelope.json",
+    "keep_envelope_completed": true,
+    "liquidity_hold_resolved": true,
+    "liquidity_keep_minimal_structure_state": "monolithic_keep_only",
+    "liquidity_keep_minimal_structure_status": "provisional",
+    "liquidity_keep_resolved": true,
+    "liquidity_keep_stable": true,
+    "liquidity_only_active_deep_dive": true,
+    "liquidity_pairwise_decomposition_completed": true,
+    "liquidity_pairwise_decomposition_round_summary": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_pairwise_decomposition_round_summary.json",
+    "liquidity_pairwise_decomposition_state": "monolithic_keep_only",
+    "liquidity_status": "active_keep_with_soft_warning",
+    "live_validation_status": "verified",
+    "meemee_runtime_stock_db_path": "C:\\Users\\enish\\AppData\\Local\\MeeMeeScreener-dev\\data\\stocks.duckdb",
+    "next_active_branch": "bp_liquidity_trap_penalty/v1",
+    "next_core_track": "outcome_only_ranking",
+    "no_new_keep_candidate": true,
+    "outcome_only_core_track_baseline_closure_state": "drop/no_op_closed",
+    "outcome_only_core_track_baseline_decision": "drop",
+    "outcome_only_core_track_baseline_reason": "no_meaningful_branching_no_op",
+    "outcome_only_core_track_baseline_selection_divergence_reason": "no_meaningful_branching",
+    "outcome_only_core_track_baseline_state": "drop/no_op_closed",
+    "outcome_only_core_track_baseline_topk_boundary_reason": "topk_boundary_absent",
+    "outcome_only_core_track_branching_redesign_plan_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\outcome_only_branching_redesign_plan.json",
+    "outcome_only_core_track_compare_engine_local_decision": "hold",
+    "outcome_only_core_track_compare_engine_local_reason": "topk_boundary_absent",
+    "outcome_only_core_track_compare_status": "compared",
+    "outcome_only_core_track_decision": "drop",
+    "outcome_only_core_track_decision_reason": "no_meaningful_branching_no_op",
+    "outcome_only_core_track_gate_decision_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\outcome_only_core_track_gate_decision.json",
+    "outcome_only_core_track_next_candidate": "outcome_only_cutoff_margin_branch_v1",
+    "outcome_only_core_track_next_candidate_purpose": "improve_top_k_branching_near_cutoff",
+    "outcome_only_core_track_plan_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\outcome_only_core_track_plan.json",
+    "outcome_only_core_track_run_summary_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\outcome_only_core_track_run_summary.json",
+    "outcome_only_core_track_runtime_db_contract_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\tradex_runtime_db_contract.json",
+    "outcome_only_core_track_status": "evidence_bearing_compare_executed",
+    "pairwise_branch_count": 3,
+    "pairwise_decomposition_minimal_structure_state": "monolithic_keep_only",
+    "pairwise_decomposition_state_reason": "pairwise_branches_no_op",
+    "pairwise_unique_top10_sets": 1,
+    "primary_next_axis": "buy_surface_operational_diagnosis_r8_r6_by_regime",
+    "remaining_browser_cache_risk": "none",
+    "remaining_cache_aliasing_risk": "present",
+    "research_contract_status": "provisional_keep_with_soft_warning",
+    "runtime_stock_db_alignment_status": "confirmed_aligned",
+    "runtime_stock_db_contract_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\runtime_stock_db_contract.json",
+    "runtime_stock_db_freshness_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\runtime_stock_db_freshness.json",
+    "runtime_stock_db_same_path": true,
+    "runtime_stock_db_symbol_coverage_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\runtime_stock_db_symbol_coverage.json",
+    "single_symbol_similarity_check_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\2531_similarity_check_current_source.json",
+    "stress_test_completion_status": "completed",
+    "symbol_2531_source_freshness_status": "blocked_by_stale_source",
+    "top10_boundary_thickness_status": "thin",
+    "top20_boundary_instrumentation_status": "not_instrumented",
+    "top20_boundary_observability_state": "contract_limited_not_observable",
+    "top20_boundary_remaining_gap": [
+      "current_contract_top_k_is_5",
+      "top20_rankings_not_exposed_in_authoritative_compare_summary"
+    ],
+    "tradex_runtime_stock_db_path": "C:\\Users\\enish\\AppData\\Local\\MeeMeeScreener-dev\\data\\stocks.duckdb",
+    "turnover_shadow_blocker_eval_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_turnover_blocker_shadow_eval.json",
+    "turnover_shadow_blocker_eval_completed": true,
+    "turnover_warning_blocker_status": "shadow_only",
+    "turnover_warning_classification": "soft_warning_non_blocking",
+    "turnover_warning_policy_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_turnover_warning_policy.json",
+    "weak_recovery_status": "frozen_drop",
+    "window_source": "family_period_segments"
+  },
+  "execution_policy": {
+    "boundary_aware_compare_run_status": "not_executed",
+    "boundary_aware_readiness_contract_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\boundary_aware_readiness_contract.json",
+    "boundary_aware_status": "backlog_not_ready",
+    "boundary_instrumentation_backlog_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\boundary_instrumentation_backlog.json",
+    "boundary_instrumentation_completion_status": "partial",
+    "boundary_instrumentation_phase": "active",
+    "boundary_instrumentation_status_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\boundary_instrumentation_status.json",
+    "buy_surface_compare_unit": "symbol",
+    "buy_surface_operational_challenger_r9_r6_regime_scoped_compare_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-buy-surface-operational-challenger-r9-r6-regime-scoped\\compare.json",
+    "buy_surface_operational_validation_status": "active",
+    "buy_surface_symbol_level_blocker_reason": "neutral_regime_regression_on_symbol_level",
+    "buy_surface_symbol_level_validation_status": "partial",
+    "compare_ready_artifacts": [
+      "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_trap_penalty_v2_compare_summary.json",
+      "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-adv20-bad-pick-prune\\compare.json",
+      "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-atr-bad-pick-prune\\compare.json",
+      "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-breakout-bad-pick-prune\\compare.json"
+    ],
+    "compare_unit": "symbol",
+    "core_method_recentering_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\core_method_recentering_decision.json",
+    "follow_up_axis": "boundary-aware",
+    "follow_up_status": "backlog",
+    "judgment_signal_definition_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\judgment_signal_definition.json",
+    "judgment_signal_role_decision_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\judgment_signal_role_decision.json",
+    "judgment_signal_trade_value_summary_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\judgment_signal_trade_value_summary.json",
+    "judgment_signal_validation_axis": "judgment-history-value",
+    "judgment_signal_validation_status": "research_fallback_blocked_by_incomplete_horizon",
+    "judgment_trade_validation_blocker_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\judgment_trade_validation_blocker.json",
+    "keep_envelope_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_keep_envelope.json",
+    "next_core_track": "outcome_only_ranking",
+    "next_round_priority": "buy_surface_operational_diagnosis_r8_r6_by_regime",
+    "no_silent_fallback": true,
+    "one_axis_only": true,
+    "outcome_only_core_track_plan_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\outcome_only_core_track_plan.json",
+    "pairwise_decomposition_completed": true,
+    "pairwise_round_summary": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_pairwise_decomposition_round_summary.json",
+    "primary_next_axis": "buy_surface_operational_diagnosis_r8_r6_by_regime",
+    "research_contract_status": "provisional_keep_with_soft_warning",
+    "round_completed": "liquidity_keep_stabilization_pairwise",
+    "runtime_stock_db_alignment_status": "confirmed_aligned",
+    "runtime_stock_db_contract_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\runtime_stock_db_contract.json",
+    "runtime_stock_db_freshness_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\runtime_stock_db_freshness.json",
+    "runtime_stock_db_same_path": true,
+    "runtime_stock_db_symbol_coverage_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\runtime_stock_db_symbol_coverage.json",
+    "secondary_next_axis": "regime-differential-adjustment",
+    "single_symbol_similarity_check_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\2531_similarity_check_current_source.json",
+    "stress_test_completion_status": "completed",
+    "tertiary_next_axis": "weighting_hygiene",
+    "turnover_shadow_blocker_eval_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_turnover_blocker_shadow_eval.json",
+    "turnover_warning_policy_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_turnover_warning_policy.json"
+  },
+  "gate_rules": {
+    "drop": {
+      "signals": [
+        "no_op_behavior",
+        "unstable_sign_across_comparable_scopes",
+        "negative_or_trivial_bad_pick_removal"
+      ]
+    },
+    "hold": {
+      "requires": [
+        "promising_signal_but_insufficient_evidence",
+        "explicit_missing_evidence",
+        "not_indefinite_storage"
+      ]
+    },
+    "keep": {
+      "requires": [
+        "positive_topk_quality_improvement",
+        "meaningful_branching",
+        "no_obvious_worst_regime_collapse"
+      ],
+      "thresholds": {
+        "bad_pick_removal_min": 0.0,
+        "changed_top10_members_count_min": 1,
+        "top10_uplift_min": 0.0
+      }
+    }
+  },
+  "generated_at": "2026-04-18T13:30:02+09:00",
+  "liquidity_decomposition_runs": [
+    {
+      "authoritative_candidate_gate": "drop",
+      "authoritative_gate_reason": "no_meaningful_branching_no_topk_change",
+      "authoritative_override_reason_code": "coverage_restored_drop_with_noop_branch",
+      "branch_overlap_state": "overlap_heavy_no_op",
+      "candidate_name": "liq_adv20_plus_turnover_penalty_v1",
+      "changed_rank_count": 0,
+      "changed_top10_members_count": 0,
+      "changed_top5_members_count": 0,
+      "compare_engine_local_decision": "hold",
+      "compare_engine_local_reason": "topk_boundary_absent",
+      "compare_ready_run_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1\\runs\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1-liq_adv20_plus_turnover_penalty_v1\\run.json",
+      "compare_summary": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\liq_adv20_plus_turnover_penalty_v1_compare_summary.json",
+      "decision": "drop",
+      "decision_reason": "no_meaningful_branching_no_op",
+      "overlap_vs_monolithic_keep": 1.0,
+      "overlap_vs_peer_candidates": 1.0,
+      "research_contract_status": "provisional_drop_noop_branch",
+      "top10_uplift": 0.0,
+      "worst_regime_delta": 0.0
+    },
+    {
+      "authoritative_candidate_gate": "drop",
+      "authoritative_gate_reason": "no_meaningful_branching_no_topk_change",
+      "authoritative_override_reason_code": "coverage_restored_drop_with_noop_branch",
+      "branch_overlap_state": "overlap_heavy_no_op",
+      "candidate_name": "liq_turnover_plus_followthrough_penalty_v1",
+      "changed_rank_count": 0,
+      "changed_top10_members_count": 0,
+      "changed_top5_members_count": 0,
+      "compare_engine_local_decision": "hold",
+      "compare_engine_local_reason": "topk_boundary_absent",
+      "compare_ready_run_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1\\runs\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1-liq_turnover_plus_followthrough_penalty_v1\\run.json",
+      "compare_summary": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\liq_turnover_plus_followthrough_penalty_v1_compare_summary.json",
+      "decision": "drop",
+      "decision_reason": "no_meaningful_branching_no_op",
+      "overlap_vs_monolithic_keep": 1.0,
+      "overlap_vs_peer_candidates": 1.0,
+      "research_contract_status": "provisional_drop_noop_branch",
+      "top10_uplift": 0.0,
+      "worst_regime_delta": 0.0
+    },
+    {
+      "authoritative_candidate_gate": "drop",
+      "authoritative_gate_reason": "no_meaningful_branching_no_topk_change",
+      "authoritative_override_reason_code": "coverage_restored_drop_with_noop_branch",
+      "branch_overlap_state": "overlap_heavy_no_op",
+      "candidate_name": "liq_adv20_plus_followthrough_penalty_v1",
+      "changed_rank_count": 0,
+      "changed_top10_members_count": 0,
+      "changed_top5_members_count": 0,
+      "compare_engine_local_decision": "hold",
+      "compare_engine_local_reason": "topk_boundary_absent",
+      "compare_ready_run_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1\\runs\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1-liq_adv20_plus_followthrough_penalty_v1\\run.json",
+      "compare_summary": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\liq_adv20_plus_followthrough_penalty_v1_compare_summary.json",
+      "decision": "drop",
+      "decision_reason": "no_meaningful_branching_no_op",
+      "overlap_vs_monolithic_keep": 1.0,
+      "overlap_vs_peer_candidates": 1.0,
+      "research_contract_status": "provisional_drop_noop_branch",
+      "top10_uplift": 0.0,
+      "worst_regime_delta": 0.0
+    }
+  ],
+  "next_core_track": "outcome_only_ranking",
+  "next_round_candidates": [
+    {
+      "acceptance_criteria": [
+        "default challenger explicitly selected",
+        "secondary roles explicitly assigned",
+        "R3 remains closed",
+        "no new gate created"
+      ],
+      "candidate_name": "buy_judgment_policy_selection_r5_default_surface_choice",
+      "closed_reference": "buy_judgment_revision_r3_liquidity_plus_regime_gate",
+      "decision": "keep",
+      "expected_to_move": "assign the default operational challenger and clarify secondary/reference roles",
+      "feature_class": "policy_selection",
+      "missing_evidence": [],
+      "must_not_change": [
+        "comparability_contract",
+        "artifact_detail_level",
+        "same_top_k_definition",
+        "confirmed_data_only",
+        "boundary_aware_compare_executed"
+      ],
+      "reference_candidates": [
+        "buy_judgment_revision_r1_weak_liquidity_gate",
+        "buy_judgment_revision_r2_regime_mismatch_gate",
+        "buy_judgment_revision_r4_reclaim_quality_gate"
+      ],
+      "run_state": "completed",
+      "target_failure_bucket": "policy_selection"
+    },
+    {
+      "acceptance_criteria": [
+        "positive bad_pick_removal",
+        "changed_top10_count >= 1",
+        "top10_uplift >= 0",
+        "worst_regime_delta does not collapse",
+        "overlap_vs_champion not excessive"
+      ],
+      "candidate_name": "bad-pick-removal",
+      "decision": "keep",
+      "expected_to_move": "known loser patterns out of top-K without broad score reshaping",
+      "feature_class": "bad_pick_removal",
+      "missing_evidence": [],
+      "must_not_change": [
+        "comparability_contract",
+        "artifact_detail_level",
+        "same_topK_definition"
+      ],
+      "run_state": "completed",
+      "target_failure_bucket": "liquidity_trap",
+      "target_failure_buckets": [
+        "liquidity_trap",
+        "weak_recovery",
+        "breakout_failure"
+      ]
+    },
+    {
+      "acceptance_criteria": [
+        "changed_top10_count >= 1",
+        "positive top10_uplift",
+        "no worst_regime_collapse"
+      ],
+      "candidate_name": "boundary-aware",
+      "decision": "hold",
+      "expected_to_move": "top5/top10 cutoff replacements and near-boundary ordering",
+      "feature_class": "boundary_feature",
+      "missing_evidence": [
+        "no_post_design_run"
+      ],
+      "must_not_change": [
+        "comparability_contract",
+        "artifact_detail_level",
+        "same_topK_definition"
+      ],
+      "run_state": "backlog",
+      "target_failure_bucket": "ranking_no_op"
+    },
+    {
+      "acceptance_criteria": [
+        "positive uplift in at least one comparable scope",
+        "explicit selection divergence reason",
+        "no collapse in worst regime"
+      ],
+      "candidate_name": "regime-differential-adjustment",
+      "decision": "hold",
+      "expected_to_move": "score only when the effect clearly changes by regime",
+      "feature_class": "regime_adjustment",
+      "missing_evidence": [
+        "no_post_design_run"
+      ],
+      "must_not_change": [
+        "comparability_contract",
+        "artifact_detail_level",
+        "same_topK_definition"
+      ],
+      "run_state": "backlog",
+      "target_failure_bucket": "regime_mismatch"
+    },
+    {
+      "acceptance_criteria": [
+        "changed_top10_members_count > 0",
+        "top10_uplift >= 0",
+        "bad_pick_removal >= 0",
+        "no obvious worst-regime collapse",
+        "no historical judgment dependence"
+      ],
+      "candidate_name": "outcome_only_cutoff_margin_branch_v1",
+      "decision": "hold",
+      "expected_to_move": "top5/top10 cutoff replacements by introducing a small cutoff-margin pressure term",
+      "feature_class": "outcome_only_cutoff_branching",
+      "missing_evidence": [
+        "no_post_design_run"
+      ],
+      "must_not_change": [
+        "comparability_contract",
+        "artifact_detail_level",
+        "same_topK_definition",
+        "historical_judgment_excluded_from_core"
+      ],
+      "plan_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\outcome_only_branching_redesign_plan.json",
+      "purpose": "improve_top_k_branching_near_cutoff",
+      "run_state": "planned",
+      "runtime_db_contract_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\tradex_runtime_db_contract.json",
+      "target_failure_bucket": "ranking_no_op"
+    }
+  ],
+  "next_round_priority": "buy_surface_operational_compare_r10_r9_scope_aware",
+  "outcome_only_core_track_baseline_closure_state": "drop/no_op_closed",
+  "outcome_only_core_track_baseline_decision": "drop",
+  "outcome_only_core_track_baseline_reason": "no_meaningful_branching_no_op",
+  "outcome_only_core_track_baseline_selection_divergence_reason": "no_meaningful_branching",
+  "outcome_only_core_track_baseline_state": "drop/no_op_closed",
+  "outcome_only_core_track_baseline_topk_boundary_reason": "topk_boundary_absent",
+  "outcome_only_core_track_branching_redesign_plan_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\outcome_only_branching_redesign_plan.json",
+  "outcome_only_core_track_compare_engine_local_decision": "hold",
+  "outcome_only_core_track_compare_engine_local_reason": "topk_boundary_absent",
+  "outcome_only_core_track_compare_status": "compared",
+  "outcome_only_core_track_decision": "drop",
+  "outcome_only_core_track_decision_reason": "no_meaningful_branching_no_op",
+  "outcome_only_core_track_gate_decision_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\outcome_only_core_track_gate_decision.json",
+  "outcome_only_core_track_next_candidate": "outcome_only_cutoff_margin_branch_v1",
+  "outcome_only_core_track_next_candidate_purpose": "improve_top_k_branching_near_cutoff",
+  "outcome_only_core_track_next_step": "branching_redesign_planned",
+  "outcome_only_core_track_run_summary_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\outcome_only_core_track_run_summary.json",
+  "outcome_only_core_track_runtime_db_contract_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\tradex_runtime_db_contract.json",
+  "outcome_only_core_track_same_condition_verification": {
+    "boundary_aware_compare_executed": false,
+    "embargo": true,
+    "historical_judgment_excluded": true,
+    "no_shuffle": true,
+    "same_artifact_detail_level": true,
+    "same_cost": true,
+    "same_period": true,
+    "same_regime": true,
+    "same_top_k": true,
+    "same_universe": true,
+    "time_block_split": true
+  },
+  "outcome_only_core_track_selection_metrics": {
+    "bad_pick_removal": 0.0,
+    "boundary_score_gap_top10": 0.0,
+    "boundary_score_gap_top5": 0.0,
+    "changed_rank_count": 0,
+    "changed_top10_members_count": 0,
+    "changed_top20_members_count": 0,
+    "changed_top5_members_count": 0,
+    "selection_divergence_reason": "no_meaningful_branching",
+    "top10_uplift": 0.0,
+    "top5_uplift": 0.0
+  },
+  "outcome_only_core_track_status": "evidence_bearing_compare_executed",
+  "outcome_only_core_track_trade_metrics": {
+    "challenger_dd_proxy": 0.07576408632972864,
+    "challenger_liquidity_fail_rate": 1.0,
+    "challenger_monthly_top5_capture_mean": 1.0,
+    "challenger_top10_ret20_mean": -0.01082344090424695,
+    "challenger_top5_ret20_mean": -0.01082344090424695,
+    "challenger_turnover_proxy": 0.0,
+    "champion_dd_proxy": 0.07576408632972864,
+    "champion_liquidity_fail_rate": 1.0,
+    "champion_monthly_top5_capture_mean": 1.0,
+    "champion_top10_ret20_mean": -0.01082344090424695,
+    "champion_top5_ret20_mean": -0.01082344090424695,
+    "champion_turnover_proxy": 0.0,
+    "drawdown_proxy_delta": 0.0,
+    "expectancy_top10_delta": 0.0,
+    "expectancy_top5_delta": 0.0,
+    "hit_rate": 1.0,
+    "monthly_improvement_rate": 1.0,
+    "worst_regime_delta": 0.0
+  },
+  "pairwise_liquidity_decomposition_runs": [
+    {
+      "authoritative_candidate_gate": "drop",
+      "authoritative_gate_reason": "no_meaningful_branching_no_topk_change",
+      "authoritative_override_reason_code": "coverage_restored_drop_with_noop_branch",
+      "branch_overlap_state": "overlap_heavy_no_op",
+      "candidate_name": "liq_adv20_plus_turnover_penalty_v1",
+      "compare_engine_local_decision": "hold",
+      "compare_engine_local_reason": "topk_boundary_absent",
+      "compare_ready_run_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1\\runs\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1-liq_adv20_plus_turnover_penalty_v1\\run.json",
+      "compare_summary": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\liq_adv20_plus_turnover_penalty_v1_compare_summary.json",
+      "decision": "drop",
+      "decision_reason": "no_meaningful_branching_no_op",
+      "overlap_vs_monolithic_keep": 1.0,
+      "overlap_vs_peer_candidates": 1.0,
+      "research_contract_status": "provisional_drop_noop_branch"
+    },
+    {
+      "authoritative_candidate_gate": "drop",
+      "authoritative_gate_reason": "no_meaningful_branching_no_topk_change",
+      "authoritative_override_reason_code": "coverage_restored_drop_with_noop_branch",
+      "branch_overlap_state": "overlap_heavy_no_op",
+      "candidate_name": "liq_turnover_plus_followthrough_penalty_v1",
+      "compare_engine_local_decision": "hold",
+      "compare_engine_local_reason": "topk_boundary_absent",
+      "compare_ready_run_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1\\runs\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1-liq_turnover_plus_followthrough_penalty_v1\\run.json",
+      "compare_summary": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\liq_turnover_plus_followthrough_penalty_v1_compare_summary.json",
+      "decision": "drop",
+      "decision_reason": "no_meaningful_branching_no_op",
+      "overlap_vs_monolithic_keep": 1.0,
+      "overlap_vs_peer_candidates": 1.0,
+      "research_contract_status": "provisional_drop_noop_branch"
+    },
+    {
+      "authoritative_candidate_gate": "drop",
+      "authoritative_gate_reason": "no_meaningful_branching_no_topk_change",
+      "authoritative_override_reason_code": "coverage_restored_drop_with_noop_branch",
+      "branch_overlap_state": "overlap_heavy_no_op",
+      "candidate_name": "liq_adv20_plus_followthrough_penalty_v1",
+      "compare_engine_local_decision": "hold",
+      "compare_engine_local_reason": "topk_boundary_absent",
+      "compare_ready_run_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1\\runs\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1-liq_adv20_plus_followthrough_penalty_v1\\run.json",
+      "compare_summary": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\liq_adv20_plus_followthrough_penalty_v1_compare_summary.json",
+      "decision": "drop",
+      "decision_reason": "no_meaningful_branching_no_op",
+      "overlap_vs_monolithic_keep": 1.0,
+      "overlap_vs_peer_candidates": 1.0,
+      "research_contract_status": "provisional_drop_noop_branch"
+    }
+  ],
+  "primary_next_axis": "buy_surface_operational_compare_r10_r9_scope_aware",
+  "round_execution": {
+    "axis": "liquidity_keep_stabilization",
+    "compare_ready_artifacts": [
+      "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1\\runs\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1-liq_adv20_plus_turnover_penalty_v1\\run.json",
+      "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1\\runs\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1-liq_turnover_plus_followthrough_penalty_v1\\run.json",
+      "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1\\runs\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1-liq_adv20_plus_followthrough_penalty_v1\\run.json"
+    ],
+    "compare_ready_run_artifacts": [
+      "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1\\runs\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1-liq_adv20_plus_turnover_penalty_v1\\run.json",
+      "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1\\runs\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1-liq_turnover_plus_followthrough_penalty_v1\\run.json",
+      "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1\\runs\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1-liq_adv20_plus_followthrough_penalty_v1\\run.json"
+    ],
+    "hold_resolution_completed": true,
+    "liquidity_compare_summary": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_trap_penalty_v2_compare_summary.json",
+    "liquidity_hold_resolution_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_pairwise_decomposition_round_summary.json",
+    "liquidity_pairwise_round_summary": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_pairwise_decomposition_round_summary.json",
+    "pairwise_compare_family_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1\\compare.json",
+    "pairwise_decomposition_completed": true,
+    "pairwise_round_summary": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_pairwise_decomposition_round_summary.json",
+    "status": "completed"
+  },
+  "schema_version": "tradex_candidate_gate_decision_v2",
+  "source_artifacts": {
+    "boundary_aware_readiness_contract": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\boundary_aware_readiness_contract.json",
+    "boundary_instrumentation_backlog": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\boundary_instrumentation_backlog.json",
+    "boundary_instrumentation_status": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\boundary_instrumentation_status.json",
+    "buy_judgment_condition_revision_plan": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_condition_revision_plan.json",
+    "buy_judgment_effectiveness_audit": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_effectiveness_audit.json",
+    "buy_judgment_policy_selection_r5_default_surface_choice": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_policy_selection_r5_default_surface_choice.json",
+    "buy_judgment_policy_selection_r5_default_surface_choice_plan": "C:\\work\\meemee-screener\\docs\\plans\\buy_judgment_policy_selection_r5_default_surface_choice.md",
+    "buy_judgment_policy_selection_r5_gate_decision": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_policy_selection_r5_gate_decision.json",
+    "buy_judgment_revision_r1_gate_decision": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_revision_r1_gate_decision.json",
+    "buy_judgment_revision_r1_weak_liquidity_gate": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_revision_r1_weak_liquidity_gate.json",
+    "buy_judgment_revision_r2_gate_decision": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_revision_r2_gate_decision.json",
+    "buy_judgment_revision_r2_regime_mismatch_gate": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_revision_r2_regime_mismatch_gate.json",
+    "buy_judgment_revision_r2_regime_mismatch_gate_plan": "C:\\work\\meemee-screener\\docs\\plans\\buy_judgment_revision_r2_regime_mismatch_gate.md",
+    "buy_judgment_revision_r3_gate_decision": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_revision_r3_gate_decision.json",
+    "buy_judgment_revision_r3_liquidity_plus_regime_gate": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_revision_r3_liquidity_plus_regime_gate.json",
+    "buy_judgment_revision_r3_liquidity_plus_regime_gate_plan": "C:\\work\\meemee-screener\\docs\\plans\\buy_judgment_revision_r3_liquidity_plus_regime_gate.md",
+    "buy_judgment_revision_r4_gate_decision": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_revision_r4_gate_decision.json",
+    "buy_judgment_revision_r4_reclaim_quality_gate": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_revision_r4_reclaim_quality_gate.json",
+    "buy_judgment_revision_r4_reclaim_quality_gate_plan": "C:\\work\\meemee-screener\\docs\\plans\\buy_judgment_revision_r4_reclaim_quality_gate.md",
+    "champion_bad_pick_ledger": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\champion_bad_pick_ledger.json",
+    "judgment_signal_definition": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\judgment_signal_definition.json",
+    "judgment_signal_role_decision": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\judgment_signal_role_decision.json",
+    "judgment_signal_trade_value_summary": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\judgment_signal_trade_value_summary.json",
+    "keep_envelope": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_keep_envelope.json",
+    "liquidity_compare_summary_v2": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_trap_penalty_v2_compare_summary.json",
+    "liquidity_decision_contract": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_decision_contract.json",
+    "liquidity_decomposition_branch_compare_artifacts": [
+      "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-adv20-bad-pick-prune\\compare.json",
+      "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-atr-bad-pick-prune\\compare.json",
+      "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-breakout-bad-pick-prune\\compare.json"
+    ],
+    "liquidity_decomposition_branch_compare_summaries": [
+      "C:\\work\\meemee-screener\\artifacts\\research_inventory\\liq_adv20_quality_penalty_v1_compare_summary.json",
+      "C:\\work\\meemee-screener\\artifacts\\research_inventory\\liq_atr_turnover_penalty_v1_compare_summary.json",
+      "C:\\work\\meemee-screener\\artifacts\\research_inventory\\liq_breakout_followthrough_penalty_v1_compare_summary.json"
+    ],
+    "liquidity_decomposition_ledger": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_decomposition_ledger.json",
+    "liquidity_hold_resolution_round_summary": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_decomposition_round_summary.json",
+    "liquidity_keep_stability": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_keep_stability.json",
+    "liquidity_keep_summary": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_trap_penalty_v2_compare_summary.json",
+    "outcome_only_branching_redesign_plan": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\outcome_only_branching_redesign_plan.json",
+    "pairwise_branch_compare_artifacts": [
+      "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1\\runs\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1-liq_adv20_plus_turnover_penalty_v1\\run.json",
+      "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1\\runs\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1-liq_turnover_plus_followthrough_penalty_v1\\run.json",
+      "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1\\runs\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1-liq_adv20_plus_followthrough_penalty_v1\\run.json"
+    ],
+    "pairwise_branch_compare_summaries": [
+      "C:\\work\\meemee-screener\\artifacts\\research_inventory\\liq_adv20_plus_turnover_penalty_v1_compare_summary.json",
+      "C:\\work\\meemee-screener\\artifacts\\research_inventory\\liq_turnover_plus_followthrough_penalty_v1_compare_summary.json",
+      "C:\\work\\meemee-screener\\artifacts\\research_inventory\\liq_adv20_plus_followthrough_penalty_v1_compare_summary.json"
+    ],
+    "pairwise_round_summary": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_pairwise_decomposition_round_summary.json",
+    "pruning_decision": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\pruning_decision.json",
+    "research_inventory": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\research_inventory.json",
+    "runtime_stock_db_contract": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\runtime_stock_db_contract.json",
+    "runtime_stock_db_freshness": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\runtime_stock_db_freshness.json",
+    "runtime_stock_db_symbol_coverage": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\runtime_stock_db_symbol_coverage.json",
+    "single_symbol_similarity_check_current_source": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\2531_similarity_check_current_source.json",
+    "tradex_runtime_db_contract": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\tradex_runtime_db_contract.json",
+    "turnover_shadow_blocker_eval": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_turnover_blocker_shadow_eval.json",
+    "turnover_warning_policy": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_turnover_warning_policy.json"
+  },
+  "status": "confirmed",
+  "unit_decisions": [
+    {
+      "decision": "keep",
+      "decision_reason": "current_champion_baseline",
+      "layer": "tradex_proxy",
+      "metrics": {
+        "bad_pick_removal": 0.0,
+        "changed_rank_count": 0,
+        "changed_top10_members_count": 0,
+        "changed_top5_members_count": 0,
+        "overlap_vs_champion": "baseline",
+        "top10_uplift": 0.0
+      },
+      "status": "evaluated",
+      "unit_name": "regime-aware/v2"
+    },
+    {
+      "authoritative_candidate_gate": "keep",
+      "authoritative_gate_reason": "positive_bad_pick_removal_with_completed_coverage",
+      "authoritative_override_reason_code": "coverage_restored_keep_with_turnover_warning",
+      "compare_engine_local_decision": "hold",
+      "compare_engine_local_reason": "turnover_too_high",
+      "decision": "keep",
+      "decision_reason": "positive_bad_pick_removal_with_completed_coverage",
+      "decision_source_json": {
+        "kind": "compare_summary",
+        "source_path": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_trap_penalty_v2_compare_summary.json",
+        "supporting_tests": []
+      },
+      "layer": "tradex_proxy",
+      "metrics": {
+        "bad_pick_removal": 6,
+        "changed_rank_count": 15,
+        "changed_top10_members_count": 12,
+        "changed_top5_members_count": 6,
+        "overlap_vs_champion": "medium",
+        "top10_uplift": 0.017542163616904125
+      },
+      "status": "evaluated",
+      "turnover_warning_classification": "soft_warning_non_blocking",
+      "unit_name": "bp_liquidity_trap_penalty/v1"
+    },
+    {
+      "decision": "drop",
+      "decision_reason": "overlap_heavy_duplicate_or_target_bucket_not_removed",
+      "layer": "tradex_proxy",
+      "metrics": {
+        "bad_pick_removal": 0,
+        "changed_rank_count": 15,
+        "changed_top10_members_count": 12,
+        "changed_top5_members_count": 6,
+        "overlap_vs_champion": "medium",
+        "top10_uplift": 0.017542163616904125
+      },
+      "status": "evaluated",
+      "unit_name": "bp_weak_recovery_penalty/v1"
+    },
+    {
+      "decision": "drop",
+      "decision_reason": "overlap_heavy_duplicate_or_target_bucket_not_removed",
+      "layer": "tradex_proxy",
+      "metrics": {
+        "bad_pick_removal": 0,
+        "changed_rank_count": 15,
+        "changed_top10_members_count": 12,
+        "changed_top5_members_count": 6,
+        "overlap_vs_champion": "medium",
+        "top10_uplift": 0.017542163616904125
+      },
+      "status": "evaluated",
+      "unit_name": "bp_breakout_failure_penalty/v1"
+    },
+    {
+      "decision": "drop",
+      "decision_reason": "overlap_heavy_no_op",
+      "layer": "tradex_proxy",
+      "metrics": {
+        "bad_pick_removal": 0.0,
+        "changed_rank_count": 0,
+        "changed_top10_members_count": 0,
+        "changed_top5_members_count": 0,
+        "overlap_vs_champion": "high",
+        "top10_uplift": 0.0
+      },
+      "status": "evaluated",
+      "unit_name": "existing-score rescaled/v1"
+    },
+    {
+      "decision": "drop",
+      "decision_reason": "overlap_heavy_no_op",
+      "layer": "tradex_proxy",
+      "metrics": {
+        "bad_pick_removal": 0.0,
+        "changed_rank_count": 0,
+        "changed_top10_members_count": 0,
+        "changed_top5_members_count": 0,
+        "overlap_vs_champion": "high",
+        "top10_uplift": 0.0
+      },
+      "status": "evaluated",
+      "unit_name": "existing-score rescaled/v2"
+    },
+    {
+      "decision": "drop",
+      "decision_reason": "overlap_heavy_no_op",
+      "layer": "tradex_proxy",
+      "metrics": {
+        "bad_pick_removal": 0.0,
+        "changed_rank_count": 0,
+        "changed_top10_members_count": 0,
+        "changed_top5_members_count": 0,
+        "overlap_vs_champion": "high",
+        "top10_uplift": 0.0
+      },
+      "status": "evaluated",
+      "unit_name": "penalty-first/v1"
+    },
+    {
+      "decision": "drop",
+      "decision_reason": "overlap_heavy_no_op",
+      "layer": "tradex_proxy",
+      "metrics": {
+        "bad_pick_removal": 0.0,
+        "changed_rank_count": 0,
+        "changed_top10_members_count": 0,
+        "changed_top5_members_count": 0,
+        "overlap_vs_champion": "high",
+        "top10_uplift": 0.0
+      },
+      "status": "evaluated",
+      "unit_name": "penalty-first/v2"
+    },
+    {
+      "decision": "drop",
+      "decision_reason": "overlap_heavy_no_op",
+      "layer": "tradex_proxy",
+      "metrics": {
+        "bad_pick_removal": 0.0,
+        "changed_rank_count": 0,
+        "changed_top10_members_count": 0,
+        "changed_top5_members_count": 0,
+        "overlap_vs_champion": "high",
+        "top10_uplift": 0.0
+      },
+      "status": "evaluated",
+      "unit_name": "readiness-aware/v1"
+    },
+    {
+      "decision": "drop",
+      "decision_reason": "overlap_heavy_no_op",
+      "layer": "tradex_proxy",
+      "metrics": {
+        "bad_pick_removal": 0.0,
+        "changed_rank_count": 0,
+        "changed_top10_members_count": 0,
+        "changed_top5_members_count": 0,
+        "overlap_vs_champion": "high",
+        "top10_uplift": 0.0
+      },
+      "status": "evaluated",
+      "unit_name": "readiness-aware/v2"
+    },
+    {
+      "decision": "drop",
+      "decision_reason": "overlap_heavy_no_op",
+      "layer": "tradex_proxy",
+      "metrics": {
+        "bad_pick_removal": 0.0,
+        "changed_rank_count": 0,
+        "changed_top10_members_count": 0,
+        "changed_top5_members_count": 0,
+        "overlap_vs_champion": "high",
+        "top10_uplift": 0.0
+      },
+      "status": "evaluated",
+      "unit_name": "liquidity-aware/v1"
+    },
+    {
+      "decision": "drop",
+      "decision_reason": "overlap_heavy_no_op",
+      "layer": "tradex_proxy",
+      "metrics": {
+        "bad_pick_removal": 0.0,
+        "changed_rank_count": 0,
+        "changed_top10_members_count": 0,
+        "changed_top5_members_count": 0,
+        "overlap_vs_champion": "high",
+        "top10_uplift": 0.0
+      },
+      "status": "evaluated",
+      "unit_name": "liquidity-aware/v2"
+    },
+    {
+      "decision": "drop",
+      "decision_reason": "overlap_heavy_no_op",
+      "layer": "tradex_proxy",
+      "metrics": {
+        "bad_pick_removal": 0.0,
+        "changed_rank_count": 0,
+        "changed_top10_members_count": 0,
+        "changed_top5_members_count": 0,
+        "overlap_vs_champion": "high",
+        "top10_uplift": 0.0
+      },
+      "status": "evaluated",
+      "unit_name": "regime-aware/v1"
+    },
+    {
+      "decision": "hold",
+      "decision_reason": "research_only_unverified_branch",
+      "layer": "tradex_proxy",
+      "metrics": {
+        "bad_pick_removal": null,
+        "changed_rank_count": null,
+        "changed_top10_members_count": null,
+        "changed_top5_members_count": null,
+        "overlap_vs_champion": "unknown",
+        "top10_uplift": null
+      },
+      "missing_evidence": [
+        "no_comparable_run",
+        "no_selection_delta",
+        "no_branching_evidence"
+      ],
+      "resolution_target": "comparability_run_for_bad_pick_removal",
+      "status": "research_only",
+      "unit_name": "bad-pick-prune/v1"
+    },
+    {
+      "decision": "hold",
+      "decision_reason": "research_only_unverified_branch",
+      "layer": "tradex_proxy",
+      "metrics": {
+        "bad_pick_removal": null,
+        "changed_rank_count": null,
+        "changed_top10_members_count": null,
+        "changed_top5_members_count": null,
+        "overlap_vs_champion": "unknown",
+        "top10_uplift": null
+      },
+      "missing_evidence": [
+        "no_comparable_run",
+        "no_selection_delta",
+        "no_branching_evidence"
+      ],
+      "resolution_target": "comparability_run_for_bad_pick_removal",
+      "status": "research_only",
+      "unit_name": "bad-pick-prune/v2"
+    },
+    {
+      "decision": "hold",
+      "decision_reason": "research_only_unverified_branch",
+      "layer": "tradex_proxy",
+      "metrics": {
+        "bad_pick_removal": null,
+        "changed_rank_count": null,
+        "changed_top10_members_count": null,
+        "changed_top5_members_count": null,
+        "overlap_vs_champion": "unknown",
+        "top10_uplift": null
+      },
+      "missing_evidence": [
+        "no_comparable_run",
+        "no_selection_delta",
+        "no_branching_evidence"
+      ],
+      "resolution_target": "comparability_run_for_bad_pick_removal",
+      "status": "research_only",
+      "unit_name": "bad-pick-prune/v3"
+    },
+    {
+      "authoritative_candidate_gate": "drop",
+      "authoritative_gate_reason": "no_meaningful_branching_no_topk_change",
+      "authoritative_override_reason_code": "coverage_restored_drop_with_noop_branch",
+      "compare_engine_local_decision": "hold",
+      "compare_engine_local_reason": "topk_boundary_absent",
+      "compare_ready_run_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-adv20-bad-pick-prune\\compare.json",
+      "decision": "drop",
+      "decision_reason": "no_meaningful_branching_no_op",
+      "decision_source_json": {
+        "kind": "compare_summary",
+        "source_path": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\liq_adv20_quality_penalty_v1_compare_summary.json",
+        "supporting_tests": []
+      },
+      "layer": "tradex_proxy",
+      "metrics": {
+        "bad_pick_removal": 0,
+        "changed_rank_count": 0,
+        "changed_top10_members_count": 0,
+        "changed_top5_members_count": 0,
+        "overlap_vs_champion": "high",
+        "top10_uplift": 0.0
+      },
+      "status": "evaluated",
+      "unit_name": "liq_adv20_quality_penalty_v1/v1"
+    },
+    {
+      "authoritative_candidate_gate": "drop",
+      "authoritative_gate_reason": "no_meaningful_branching_no_topk_change",
+      "authoritative_override_reason_code": "coverage_restored_drop_with_noop_branch",
+      "compare_engine_local_decision": "hold",
+      "compare_engine_local_reason": "topk_boundary_absent",
+      "compare_ready_run_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-atr-bad-pick-prune\\compare.json",
+      "decision": "drop",
+      "decision_reason": "no_meaningful_branching_no_op",
+      "decision_source_json": {
+        "kind": "compare_summary",
+        "source_path": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\liq_atr_turnover_penalty_v1_compare_summary.json",
+        "supporting_tests": []
+      },
+      "layer": "tradex_proxy",
+      "metrics": {
+        "bad_pick_removal": 0,
+        "changed_rank_count": 0,
+        "changed_top10_members_count": 0,
+        "changed_top5_members_count": 0,
+        "overlap_vs_champion": "high",
+        "top10_uplift": 0.0
+      },
+      "status": "evaluated",
+      "unit_name": "liq_atr_turnover_penalty_v1/v1"
+    },
+    {
+      "authoritative_candidate_gate": "drop",
+      "authoritative_gate_reason": "no_meaningful_branching_no_topk_change",
+      "authoritative_override_reason_code": "coverage_restored_drop_with_noop_branch",
+      "compare_engine_local_decision": "hold",
+      "compare_engine_local_reason": "topk_boundary_absent",
+      "compare_ready_run_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-breakout-bad-pick-prune\\compare.json",
+      "decision": "drop",
+      "decision_reason": "no_meaningful_branching_no_op",
+      "decision_source_json": {
+        "kind": "compare_summary",
+        "source_path": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\liq_breakout_followthrough_penalty_v1_compare_summary.json",
+        "supporting_tests": []
+      },
+      "layer": "tradex_proxy",
+      "metrics": {
+        "bad_pick_removal": 0,
+        "changed_rank_count": 0,
+        "changed_top10_members_count": 0,
+        "changed_top5_members_count": 0,
+        "overlap_vs_champion": "high",
+        "top10_uplift": 0.0
+      },
+      "status": "evaluated",
+      "unit_name": "liq_breakout_followthrough_penalty_v1/v1"
+    }
+  ]
+}

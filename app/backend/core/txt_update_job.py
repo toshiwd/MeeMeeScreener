@@ -39,6 +39,19 @@ _COMPLETION_MODE_FULL = "full"
 _COMPLETION_MODE_PRACTICAL_FAST = "practical_fast"
 
 
+def _hidden_process_kwargs() -> dict[str, object]:
+    kwargs: dict[str, object] = {
+        "creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    }
+    startupinfo_factory = getattr(subprocess, "STARTUPINFO", None)
+    if startupinfo_factory is not None:
+        startupinfo = startupinfo_factory()
+        startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 0)
+        startupinfo.wShowWindow = getattr(subprocess, "SW_HIDE", 0)
+        kwargs["startupinfo"] = startupinfo
+    return kwargs
+
+
 def _update_vbs_path() -> str:
     return os.path.abspath(str(config.PAN_EXPORT_VBS_PATH))
 
@@ -358,6 +371,7 @@ def run_vbs_export(
             encoding="cp932",
             errors="replace",
             bufsize=1,
+            **_hidden_process_kwargs(),
         )
     except Exception as exc:
         logger.exception("Failed to start VBS process")

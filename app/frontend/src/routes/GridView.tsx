@@ -1025,10 +1025,9 @@ export default function GridView() {
 
   const canAddWatchlist = useMemo(() => {
     if (!normalizedSearch) return null;
-    if (searchFiltered.length > 0) return null;
-    if (tickers.some((item) => item.code === normalizedSearch)) return null;
+    if (keepList.includes(normalizedSearch)) return null;
     return normalizedSearch;
-  }, [normalizedSearch, searchFiltered.length, tickers]);
+  }, [keepList, normalizedSearch]);
   const activeFilterResult = useMemo(
     () => buildFilterResult(techFilterActive),
     [buildFilterResult, techFilterActive]
@@ -1409,6 +1408,29 @@ export default function GridView() {
     }
     requestVisibleBars(codes, "scroll");
   };
+
+  useEffect(() => {
+    if (!backendReady || sortedTickers.length === 0 || columns <= 0 || rows <= 0) return;
+    const startRow = Math.max(0, Math.floor(gridScrollTop / rowHeight));
+    const stopRow = Math.min(rowCount - 1, startRow + Math.max(1, rows) - 1);
+    const start = startRow * columns;
+    const stop = Math.min(sortedTickers.length - 1, (stopRow + 1) * columns - 1);
+    if (start > stop) return;
+    const codes: string[] = [];
+    for (let index = start; index <= stop; index += 1) {
+      const item = sortedTickers[index];
+      if (item) codes.push(item.ticker.code);
+    }
+    if (!codes.length) return;
+    lastVisibleCodesRef.current = codes;
+    lastVisibleRangeRef.current = { start, stop };
+    const summarySignature = codes.join(",");
+    if (summarySignature !== lastVisibleSummarySignatureRef.current) {
+      lastVisibleSummarySignatureRef.current = summarySignature;
+      setTradexVisibleCodes(codes);
+    }
+    requestVisibleBars(codes, "initial-visible", "immediate");
+  }, [backendReady, columns, gridScrollTop, lastVisibleCodesRef, requestVisibleBars, rowCount, rowHeight, rows, sortedTickers]);
 
   useEffect(() => {
     if (!backendReady) return;
@@ -1815,6 +1837,13 @@ export default function GridView() {
     });
   }, [eventsRefreshing, loadList, refreshEvents, showToast, resetBarsCache]);
 
+  const clearTxtUpdateStatus = useCallback(() => {
+    txtUpdateDailyFollowupRef.current = false;
+    txtUpdateTerminalStatusRef.current = null;
+    setTxtUpdatePolling(false);
+    setTxtUpdateJob(null);
+  }, []);
+
   useEffect(() => {
     if (!backendReady || !nonCriticalReady) return;
     let disposed = false;
@@ -1823,7 +1852,10 @@ export default function GridView() {
         const res = await api.get("/jobs/current");
         if (disposed) return;
         const payload = (res.data ?? null) as JobStatusPayload | null;
-        if (!payload || payload.type !== "txt_update") return;
+        if (!payload || payload.type !== "txt_update") {
+          clearTxtUpdateStatus();
+          return;
+        }
         applyTxtUpdateStatus(payload);
       } catch {
         // ignore initial current-job fetch failures
@@ -1833,7 +1865,7 @@ export default function GridView() {
     return () => {
       disposed = true;
     };
-  }, [backendReady, nonCriticalReady, applyTxtUpdateStatus]);
+  }, [backendReady, nonCriticalReady, applyTxtUpdateStatus, clearTxtUpdateStatus]);
 
   useEffect(() => {
     if (!txtUpdatePolling || !txtUpdateJob?.id) return;
@@ -1843,7 +1875,14 @@ export default function GridView() {
         const res = await api.get(`/jobs/${txtUpdateJob.id}`);
         if (disposed) return;
         applyTxtUpdateStatus((res.data ?? null) as JobStatusPayload | null);
-      } catch {
+      } catch (error) {
+        const status = typeof error === "object" && error && "response" in error
+          ? (error as { response?: { status?: number } }).response?.status
+          : undefined;
+        if (status === 404) {
+          clearTxtUpdateStatus();
+          return;
+        }
         // keep polling; transient errors are common during backend restart
       }
     };
@@ -1855,7 +1894,7 @@ export default function GridView() {
       disposed = true;
       window.clearInterval(timer);
     };
-  }, [txtUpdatePolling, txtUpdateJob?.id, applyTxtUpdateStatus]);
+  }, [txtUpdatePolling, txtUpdateJob?.id, applyTxtUpdateStatus, clearTxtUpdateStatus]);
 
 
 

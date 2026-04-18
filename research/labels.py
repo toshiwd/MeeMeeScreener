@@ -289,9 +289,13 @@ def build_labels_for_asof(
     next_month_end = _resolve_next_month_end(calendar, asof_ts)
     rows: list[dict[str, Any]] = []
     trade_cost = _cost_drag(config)
+    # Memory Equivalence Fix: Labels only require the future ~month and the trailing ~20 days. 
+    # Slicing history dramatically reduces memory footprint for the groupby step.
+    min_date = asof_ts - pd.Timedelta(days=100)
+    source = daily[(daily["code"].isin(universe_codes)) & (daily["date"] >= min_date) & (daily["date"] <= next_month_end)]
     code_groups = [
         (str(code), code_df.copy())
-        for code, code_df in daily[daily["code"].isin(universe_codes)].groupby("code", sort=False)
+        for code, code_df in source.groupby("code", sort=False)
     ]
     resolved_workers = max(1, int(workers))
     used_parallel = resolved_workers > 1 and len(code_groups) > max(2, chunk_size)

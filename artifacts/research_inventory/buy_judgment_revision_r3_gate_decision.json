@@ -1,0 +1,464 @@
+{
+  "schema_version": "tradex_buy_judgment_revision_r3_gate_decision_v1",
+  "status": "confirmed",
+  "generated_at": "2026-04-18T10:24:45+09:00",
+  "authoritative_sources": {
+    "audit_corpus": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_effectiveness_audit.json",
+    "revision_plan": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_revision_r3_liquidity_plus_regime_gate.json",
+    "research_inventory": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\research_inventory.json",
+    "candidate_gate_decision": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\candidate_gate_decision.json",
+    "prior_keep_revision_r1": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_revision_r1_weak_liquidity_gate.json",
+    "prior_keep_revision_r2": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_revision_r2_regime_mismatch_gate.json"
+  },
+  "decision": "drop",
+  "decision_reason": "The combined gate is a net over-prune: it improves bad-loss rate versus baseline but materially sacrifices the cohort's rare >=20% upside and does not beat R1 on central tendency.",
+  "same_condition_verification": {
+    "same_universe": true,
+    "same_period": true,
+    "same_top_k": true,
+    "same_regime": true,
+    "same_cost": true,
+    "same_artifact_detail_level": true,
+    "same_condition_compare": true,
+    "boundary_aware_compare_executed": false,
+    "confirmed_data_only": true,
+    "no_overwrite_provenance_change": true,
+    "no_meemee_ui_change": true
+  },
+  "challenger_materialization": {
+    "count": 1,
+    "baseline": "MA20_RECLAIM_INITIAL",
+    "prior_kept_revisions": [
+      "buy_judgment_revision_r1_weak_liquidity_gate",
+      "buy_judgment_revision_r2_regime_mismatch_gate"
+    ],
+    "challenger": "MA20_RECLAIM_INITIAL + buy_judgment_revision_r1_weak_liquidity_gate + buy_judgment_revision_r2_regime_mismatch_gate",
+    "gate_axis": "liquidity_plus_regime_combined_gate",
+    "gate_definition": {
+      "logic": "apply the confirmed R1 and R2 gates together without retuning either threshold",
+      "inherited_gate_rules": [
+        {
+          "name": "weak_liquidity_continuation_gate",
+          "feature": "liquidity20d",
+          "operator": ">=",
+          "value": 438345.4875
+        },
+        {
+          "name": "regime_mismatch_gate",
+          "features": [
+            "market_ret20",
+            "breadth_above_ma20"
+          ],
+          "logic": "market_ret20 < -0.01 and breadth_above_ma20 <= 0.50"
+        }
+      ]
+    }
+  },
+  "comparison_paths": [
+    {
+      "path_name": "baseline_current_buy_surface",
+      "role": "baseline",
+      "decision": "reference",
+      "metrics": {
+        "sample_count_available": 1160,
+        "hit_count": 628,
+        "hit_rate": 0.5413793103448276,
+        "mean_forward_return_5d": -0.0007083432641194487,
+        "median_forward_return_5d": 0.0007641700404859009,
+        "mean_forward_return_10d": -0.0018272466420118805,
+        "median_forward_return_10d": 0.0008642952116255653,
+        "mean_forward_return_20d": -0.00038369650105161995,
+        "median_forward_return_20d": 0.004686550702916459,
+        "bad_loss_count_20d": 200,
+        "bad_loss_rate_20d": 0.1724137931034483,
+        "ge_10pct_count_20d": 35,
+        "ge_20pct_count_20d": 3,
+        "outcome_bucket_distribution_20d": {
+          "flat": 925,
+          "small_winner": 32,
+          "loser": 200,
+          "large_winner": 3
+        },
+        "pattern_bucket_distribution_20d": {
+          "pullback / rebound": 218,
+          "MA recovery": 281,
+          "early reversal / failed breakdown recovery": 135,
+          "regime mismatch": 76,
+          "late/stretched entry": 22,
+          "box breakout": 2,
+          "weak liquidity continuation": 426
+        },
+        "regime_bucket_distribution_20d": {
+          "neutral": 776,
+          "risk_on": 351,
+          "risk_off": 33
+        },
+        "liquidity_bucket_distribution_20d": {
+          "high": 419,
+          "low": 741
+        }
+      }
+    },
+    {
+      "path_name": "buy_judgment_revision_r1_weak_liquidity_gate",
+      "role": "prior_keep",
+      "decision": "keep",
+      "artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_revision_r1_weak_liquidity_gate.json",
+      "metrics": {
+        "sample_count_available": 943,
+        "hit_count": 520,
+        "hit_rate": 0.5514316012725344,
+        "mean_forward_return_5d": 0.00020005755774212306,
+        "median_forward_return_5d": 0.0015707393694603944,
+        "mean_forward_return_10d": -0.0006565788255660333,
+        "median_forward_return_10d": 0.0016920473773265332,
+        "mean_forward_return_20d": 0.001662253842114863,
+        "median_forward_return_20d": 0.005334449035092392,
+        "bad_loss_count_20d": 148,
+        "bad_loss_rate_20d": 0.1569459172852598,
+        "ge_10pct_count_20d": 26,
+        "ge_20pct_count_20d": 0,
+        "outcome_bucket_distribution_20d": {
+          "flat": 769,
+          "small_winner": 26,
+          "loser": 148
+        },
+        "pattern_bucket_distribution_20d": {
+          "pullback / rebound": 194,
+          "MA recovery": 249,
+          "early reversal / failed breakdown recovery": 115,
+          "regime mismatch": 46,
+          "late/stretched entry": 19,
+          "box breakout": 1,
+          "weak liquidity continuation": 319
+        },
+        "regime_bucket_distribution_20d": {
+          "neutral": 643,
+          "risk_on": 269,
+          "risk_off": 31
+        },
+        "liquidity_bucket_distribution_20d": {
+          "high": 419,
+          "low": 524
+        }
+      }
+    },
+    {
+      "path_name": "buy_judgment_revision_r2_regime_mismatch_gate",
+      "role": "prior_keep",
+      "decision": "keep",
+      "artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_revision_r2_regime_mismatch_gate.json",
+      "metrics": {
+        "sample_count_available": 1084,
+        "hit_count": 585,
+        "hit_rate": 0.5396678966789668,
+        "mean_forward_return_5d": -0.00027313472588334824,
+        "median_forward_return_5d": 0.0013564209535508187,
+        "mean_forward_return_10d": -0.0012962480141252611,
+        "median_forward_return_10d": 0.001254849533396274,
+        "mean_forward_return_20d": 9.974919964107984e-05,
+        "median_forward_return_20d": 0.004417831798196881,
+        "bad_loss_count_20d": 182,
+        "bad_loss_rate_20d": 0.16789667896678967,
+        "ge_10pct_count_20d": 30,
+        "ge_20pct_count_20d": 3,
+        "outcome_bucket_distribution_20d": {
+          "flat": 872,
+          "loser": 182,
+          "small_winner": 27,
+          "large_winner": 3
+        },
+        "pattern_bucket_distribution_20d": {
+          "pullback / rebound": 218,
+          "MA recovery": 281,
+          "early reversal / failed breakdown recovery": 135,
+          "late/stretched entry": 22,
+          "box breakout": 2,
+          "weak liquidity continuation": 426
+        },
+        "regime_bucket_distribution_20d": {
+          "neutral": 733,
+          "risk_on": 351
+        },
+        "liquidity_bucket_distribution_20d": {
+          "high": 385,
+          "low": 699
+        }
+      }
+    },
+    {
+      "path_name": "buy_judgment_revision_r3_liquidity_plus_regime_gate",
+      "role": "challenger",
+      "decision": "drop",
+      "artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_revision_r3_liquidity_plus_regime_gate.json",
+      "metrics": {
+        "sample_count_available": 897,
+        "hit_count": 490,
+        "hit_rate": 0.5462653288740246,
+        "mean_forward_return_5d": -0.00014930337799405163,
+        "median_forward_return_5d": 0.0014285714285713347,
+        "mean_forward_return_10d": -0.0010883266879333992,
+        "median_forward_return_10d": 0.0013262599469496816,
+        "mean_forward_return_20d": 0.0009127375766411659,
+        "median_forward_return_20d": 0.004581026913533126,
+        "bad_loss_count_20d": 142,
+        "bad_loss_rate_20d": 0.15830546265328874,
+        "ge_10pct_count_20d": 21,
+        "ge_20pct_count_20d": 0,
+        "outcome_bucket_distribution_20d": {
+          "flat": 734,
+          "loser": 142,
+          "small_winner": 21
+        },
+        "pattern_bucket_distribution_20d": {
+          "pullback / rebound": 194,
+          "MA recovery": 249,
+          "early reversal / failed breakdown recovery": 115,
+          "late/stretched entry": 19,
+          "box breakout": 1,
+          "weak liquidity continuation": 319
+        },
+        "regime_bucket_distribution_20d": {
+          "neutral": 628,
+          "risk_on": 269
+        },
+        "liquidity_bucket_distribution_20d": {
+          "high": 385,
+          "low": 512
+        }
+      }
+    }
+  ],
+  "metrics": {
+    "baseline": {
+      "sample_count_available": 1160,
+      "hit_count": 628,
+      "hit_rate": 0.5413793103448276,
+      "mean_forward_return_5d": -0.0007083432641194487,
+      "median_forward_return_5d": 0.0007641700404859009,
+      "mean_forward_return_10d": -0.0018272466420118805,
+      "median_forward_return_10d": 0.0008642952116255653,
+      "mean_forward_return_20d": -0.00038369650105161995,
+      "median_forward_return_20d": 0.004686550702916459,
+      "bad_loss_count_20d": 200,
+      "bad_loss_rate_20d": 0.1724137931034483,
+      "ge_10pct_count_20d": 35,
+      "ge_20pct_count_20d": 3,
+      "outcome_bucket_distribution_20d": {
+        "flat": 925,
+        "small_winner": 32,
+        "loser": 200,
+        "large_winner": 3
+      },
+      "pattern_bucket_distribution_20d": {
+        "pullback / rebound": 218,
+        "MA recovery": 281,
+        "early reversal / failed breakdown recovery": 135,
+        "regime mismatch": 76,
+        "late/stretched entry": 22,
+        "box breakout": 2,
+        "weak liquidity continuation": 426
+      },
+      "regime_bucket_distribution_20d": {
+        "neutral": 776,
+        "risk_on": 351,
+        "risk_off": 33
+      },
+      "liquidity_bucket_distribution_20d": {
+        "high": 419,
+        "low": 741
+      }
+    },
+    "r1": {
+      "sample_count_available": 943,
+      "hit_count": 520,
+      "hit_rate": 0.5514316012725344,
+      "mean_forward_return_5d": 0.00020005755774212306,
+      "median_forward_return_5d": 0.0015707393694603944,
+      "mean_forward_return_10d": -0.0006565788255660333,
+      "median_forward_return_10d": 0.0016920473773265332,
+      "mean_forward_return_20d": 0.001662253842114863,
+      "median_forward_return_20d": 0.005334449035092392,
+      "bad_loss_count_20d": 148,
+      "bad_loss_rate_20d": 0.1569459172852598,
+      "ge_10pct_count_20d": 26,
+      "ge_20pct_count_20d": 0,
+      "outcome_bucket_distribution_20d": {
+        "flat": 769,
+        "small_winner": 26,
+        "loser": 148
+      },
+      "pattern_bucket_distribution_20d": {
+        "pullback / rebound": 194,
+        "MA recovery": 249,
+        "early reversal / failed breakdown recovery": 115,
+        "regime mismatch": 46,
+        "late/stretched entry": 19,
+        "box breakout": 1,
+        "weak liquidity continuation": 319
+      },
+      "regime_bucket_distribution_20d": {
+        "neutral": 643,
+        "risk_on": 269,
+        "risk_off": 31
+      },
+      "liquidity_bucket_distribution_20d": {
+        "high": 419,
+        "low": 524
+      }
+    },
+    "r2": {
+      "sample_count_available": 1084,
+      "hit_count": 585,
+      "hit_rate": 0.5396678966789668,
+      "mean_forward_return_5d": -0.00027313472588334824,
+      "median_forward_return_5d": 0.0013564209535508187,
+      "mean_forward_return_10d": -0.0012962480141252611,
+      "median_forward_return_10d": 0.001254849533396274,
+      "mean_forward_return_20d": 9.974919964107984e-05,
+      "median_forward_return_20d": 0.004417831798196881,
+      "bad_loss_count_20d": 182,
+      "bad_loss_rate_20d": 0.16789667896678967,
+      "ge_10pct_count_20d": 30,
+      "ge_20pct_count_20d": 3,
+      "outcome_bucket_distribution_20d": {
+        "flat": 872,
+        "loser": 182,
+        "small_winner": 27,
+        "large_winner": 3
+      },
+      "pattern_bucket_distribution_20d": {
+        "pullback / rebound": 218,
+        "MA recovery": 281,
+        "early reversal / failed breakdown recovery": 135,
+        "late/stretched entry": 22,
+        "box breakout": 2,
+        "weak liquidity continuation": 426
+      },
+      "regime_bucket_distribution_20d": {
+        "neutral": 733,
+        "risk_on": 351
+      },
+      "liquidity_bucket_distribution_20d": {
+        "high": 385,
+        "low": 699
+      }
+    },
+    "challenger": {
+      "sample_count_available": 897,
+      "hit_count": 490,
+      "hit_rate": 0.5462653288740246,
+      "mean_forward_return_5d": -0.00014930337799405163,
+      "median_forward_return_5d": 0.0014285714285713347,
+      "mean_forward_return_10d": -0.0010883266879333992,
+      "median_forward_return_10d": 0.0013262599469496816,
+      "mean_forward_return_20d": 0.0009127375766411659,
+      "median_forward_return_20d": 0.004581026913533126,
+      "bad_loss_count_20d": 142,
+      "bad_loss_rate_20d": 0.15830546265328874,
+      "ge_10pct_count_20d": 21,
+      "ge_20pct_count_20d": 0,
+      "outcome_bucket_distribution_20d": {
+        "flat": 734,
+        "loser": 142,
+        "small_winner": 21
+      },
+      "pattern_bucket_distribution_20d": {
+        "pullback / rebound": 194,
+        "MA recovery": 249,
+        "early reversal / failed breakdown recovery": 115,
+        "late/stretched entry": 19,
+        "box breakout": 1,
+        "weak liquidity continuation": 319
+      },
+      "regime_bucket_distribution_20d": {
+        "neutral": 628,
+        "risk_on": 269
+      },
+      "liquidity_bucket_distribution_20d": {
+        "high": 385,
+        "low": 512
+      }
+    },
+    "delta_vs_baseline": {
+      "hit_rate_delta": 0.0048860185291970115,
+      "mean_forward_return_20d_delta": 0.0012964340776927858,
+      "median_forward_return_20d_delta": -0.00010552378938333273,
+      "bad_loss_rate_20d_delta": -0.01410833045015955,
+      "ge_10pct_count_20d_delta": -14,
+      "ge_20pct_count_20d_delta": -3
+    },
+    "delta_vs_r1": {
+      "hit_rate_delta": -0.0051662723985098635,
+      "mean_forward_return_20d_delta": -0.000749516265473697,
+      "median_forward_return_20d_delta": -0.0007534221215592662,
+      "bad_loss_rate_20d_delta": 0.0013595453680289304,
+      "ge_10pct_count_20d_delta": -5,
+      "ge_20pct_count_20d_delta": 0
+    },
+    "delta_vs_r2": {
+      "hit_rate_delta": 0.006597432195057817,
+      "mean_forward_return_20d_delta": 0.000812988377000086,
+      "median_forward_return_20d_delta": 0.00016319511533624542,
+      "bad_loss_rate_20d_delta": -0.009591216313500933,
+      "ge_10pct_count_20d_delta": -9,
+      "ge_20pct_count_20d_delta": -3
+    }
+  },
+  "interaction_analysis": {
+    "removed_by_r1_only": 187,
+    "removed_by_r2_only": 46,
+    "removed_by_both": 30,
+    "removed_by_r3_total": 263,
+    "incremental_removed_events_unique_to_r3": 233,
+    "upside_loss_vs_baseline": {
+      "ge_10pct_count_delta": -14,
+      "ge_20pct_count_delta": -3,
+      "mean_forward_return_20d_delta": 0.0012964340776927858,
+      "median_forward_return_20d_delta": -0.00010552378938333273
+    },
+    "bad_loss_reduction_vs_baseline": {
+      "bad_loss_count_delta": 58,
+      "bad_loss_rate_delta": 0.01410833045015955
+    },
+    "removed_overlap_rate_of_union": 0.11406844106463879,
+    "r1_removed_target_share": 0.4930875576036866,
+    "r2_removed_target_share": 1.0
+  },
+  "removed_events": {
+    "count": 263,
+    "target_bucket": "combined interaction of weak liquidity continuation and regime mismatch",
+    "target_bucket_count": 263,
+    "target_bucket_share_of_removed": 1.0,
+    "target_bucket_enrichment": 4.621513944223107,
+    "bad_loss_rate_20d": 0.22053231939163498,
+    "regime_bucket_distribution": {
+      "neutral": 148,
+      "risk_off": 33,
+      "risk_on": 82
+    },
+    "liquidity_bucket_distribution": {
+      "high": 34,
+      "low": 229
+    },
+    "pattern_bucket_distribution": {
+      "regime mismatch": 76,
+      "weak liquidity continuation": 107,
+      "MA recovery": 32,
+      "pullback / rebound": 24,
+      "early reversal / failed breakdown recovery": 20,
+      "late/stretched entry": 3,
+      "box breakout": 1
+    }
+  },
+  "result_gate": {
+    "success": false,
+    "fail": true,
+    "hold": false
+  },
+  "residual_risks": [
+    "combined gating is still based on proxy regime classification",
+    "the contextual bucket taxonomy remains provisional and audit-only",
+    "20d coverage remains incomplete for two historical rows"
+  ]
+}

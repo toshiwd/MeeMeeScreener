@@ -1,0 +1,75 @@
+{
+  "schema_version": "tradex_judgment_signal_definition_v1",
+  "generated_at": "2026-04-17T14:00:00+09:00",
+  "signal_name": "historical_buy_sell_judgment",
+  "status": "provisional",
+  "source_of_truth": {
+    "authoritative_artifacts": [
+      "G:\\Tradex\\keep\\research_os\\experiments",
+      "G:\\Tradex\\keep\\research_os\\trader_benchmark\\v1\\trader_benchmark_manifest.json",
+      "G:\\Tradex\\keep\\research_os\\trader_benchmark\\v1\\trader_benchmark_rows.jsonl",
+      "G:\\Tradex\\keep\\research_os\\trader_benchmark\\v1\\trader_adapter_scoreboard.json"
+    ],
+    "code_sources": [
+      "C:\\work\\meemee-screener\\app\\backend\\services\\tradex_research_trader_foundation.py",
+      "C:\\work\\meemee-screener\\app\\backend\\services\\tradex_research_os_runner.py",
+      "C:\\work\\meemee-screener\\app\\backend\\services\\tradex_research_trader_benchmark.py",
+      "C:\\work\\meemee-screener\\app\\backend\\services\\tradex_research_bridge_service.py"
+    ]
+  },
+  "definition": {
+    "source": "strategy_judgement.json produced by TRADEX Research OS",
+    "generation_mode": "model-generated",
+    "source_classification": {
+      "model_generated": true,
+      "rule_generated": false,
+      "publish_derived": false,
+      "note": "The historical judgment surface is taken from TRADEX Research OS adapter output, not from publish flow or a rule-only proxy."
+    },
+    "top_level_semantics": [
+      "machine_action_state",
+      "human_readable_judgement",
+      "buy_score",
+      "environment_score",
+      "trend_score",
+      "trigger_score",
+      "risk_score",
+      "invalidation_price",
+      "invalidation_reason_code",
+      "reason_codes",
+      "adapter_outputs"
+    ],
+    "mirror_rule": "top-level judgement mirrors the primary_adapter_id output",
+    "time_alignment_rules": [
+      "strategy_target.as_of_date must match the confirmed bar date exactly",
+      "observation_snapshot uses the preceding lookback window only",
+      "teacher_evaluation_row uses strictly future bars with a fixed 20-bar horizon",
+      "no random shuffle is allowed in the lineage"
+    ],
+    "leakage_controls": [
+      "observation_snapshot_hash and strategy_judgement_hash are preserved in lineage",
+      "teacher_evaluation_row is derived only from future bars after as_of_date",
+      "fallback behavior is explicit, not silent"
+    ]
+  },
+  "confirmed_vs_provisional": {
+    "artifact_contract": "confirmed",
+    "signal_value_for_core_scoring": "provisional",
+    "history_value_for_explanation": "confirmed"
+  },
+  "current_downstream_candidates": [
+    "app/backend/services/tradex_research_os_runner.py",
+    "app/backend/services/tradex_research_trader_foundation.py",
+    "app/backend/services/tradex_research_trader_benchmark.py",
+    "app/backend/services/tradex_research_bridge_service.py",
+    "app/backend/api/routers/tradex.py"
+  ],
+  "research_constraints": {
+    "same_condition_compare_required": true,
+    "time_block_split_required": true,
+    "embargo_required": true,
+    "no_shuffle_required": true,
+    "no_boundary_aware_compare": true,
+    "no_meemee_reflection": true
+  }
+}

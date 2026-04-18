@@ -1,0 +1,142 @@
+{
+  "schema_version": "runtime_stock_db_contract_v1",
+  "generated_at": "2026-04-17T15:30:00+09:00",
+  "status": "authoritative",
+  "scope": "meeMee_and_tradex_shared_runtime",
+  "purpose": "align_meeMee_and_tradex_to_the_same_authoritative_stocks_duckdb_and_fail_closed_on_stale_sources",
+  "authoritative_meemee_runtime_db_path": "C:\\Users\\enish\\AppData\\Local\\MeeMeeScreener-dev\\data\\stocks.duckdb",
+  "authoritative_tradex_runtime_db_path": "C:\\Users\\enish\\AppData\\Local\\MeeMeeScreener-dev\\data\\stocks.duckdb",
+  "same_db_path": true,
+  "alignment_status": "confirmed_aligned",
+  "meeMee_resolution_reason": "launcher_sets_STOCKS_DB_PATH_to_local_appdata_dev_data",
+  "tradex_resolution_reason": "validated_runtime_fallback",
+  "exact_path_used_in_evidence_bearing_run": "C:\\Users\\enish\\AppData\\Local\\MeeMeeScreener-dev\\data\\stocks.duckdb",
+  "validated_runtime_selection_source": "LOCALAPPDATA_DEV",
+  "runtime_db_resolution_order": [
+    {
+      "priority": 1,
+      "source": "STOCKS_DB_PATH",
+      "behavior": "explicit_runtime_override",
+      "notes": "respects an explicit operator override and is validated for existence/freshness"
+    },
+    {
+      "priority": 2,
+      "source": "TRADEX_LIVE_STOCKS_DB_PATH",
+      "behavior": "legacy_live_override",
+      "notes": "kept for compatibility with live verification"
+    },
+    {
+      "priority": 3,
+      "source": "MEEMEE_DATA_DIR\\stocks.duckdb",
+      "behavior": "validated_meemee_data_dir_fallback",
+      "notes": "preferred non-explicit runtime fallback when available"
+    },
+    {
+      "priority": 4,
+      "source": "%LOCALAPPDATA%\\MeeMeeScreener-dev\\data\\stocks.duckdb",
+      "behavior": "validated_local_appdata_dev_fallback",
+      "notes": "the populated store currently used by the desktop runtime"
+    },
+    {
+      "priority": 5,
+      "source": "%LOCALAPPDATA%\\MeeMeeScreener\\data\\stocks.duckdb",
+      "behavior": "validated_legacy_appdata_fallback",
+      "notes": "legacy compatibility fallback"
+    },
+    {
+      "priority": 6,
+      "source": "G:\\Tradex\\db\\stocks.duckdb",
+      "behavior": "tradex_default_store",
+      "notes": "last fallback only; do not silently rely on this when a fresher appdata store exists"
+    }
+  ],
+  "allowed_fallback_paths": [
+    "MEEMEE_DATA_DIR\\stocks.duckdb",
+    "%LOCALAPPDATA%\\MeeMeeScreener-dev\\data\\stocks.duckdb",
+    "%LOCALAPPDATA%\\MeeMeeScreener\\data\\stocks.duckdb",
+    "G:\\Tradex\\db\\stocks.duckdb"
+  ],
+  "forbidden_fallback_behavior": [
+    "silent_continuation_on_stale_source",
+    "treating_lagged_source_as_current",
+    "falling_back_to_g_default_without_validating_appdata_candidates",
+    "using_a_source_that_fails_required_table_or_row_sanity_checks"
+  ],
+  "freshness_requirements": {
+    "daily_bars_must_exist": true,
+    "daily_bars_must_have_rows": true,
+    "market_regime_daily_must_exist": true,
+    "market_regime_daily_must_have_rows": true,
+    "latest_trading_date_must_be_machine_readable": true,
+    "symbol_coverage_must_be_checked": true,
+    "same_condition_contract_required": true,
+    "leakage_safe_out_of_sample_required": true
+  },
+  "required_tables": [
+    {
+      "table_name": "daily_bars",
+      "required_row_sanity_checks": [
+        "table_exists",
+        "row_count > 0"
+      ]
+    },
+    {
+      "table_name": "market_regime_daily",
+      "required_row_sanity_checks": [
+        "table_exists",
+        "row_count > 0",
+        "label_version_row_count > 0"
+      ]
+    }
+  ],
+  "required_latest_date_sanity_checks": [
+    "global_latest_date must be extracted from daily_bars",
+    "symbol_latest_date must be extracted for the requested symbol",
+    "requested_date > source_latest_date must not be treated as current",
+    "date_gap_days must be machine-readable"
+  ],
+  "symbol_level_date_coverage_check": {
+    "requested_symbol": "2531",
+    "requested_chart_date": 20260416,
+    "requested_chart_date_iso": "2026-04-16",
+    "artifact_source_last_date": 20260403,
+    "artifact_source_last_date_iso": "2026-04-03",
+    "date_gap_days": 13,
+    "date_match_status": "lagged_provisional",
+    "judgment_validity_status": "lagged_provisional",
+    "source_freshness_status": "lagged",
+    "coverage_status": "blocked_by_stale_source"
+  },
+  "failure_mode_when_freshness_insufficient": {
+    "compare_behavior": "abort_before_compare",
+    "report_behavior": "mark_lagged_or_blocked",
+    "failure_state": "runtime_stock_db_contract_failed",
+    "blocked_reason": "requested_chart_date_exceeds_verified_symbol_coverage"
+  },
+  "validation_step": {
+    "validator": "shared.runtime_stock_db_contract.inspect_runtime_stock_db",
+    "enforcement_point": "app.backend.tools.tradex_research_runner.main",
+    "mode": "fail_closed",
+    "pass_condition": "same_db_path=true and required_tables_present=true",
+    "non_pass_conditions": [
+      "database_dependency_missing",
+      "required_table_missing",
+      "required_table_empty",
+      "stale_source",
+      "genuine_data_unavailable"
+    ]
+  },
+  "chart_source_alignment_status": "mixed_confirmed_provisional_display",
+  "chart_source_contract_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\chart_data_provenance_contract.json",
+  "chart_source_trace_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\2531_chart_source_trace_20260416.json",
+  "chart_source_alignment": {
+    "status": "mixed_confirmed_provisional_display",
+    "analysis_basis": "confirmed_only",
+    "display_basis": "provisional_current_day_labeled",
+    "confirmed_history_source": "runtime_stock_db.daily_bars",
+    "provisional_current_day_source": "yahoo_chart_overlay",
+    "daily_source_provider": "runtime_stock_db.daily_bars+yahoo_chart_overlay",
+    "weekly_source_provider": "derived_from_runtime_stock_db.daily_bars+yahoo_chart_overlay",
+    "monthly_source_provider": "runtime_stock_db.monthly_bars+runtime_stock_db.daily_bars+yahoo_chart_overlay"
+  }
+}

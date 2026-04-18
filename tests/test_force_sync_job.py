@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import AbstractContextManager
 import threading
 import time
 
@@ -75,6 +76,23 @@ class _BufferedProcess:
         return -1 if self.killed else self._return_code
 
 
+class _FakeConn:
+    def execute(self, sql: str):  # noqa: ANN001
+        class _Row:
+            def fetchone(self_inner):  # noqa: ANN001
+                return (20260409,)
+
+        return _Row()
+
+
+class _FakeConnContext(AbstractContextManager[_FakeConn]):
+    def __enter__(self) -> _FakeConn:
+        return _FakeConn()
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        return False
+
+
 def test_run_vbs_export_times_out_when_process_goes_silent(monkeypatch) -> None:
     process = _SilentProcess()
     monkeypatch.setattr(force_sync_job.subprocess, "Popen", lambda *args, **kwargs: process)
@@ -95,3 +113,35 @@ def test_run_vbs_export_collects_stdout_and_exit_code(monkeypatch) -> None:
     assert code == 0
     assert output[-1] == "[force_sync_job] VBS exit code 0"
     assert output[:-1] == ["START: 1001", "OK   : 1001 : +10"]
+
+
+def test_run_post_pan_recalc_uses_configured_db_path(monkeypatch) -> None:
+    stock_repo_args: list[str] = []
+    scoring_repo_args: list[object] = []
+    ran_batches: list[tuple[int, int, bool]] = []
+
+    class _FakeStockRepository:
+        def __init__(self, db_path: str) -> None:
+            stock_repo_args.append(db_path)
+
+    class _FakeScoringJob:
+        def __init__(self, stock_repo) -> None:  # noqa: ANN001
+            scoring_repo_args.append(stock_repo)
+
+        def run(self):
+            return [{"code": "1301"}]
+
+    monkeypatch.setattr("app.backend.db.get_conn", lambda: _FakeConnContext())
+    monkeypatch.setattr("app.backend.jobs.phase_batch.run_batch", lambda start, end, dry_run=False: ran_batches.append((start, end, dry_run)))
+    monkeypatch.setattr("app.backend.infra.duckdb.stock_repo.StockRepository", _FakeStockRepository)
+    monkeypatch.setattr("app.backend.jobs.scoring_job.ScoringJob", _FakeScoringJob)
+    monkeypatch.setattr("app.backend.services.rankings_cache.refresh_cache", lambda: None)
+
+    summary = force_sync_job._run_post_pan_recalc()
+
+    assert stock_repo_args == [str(force_sync_job.app_config.DB_PATH)]
+    assert len(scoring_repo_args) == 1
+    assert summary["phase_dt"] == 20260409
+    assert summary["scoring_rows"] == 1
+    assert summary["cache_refreshed"] is True
+    assert ran_batches == [(20260409, 20260409, False)]

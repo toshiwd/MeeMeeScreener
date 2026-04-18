@@ -1,0 +1,29 @@
+{
+  "schema_version": "runtime_stock_db_symbol_coverage_v1",
+  "generated_at": "2026-04-17T15:30:00+09:00",
+  "status": "authoritative",
+  "symbol": "2531",
+  "runtime_db_path": "C:\\Users\\enish\\AppData\\Local\\MeeMeeScreener-dev\\data\\stocks.duckdb",
+  "resolution_source": "LOCALAPPDATA_DEV",
+  "requested_chart_date": 20260416,
+  "requested_chart_date_iso": "2026-04-16",
+  "artifact_source_last_date": 20260403,
+  "artifact_source_last_date_iso": "2026-04-03",
+  "symbol_latest_date": 20260403,
+  "symbol_latest_date_iso": "2026-04-03",
+  "date_gap_days": 13,
+  "date_match_status": "lagged_provisional",
+  "judgment_validity_status": "lagged_provisional",
+  "source_freshness_status": "lagged",
+  "coverage_status": "blocked_by_stale_source",
+  "same_meemee_and_tradex_db_path": true,
+  "same_latest_dates_match": true,
+  "notes": [
+    "The verified runtime stocks DuckDB reaches 2531 only through 2026-04-03.",
+    "The requested 2026-04-16 chart date is not verified by the runtime source and must not be treated as current."
+  ],
+  "chart_source_alignment_status": "mixed_confirmed_provisional_display",
+  "chart_display_status": "provisional_current_day_labeled",
+  "chart_source_contract_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\chart_data_provenance_contract.json",
+  "chart_source_trace_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\2531_chart_source_trace_20260416.json"
+}

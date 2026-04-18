@@ -1,0 +1,62 @@
+{
+  "schema_version": "tradex_research_pruning_decision_v2",
+  "generated_at": "2026-04-17T10:10:00+09:00",
+  "current_champion": {
+    "family_name": "regime-aware",
+    "variant_name": "v2",
+    "unit_name": "regime-aware/v2"
+  },
+  "frozen_peers": [
+    {
+      "unit_name": "existing-score rescaled/v1",
+      "reason": "no-op / overlap-heavy"
+    },
+    {
+      "unit_name": "existing-score rescaled/v2",
+      "reason": "no-op / overlap-heavy"
+    },
+    {
+      "unit_name": "penalty-first/v1",
+      "reason": "no-op / overlap-heavy"
+    },
+    {
+      "unit_name": "penalty-first/v2",
+      "reason": "no-op / overlap-heavy"
+    },
+    {
+      "unit_name": "readiness-aware/v1",
+      "reason": "no-op / overlap-heavy"
+    },
+    {
+      "unit_name": "readiness-aware/v2",
+      "reason": "no-op / overlap-heavy"
+    },
+    {
+      "unit_name": "liquidity-aware/v1",
+      "reason": "no-op / overlap-heavy"
+    },
+    {
+      "unit_name": "liquidity-aware/v2",
+      "reason": "no-op / overlap-heavy"
+    },
+    {
+      "unit_name": "regime-aware/v1",
+      "reason": "shadow branch under the current champion"
+    }
+  ],
+  "execution_focus": {
+    "family_name": "bad-pick-prune",
+    "reason": "primary axis to construct the first comparable bad-pick-removal run",
+    "status": "pending_comparable_run"
+  },
+  "research_only_family": {
+    "unit_name": "bad-pick-prune family",
+    "reason": "hold until the comparable run is created and measured"
+  },
+  "evidence": {
+    "changed_top5_members_count": 0,
+    "changed_top10_members_count": 0,
+    "changed_rank_count": 0,
+    "overlap_vs_champion": "high"
+  }
+}

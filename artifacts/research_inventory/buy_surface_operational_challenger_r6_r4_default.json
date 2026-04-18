@@ -1,0 +1,281 @@
+{
+  "baseline_path": {
+    "artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_revision_r4_reclaim_quality_gate.json",
+    "name": "current_operational_baseline_path",
+    "run_id": "tradex-research-buy-surface-operational-r6-r4-default-baseline"
+  },
+  "challenger_path": {
+    "artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_surface_operational_challenger_r6_r4_default.json",
+    "name": "buy_surface_operational_challenger_r6_r4_default",
+    "run_id": "tradex-research-buy-surface-operational-r6-r4-default-r6-r4-default",
+    "source_surface": "buy_judgment_revision_r4_reclaim_quality_gate"
+  },
+  "compare_contract": {
+    "boundary_aware_compare_executed": false,
+    "same_artifact_detail_level": true,
+    "same_cost": true,
+    "same_period": true,
+    "same_regime": true,
+    "same_top_k": true,
+    "same_universe": true,
+    "selection_unit": "confirmed_audit_event",
+    "top_k": 10
+  },
+  "compare_engine": {
+    "baseline_ret20_source_mode": "derived_from_daily_bars",
+    "branching_state": {
+      "effective_universe_count": 1160,
+      "meaningful_topk_branching_possible": true,
+      "top_k": 10,
+      "topk_boundary_exists": true,
+      "topk_branching_block_reason": ""
+    },
+    "candidate_local_decision": "hold",
+    "candidate_method": {
+      "feature_family": "buy_surface_operational",
+      "method_family": "buy_surface_operational",
+      "method_id": "buy_surface_operational_challenger_r6_r4_default",
+      "method_thesis": "Compare-ready operational form of the selected R4 default surface.",
+      "method_title": "buy_surface_operational_challenger_r6_r4_default"
+    },
+    "candidate_ret20_source_mode": "derived_from_daily_bars",
+    "promote_ready": false,
+    "promote_reasons": [
+      "liquidity_quality_not_improved"
+    ],
+    "selection_compare": {
+      "bad_pick_removal": 30,
+      "changed_rank_count": 19,
+      "changed_top10_members_count": 18,
+      "changed_top20_members_count": 20,
+      "changed_top5_members_count": 10,
+      "selection_divergence_reason": "top5_member_replacement",
+      "top10_boundary_score_gap": -1.7932266791531593e-05,
+      "top10_uplift": 0.15131120030419337,
+      "top5_boundary_score_gap": 0.005333292764672537,
+      "top5_uplift": 0.17482090113042728
+    }
+  },
+  "compare_family_id": "tradex-research-buy-surface-operational-r6-r4-default",
+  "compare_path": "G:\\Tradex\\scratch\\research_families\\tradex-research-buy-surface-operational-r6-r4-default\\compare.json",
+  "confirmed_data_only": true,
+  "decision": "keep",
+  "decision_reason": "meaningful_topk_branching_with_positive_bad_pick_removal",
+  "drop_gate": [
+    "no meaningful branching",
+    "negative bad_pick_removal",
+    "obvious regime collapse"
+  ],
+  "generated_at": "2026-04-18T02:04:18.208396+00:00",
+  "hold_gate": [
+    "branching positive but upside preservation ambiguous",
+    "compare_engine_local_decision is hold and evidence remains mixed"
+  ],
+  "keep_gate": [
+    "changed_top10_members_count > 0",
+    "top10_uplift >= 0",
+    "bad_pick_removal >= 0",
+    "no obvious worst-regime collapse",
+    "no provisional/Yahoo dependence"
+  ],
+  "metrics": {
+    "bad_pick_removal": 30,
+    "baseline": {
+      "bad_loss_count_20d": 200,
+      "bad_loss_rate_20d": 0.1724137931034483,
+      "ge_10pct_count_20d": 35,
+      "ge_20pct_count_20d": 3,
+      "hit_count": 628,
+      "hit_rate": 0.5413793103448276,
+      "liquidity_bucket_distribution_20d": {
+        "high": 411,
+        "low": 749
+      },
+      "mean_forward_return_10d": -0.0018272466420118805,
+      "mean_forward_return_20d": -0.00038369650105161995,
+      "mean_forward_return_5d": -0.0007083432641194487,
+      "median_forward_return_10d": 0.0008642952116255653,
+      "median_forward_return_20d": 0.004686550702916459,
+      "median_forward_return_5d": 0.0007641700404859009,
+      "outcome_bucket_distribution_20d": {
+        "flat": 332,
+        "large_winner": 35,
+        "loser": 200,
+        "small_winner": 593
+      },
+      "pattern_bucket_distribution_20d": {
+        "MA recovery": 281,
+        "box breakout": 2,
+        "early reversal / failed breakdown recovery": 135,
+        "late/stretched entry": 22,
+        "pullback / rebound": 218,
+        "regime mismatch": 76,
+        "weak liquidity continuation": 426
+      },
+      "reclaim_quality_bucket_distribution_20d": {
+        "insufficient_reclaim_context": 4,
+        "moderate_reclaim": 722,
+        "strong_reclaim": 56,
+        "very_weak_reclaim": 110,
+        "weak_reclaim": 268
+      },
+      "regime_bucket_distribution_20d": {
+        "neutral": 776,
+        "risk_off": 33,
+        "risk_on": 351
+      },
+      "sample_count_available": 1160
+    },
+    "before_after_liquidity_breakdown": {
+      "after": {
+        "high": 375,
+        "low": 675
+      },
+      "before": {
+        "high": 411,
+        "low": 749
+      }
+    },
+    "before_after_reclaim_quality_breakdown": {
+      "after": {
+        "insufficient_reclaim_context": 4,
+        "moderate_reclaim": 722,
+        "strong_reclaim": 56,
+        "weak_reclaim": 268
+      },
+      "before": {
+        "insufficient_reclaim_context": 4,
+        "moderate_reclaim": 722,
+        "strong_reclaim": 56,
+        "very_weak_reclaim": 110,
+        "weak_reclaim": 268
+      }
+    },
+    "before_after_regime_breakdown": {
+      "after": {
+        "neutral": 690,
+        "risk_off": 28,
+        "risk_on": 332
+      },
+      "before": {
+        "neutral": 776,
+        "risk_off": 33,
+        "risk_on": 351
+      }
+    },
+    "challenger": {
+      "bad_loss_count_20d": 170,
+      "bad_loss_rate_20d": 0.1619047619047619,
+      "ge_10pct_count_20d": 28,
+      "ge_20pct_count_20d": 3,
+      "hit_count": 581,
+      "hit_rate": 0.5533333333333333,
+      "liquidity_bucket_distribution_20d": {
+        "high": 375,
+        "low": 675
+      },
+      "mean_forward_return_10d": -0.001612707445841482,
+      "mean_forward_return_20d": 0.0009108903681476828,
+      "mean_forward_return_5d": -0.0009306863483233553,
+      "median_forward_return_10d": 0.0008642952116255653,
+      "median_forward_return_20d": 0.005711383107870449,
+      "median_forward_return_5d": 0.0007579603067281449,
+      "outcome_bucket_distribution_20d": {
+        "flat": 299,
+        "large_winner": 28,
+        "loser": 170,
+        "small_winner": 553
+      },
+      "pattern_bucket_distribution_20d": {
+        "MA recovery": 278,
+        "box breakout": 2,
+        "early reversal / failed breakdown recovery": 90,
+        "late/stretched entry": 20,
+        "pullback / rebound": 215,
+        "regime mismatch": 66,
+        "weak liquidity continuation": 379
+      },
+      "reclaim_quality_bucket_distribution_20d": {
+        "insufficient_reclaim_context": 4,
+        "moderate_reclaim": 722,
+        "strong_reclaim": 56,
+        "weak_reclaim": 268
+      },
+      "regime_bucket_distribution_20d": {
+        "neutral": 690,
+        "risk_off": 28,
+        "risk_on": 332
+      },
+      "sample_count_available": 1050
+    },
+    "changed_rank_count": 19,
+    "changed_top10_members_count": 18,
+    "changed_top20_members_count": 20,
+    "changed_top5_members_count": 10,
+    "regime_wise_result_deltas": {
+      "neutral": {
+        "after": 0.001365484953587314,
+        "before": 0.0008013837739714017,
+        "delta": 0.0005641011796159123
+      },
+      "risk_off": {
+        "after": 0.019993680513204957,
+        "before": 0.019350932776703463,
+        "delta": 0.0006427477365014943
+      },
+      "risk_on": {
+        "after": -0.00164329152346361,
+        "before": -0.0048590955312048465,
+        "delta": 0.0032158040077412365
+      }
+    },
+    "removed_event_count": 110,
+    "removed_target_bucket_concentration": {
+      "pattern_bucket_concentration": {
+        "MA recovery": 0.02727272727272727,
+        "early reversal / failed breakdown recovery": 0.4090909090909091,
+        "late/stretched entry": 0.01818181818181818,
+        "pullback / rebound": 0.02727272727272727,
+        "regime mismatch": 0.09090909090909091,
+        "weak liquidity continuation": 0.42727272727272725
+      },
+      "pattern_bucket_distribution": {
+        "MA recovery": 3,
+        "early reversal / failed breakdown recovery": 45,
+        "late/stretched entry": 2,
+        "pullback / rebound": 3,
+        "regime mismatch": 10,
+        "weak liquidity continuation": 47
+      },
+      "reclaim_quality_bucket_distribution": {
+        "very_weak_reclaim": 110
+      },
+      "reclaim_quality_concentration": {
+        "very_weak_reclaim": 1.0
+      }
+    },
+    "selection_divergence_reason": "top5_member_replacement",
+    "top10_boundary_score_gap": -1.7932266791531593e-05,
+    "top10_uplift": 0.15131120030419337,
+    "top5_boundary_score_gap": 0.005333292764672537,
+    "top5_uplift": 0.17482090113042728,
+    "worst_regime_delta": 0.0005641011796159123
+  },
+  "notes": [
+    "Derived from the selected R4 default surface only.",
+    "Compare units are confirmed audit events to satisfy top-K observability inside the audit corpus.",
+    "No new gate or threshold was introduced."
+  ],
+  "role_split_reference": {
+    "default_operational_challenger_source": "buy_judgment_revision_r4_reclaim_quality_gate",
+    "dropped_closed": "buy_judgment_revision_r3_liquidity_plus_regime_gate",
+    "secondary_defensive_reference": "buy_judgment_revision_r1_weak_liquidity_gate",
+    "secondary_reference_only": "buy_judgment_revision_r2_regime_mismatch_gate"
+  },
+  "schema_version": "tradex_buy_surface_operational_challenger_r6_r4_default_v1",
+  "selection_unit": "confirmed_audit_event",
+  "source_default_surface": "buy_judgment_revision_r4_reclaim_quality_gate",
+  "source_default_surface_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_revision_r4_reclaim_quality_gate.json",
+  "source_default_surface_decision": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_revision_r4_gate_decision.json",
+  "status": "confirmed"
+}

@@ -3,7 +3,8 @@ import TradexTrackingSummaryCard from "../components/TradexTrackingSummaryCard";
 import { tradexCandidateStatusLabel, tradexFreshnessLabel } from "../labels";
 import type {
   TradexForecastSurfaceProjection,
-  TradexForecastSurfaceProjectionRow
+  TradexForecastSurfaceProjectionRow,
+  TradexLiveStrategyJudgement
 } from "../contracts";
 import { readTradexLocal, tradexStorageKeys, writeTradexLocal } from "../storage";
 import { useTradexBootstrap } from "../useTradexBootstrap";
@@ -125,6 +126,61 @@ function ForecastSurfacePreview({ projection }: { projection: TradexForecastSurf
   );
 }
 
+function LiveStrategyJudgementPreview({ judgement }: { judgement: TradexLiveStrategyJudgement | null }) {
+  if (!judgement) return null;
+
+  const isBuy = judgement.human_readable_judgement === "buy";
+  const stateLabel = judgement.human_readable_judgement ? judgement.human_readable_judgement.toUpperCase() : "UNKNOWN";
+  const actionLabel = judgement.machine_action_state ? judgement.machine_action_state.toUpperCase() : "UNKNOWN";
+  const scoreLabel = typeof judgement.buy_score === "number" ? judgement.buy_score.toFixed(2) : "--";
+  const targetLabel = [judgement.target.code, judgement.target.as_of_date].filter(Boolean).join(" / ") || "--";
+  const reasonLabel = judgement.reason_codes.length > 0 ? judgement.reason_codes.join(" / ") : "none";
+
+  return (
+    <section className="tradex-panel">
+      <div className="tradex-panel-head">
+        <div>
+          <div className="tradex-panel-title">Live judgement</div>
+          <div className="tradex-panel-caption">Latest strategy judgement surfaced from the app backend.</div>
+        </div>
+        <div className="tradex-panel-actions">
+          <span className={`tradex-pill ${isBuy ? "is-ok" : "is-muted"}`}>{stateLabel}</span>
+          <span className="tradex-pill is-muted">{actionLabel}</span>
+        </div>
+      </div>
+      <div className="tradex-flow-grid">
+        <article className="tradex-flow-card">
+          <div className="tradex-flow-title">{isBuy ? "買い判定" : "現在は買いではない"}</div>
+          <div className="tradex-flow-text">
+            <div>target: {targetLabel}</div>
+            <div>score: {scoreLabel}</div>
+            <div>adapter: {judgement.primary_adapter_id ?? "--"}</div>
+            <div>authoritative: {judgement.authoritative_decision ?? "--"}</div>
+          </div>
+        </article>
+        <article className="tradex-flow-card">
+          <div className="tradex-flow-title">Scores</div>
+          <div className="tradex-flow-text">
+            <div>environment: {formatNumber(judgement.environment_score, 2)}</div>
+            <div>trend: {formatNumber(judgement.trend_score, 2)}</div>
+            <div>trigger: {formatNumber(judgement.trigger_score, 2)}</div>
+            <div>risk: {formatNumber(judgement.risk_score, 2)}</div>
+          </div>
+        </article>
+        <article className="tradex-flow-card">
+          <div className="tradex-flow-title">Reasons</div>
+          <div className="tradex-flow-text">
+            <div>codes: {reasonLabel}</div>
+            <div>experiment: {judgement.experiment_id ?? "--"}</div>
+            <div>generated_at: {judgement.generated_at ?? "--"}</div>
+            <div>signal: {judgement.is_buy_signal ? "buy" : "watch"}</div>
+          </div>
+        </article>
+      </div>
+    </section>
+  );
+}
+
 export default function TradexHomePage() {
   const { data, loading, error } = useTradexBootstrap();
   const candidates = data?.candidates ?? [];
@@ -138,6 +194,7 @@ export default function TradexHomePage() {
     .slice(0, 6);
   const focusCandidateId = readTradexLocal<string>(tradexStorageKeys.homeFocus, "");
   const summary = data?.summary;
+  const liveStrategyJudgement = data?.live_strategy_judgement ?? null;
   const forecastSurfaceProjection = data?.forecast_surface_projection?.projection ?? null;
 
   return (
@@ -158,10 +215,15 @@ export default function TradexHomePage() {
             authoritative {summary?.authoritative_state ?? "unknown"}
             {summary?.authoritative_decision ? ` / ${summary.authoritative_decision}` : ""}
           </div>
+          <div className="tradex-hero-chip">
+            live {liveStrategyJudgement?.human_readable_judgement ?? "unknown"}
+            {liveStrategyJudgement?.human_readable_judgement === "buy" ? " / BUY" : ""}
+          </div>
         </div>
       </section>
 
       {error ? <div className="tradex-inline-error">{error}</div> : null}
+      <LiveStrategyJudgementPreview judgement={liveStrategyJudgement} />
 
       <section className="tradex-panel">
         <div className="tradex-panel-head">

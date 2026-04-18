@@ -5,6 +5,7 @@ import re
 import sys
 from pathlib import Path
 
+from shared.runtime_stock_db_contract import resolve_runtime_stock_db_path
 from shared.tradex_storage import ensure_tradex_layout, tradex_db_path, tradex_research_home, tradex_research_keep_root
 
 # --- Constants & Defaults ---
@@ -133,8 +134,8 @@ class AppConfig:
     def DB_PATH(self) -> Path:
         env = os.getenv("STOCKS_DB_PATH")
         if env:
-            return Path(env)
-        return tradex_db_path("stocks.duckdb")
+            return Path(env).expanduser().resolve(strict=False)
+        return resolve_runtime_stock_db_path()
 
     @property
     def FAVORITES_DB_PATH(self) -> Path:

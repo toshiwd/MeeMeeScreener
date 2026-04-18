@@ -46,6 +46,7 @@ import { useDetailInfo } from "../hooks/useDetailInfo";
 import { shouldShowOperatorConsole } from "../utils/operatorConsole";
 import { useExactDecisionRange, type ExactDecisionTone } from "./detail/hooks/useExactDecisionRange";
 import { useAsOfItemFetch } from "./detail/hooks/useAsOfItemFetch";
+import { useDetailReplayRun } from "./detail/useDetailReplayRun";
 import {
   hasCompleteDetailChartPrefetch,
   loadDetailChartPrefetch,
@@ -56,6 +57,7 @@ import {
 } from "./detail/detailChartPrefetch";
 import { openDetailWithPrefetch } from "./detail/openDetailWithPrefetch";
 import DetailDebugBanner from "./detail/components/DetailDebugBanner";
+import DetailReplayPanel from "./detail/DetailReplayPanel";
 import DetailPositionLedgerSheet from "./detail/components/DetailPositionLedgerSheet";
 import { useDetailDrawings } from "./detail/hooks/useDetailDrawings";
 
@@ -172,10 +174,74 @@ import {
   findNearestCandleIndex,
   findNearestCandleTime,
 } from "./detail/detailHelpers";
+import { formatDateTimeLabel } from "../utils/dateLabels";
 
 const DETAIL_DAILY_ROW_RATIO = 0.72;
 const DETAIL_DEFAULT_WEEKLY_RATIO = 0.64;
 const DETAIL_TAB_CHUNK_PRELOAD_DELAY_MS = 1200;
+
+type DetailFrameOverwriteObservability = {
+  cacheSource: "memory" | "indexeddb" | null;
+  dataVersion: string | null;
+  chartSourceProvider: string | null;
+  displayBasisClassification: "confirmed" | "provisional" | "mixed" | null;
+  judgmentBasisClassification: "confirmed" | "provisional" | "dual" | null;
+  overwriteStatus: "authoritative_confirmed" | "provisional_only" | "provisional_replaced_by_confirmed" | null;
+  confirmedChartSourceProvider: string | null;
+  provisionalChartSourceProvider: string | null;
+  confirmedJudgmentBasis: string | null;
+  provisionalJudgmentBasis: string | null;
+  confirmedJudgmentAvailable: boolean | null;
+  provisionalJudgmentAvailable: boolean | null;
+  confirmedLastAvailableDate: number | null;
+  provisionalLastAvailableDate: number | null;
+};
+
+type DetailOverwriteObservability = {
+  timeframe: Timeframe;
+  mainAsOf: string | null;
+  daily: DetailFrameOverwriteObservability | null;
+  weekly: DetailFrameOverwriteObservability | null;
+  monthly: DetailFrameOverwriteObservability | null;
+};
+
+const summarizeDetailFrameOverwriteObservability = (
+  frame: ChartPrefetchEntry | null | undefined
+): DetailFrameOverwriteObservability | null => {
+  if (!frame) return null;
+  const provenance = frame.provenance ?? null;
+  return {
+    cacheSource: frame.cacheSource ?? null,
+    dataVersion: frame.dataVersion ?? null,
+    chartSourceProvider: provenance?.chart_source_provider ?? null,
+    displayBasisClassification: provenance?.display_basis_classification ?? null,
+    judgmentBasisClassification: provenance?.judgment_basis_classification ?? null,
+    overwriteStatus: provenance?.overwrite_status ?? null,
+    confirmedChartSourceProvider: provenance?.confirmed_chart_source_provider ?? null,
+    provisionalChartSourceProvider: provenance?.provisional_chart_source_provider ?? null,
+    confirmedJudgmentBasis: provenance?.confirmed_judgment_basis ?? null,
+    provisionalJudgmentBasis: provenance?.provisional_judgment_basis ?? null,
+    confirmedJudgmentAvailable: provenance?.confirmed_judgment_available ?? null,
+    provisionalJudgmentAvailable: provenance?.provisional_judgment_available ?? null,
+    confirmedLastAvailableDate: provenance?.confirmed_last_available_date ?? null,
+    provisionalLastAvailableDate: provenance?.provisional_last_available_date ?? null,
+  };
+};
+
+const summarizeDetailOverwriteObservability = (
+  frames: Partial<ChartPrefetchFrames> | null | undefined,
+  timeframe: Timeframe,
+  mainAsOf: string | null
+): DetailOverwriteObservability | null => {
+  if (!frames) return null;
+  return {
+    timeframe,
+    mainAsOf,
+    daily: summarizeDetailFrameOverwriteObservability(frames.daily),
+    weekly: summarizeDetailFrameOverwriteObservability(frames.weekly),
+    monthly: summarizeDetailFrameOverwriteObservability(frames.monthly),
+  };
+};
 
 let detailTabChunksPreloadPromise: Promise<unknown> | null = null;
 
@@ -508,6 +574,19 @@ export default function DetailView() {
   const [selectedBarIndex, setSelectedBarIndex] = useState<number | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedBarData, setSelectedBarData] = useState<Candle | null>(null);
+  const replayRunId = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    const raw = params.get("replayRunId");
+    if (!raw) return null;
+    const trimmed = raw.trim();
+    return trimmed || null;
+  }, [location.search]);
+  const showReplayPanel = replayRunId != null;
+  const replayRun = useDetailReplayRun({
+    runId: replayRunId,
+    symbol: code ?? null,
+    selectedDate,
+  });
   const [analysisCursorTime, setAnalysisCursorTime] = useState<number | null>(null);
   const [analysisBackfillJob, setAnalysisBackfillJob] = useState<JobStatusPayload | null>(null);
   const [analysisFetchRefreshToken, setAnalysisFetchRefreshToken] = useState(0);
@@ -580,6 +659,9 @@ export default function DetailView() {
     setLoadingMonthly(false);
     setHasMoreDaily(dailySeed ? dailySeed.rows.length >= nextDailyLimit : false);
     setHasMoreMonthly(monthlySeed ? monthlySeed.rows.length >= nextMonthlyLimit : false);
+    setMainChartOverwriteObservability(
+      summarizeDetailOverwriteObservability(seed ?? null, "daily", null)
+    );
   }, []);
   const resetCompareChartState = useCallback((seed?: Partial<ChartPrefetchFrames>) => {
     const dailySeed = seed?.daily ?? null;
@@ -602,7 +684,7 @@ export default function DetailView() {
     if (!trimmed || trimmed === code) return null;
     return trimmed;
   }, [location.search, code]);
-  const analysisAvailable = !compareCode;
+  const analysisAvailable = !compareCode && !showReplayPanel;
   const analysisFetchEnabled = analysisAvailable && headerMode === "analysis";
   const analysisNetworkReady = analysisFetchEnabled && routeReadyPhase === "analysis";
   const compareAsOf = useMemo(() => {
@@ -1984,7 +2066,7 @@ export default function DetailView() {
   const latestFinancialPoint = financialSeries.length > 0 ? financialSeries[financialSeries.length - 1] : null;
   const latestPrice = activeTicker?.close ?? null;
   const financialFetchedLabel = financialPanel?.fetchedAt
-    ? new Date(financialPanel.fetchedAt).toLocaleDateString("ja-JP")
+    ? formatDateTimeLabel(financialPanel.fetchedAt)
     : null;
   const financialDisplay = useMemo(
     () =>
@@ -2000,7 +2082,7 @@ export default function DetailView() {
     if (!taisyakuSnapshot?.fetchedAt) {
       return taisyakuLoading ? "貸借データ補完取得を確認中です。" : null;
     }
-    return `貸借最終取得 ${new Date(taisyakuSnapshot.fetchedAt).toLocaleString("ja-JP")}`;
+    return `貸借最終取得 ${formatDateTimeLabel(taisyakuSnapshot.fetchedAt)}`;
   }, [taisyakuLoading, taisyakuSnapshot]);
   const tdnetHighlights = useMemo(() => buildTdnetHighlights(tdnetDisclosures, 3), [tdnetDisclosures]);
   const tdnetStatusLabel = useMemo(() => {
@@ -2011,9 +2093,9 @@ export default function DetailView() {
       return tdnetLoading ? "TDNET補完取得を確認中です。" : null;
     }
     const latestFetched = Math.max(...fetchedValues);
-    return `TDNET最終取得 ${new Date(latestFetched).toLocaleString("ja-JP")}`;
+    return `TDNET最終取得 ${formatDateTimeLabel(latestFetched)}`;
   }, [tdnetDisclosures, tdnetLoading]);
-  const showFinancialPanel = headerMode === "financial" && !compareCode;
+  const showFinancialPanel = headerMode === "financial" && !compareCode && !showReplayPanel;
   const swingPlan = analysisFallback?.swingPlan ?? null;
   const swingDiagnostics = analysisFallback?.swingDiagnostics ?? null;
   const swingSetupExpectancy = swingDiagnostics?.setupExpectancy ?? null;
@@ -2040,7 +2122,9 @@ export default function DetailView() {
         : rankingDisplayScoreSource === "none"
           ? "score source 未設定"
           : "--";
-  const rightRailKind = showAnalysisPanel
+  const rightRailKind = showReplayPanel
+    ? "replay"
+    : showAnalysisPanel
     ? "analysis"
     : showFinancialPanel
       ? "financial"
@@ -2221,6 +2305,9 @@ export default function DetailView() {
         responseCount: frames.monthly.rows.length,
         errorMessage: null,
       });
+      setMainChartOverwriteObservability(
+        summarizeDetailOverwriteObservability(frames, "daily", null)
+      );
       rangeSettleRef.current = Date.now() + RANGE_SETTLE_MS;
       return true;
     };
@@ -2778,21 +2865,32 @@ export default function DetailView() {
     () => buildDailyPositions(dailyCandles, trades),
     [dailyCandles, trades]
   );
-  const dailyPositions = positionData.dailyPositions;
-  const tradeMarkers = positionData.tradeMarkers;
+  const replayPositionData = useMemo(
+    () => (showReplayPanel ? buildDailyPositions(dailyCandles, replayRun.tradeEvents) : null),
+    [dailyCandles, replayRun.tradeEvents, showReplayPanel]
+  );
+  const activePositionData = replayPositionData ?? positionData;
+  const dailyPositions = activePositionData.dailyPositions;
+  const tradeMarkers = activePositionData.tradeMarkers;
   const currentPositions = useMemo(
-    () => (currentPositionsFromApi !== null ? currentPositionsFromApi : buildCurrentPositions(trades)),
-    [currentPositionsFromApi, trades]
+    () =>
+      showReplayPanel
+        ? null
+        : currentPositionsFromApi !== null
+          ? currentPositionsFromApi
+          : buildCurrentPositions(trades),
+    [currentPositionsFromApi, showReplayPanel, trades]
   );
   const latestTradeTime = useMemo(() => {
-    if (trades.length === 0) return null;
-    const times = trades
+    const sourceTrades = showReplayPanel ? replayRun.tradeEvents : trades;
+    if (sourceTrades.length === 0) return null;
+    const times = sourceTrades
       .map((trade) => Date.parse(`${trade.date}T00:00:00Z`))
       .filter((value) => Number.isFinite(value))
       .map((value) => Math.floor(value / 1000));
     if (!times.length) return null;
     return Math.max(...times);
-  }, [trades]);
+  }, [showReplayPanel, replayRun.tradeEvents, trades]);
   const comparePositionData = useMemo(
     () => buildDailyPositions(compareDailyCandles, compareTrades),
     [compareDailyCandles, compareTrades]
@@ -3408,6 +3506,7 @@ export default function DetailView() {
 
   // Cursor mode functions
   const autoPanToBar = useCallback((time: number) => {
+    if (overwriteLiveValidationMode) return;
     if (!dailyChartRef.current) return;
 
     if (!resolvedDailyVisibleRange) return;
@@ -3439,7 +3538,7 @@ export default function DetailView() {
       }
       dailyChartRef.current.setVisibleRange({ from: newFrom, to: newTo });
     }
-  }, [resolvedDailyVisibleRange, dailyCandles]);
+  }, [resolvedDailyVisibleRange, dailyCandles, overwriteLiveValidationMode]);
 
   const updateSelectedBar = useCallback((index: number) => {
     if (index < 0 || index >= dailyCandles.length) return;
@@ -4582,7 +4681,7 @@ export default function DetailView() {
   const canLoadMoreCompareMonthly = compareHasMoreMonthly && monthlyLimit < MAX_MONTHLY_BATCH_BARS_LIMIT;
 
   const mainSync = useChartSync(dailyChartRef, monthlyChartRef, weeklyChartRef, {
-    enabled: syncRanges ?? true,
+    enabled: (syncRanges ?? true) && !overwriteLiveValidationMode,
     cursorEnabled: true,
     onLoadMoreDaily: () => setDailyLimit((prev) => incrementBarLimit(prev, LIMIT_STEP.daily, MAX_DAILY_BATCH_BARS_LIMIT)),
     onLoadMoreMonthly: () =>
@@ -4596,7 +4695,7 @@ export default function DetailView() {
   });
 
   const compareSync = useChartSync(compareDailyChartRef, compareMonthlyChartRef, undefined, {
-    enabled: syncRanges ?? true,
+    enabled: (syncRanges ?? true) && !overwriteLiveValidationMode,
     cursorEnabled: true,
     onLoadMoreDaily: () =>
       setCompareDailyLimit((prev) => incrementBarLimit(prev, LIMIT_STEP.daily, MAX_DAILY_BATCH_BARS_LIMIT)),
@@ -6067,6 +6166,19 @@ export default function DetailView() {
         </div>
         {rightRailKind && (
           <aside className="detail-right-rail">
+            {rightRailKind === "replay" && (
+              <DetailReplayPanel
+                runId={replayRunId}
+                loading={replayRun.loading}
+                error={replayRun.error}
+                summary={replayRun.summary}
+                selectedDate={selectedDate}
+                selectedRow={replayRun.selectedTimelineRow}
+                ledgerRows={replayRun.ledgerRows}
+                formatNumber={formatNumber}
+                formatSignedNumber={formatSignedNumber}
+              />
+            )}
             {rightRailKind === "analysis" && (
               <>
                 <ScreenPanel title="ランキング指標" className="detail-analysis-panel">
