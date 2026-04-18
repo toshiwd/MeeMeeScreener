@@ -1,0 +1,72 @@
+{
+  "schema_version": "tradex_r11_gate_decision_v1",
+  "family_id": "tradex-research-buy-surface-operational-validation-r11-r1-defensive",
+  "axis": "buy_surface_operational_validation_r11_r1_defensive",
+  "candidate_local_decision": "keep",
+  "compare_engine_local_decision": "keep",
+  "authoritative_decision": "keep",
+  "decision_reasons": [
+    "real_symbol_level_branching",
+    "positive_top5_uplift",
+    "positive_top10_uplift",
+    "liquidity_fail_rate_reduced",
+    "compare_engine_promote_ready_true"
+  ],
+  "caveats": [
+    "worst_regime_delta_negative",
+    "top20_unavailable_candidate_symbols_lt_20"
+  ],
+  "metrics": {
+    "meaningful_topk_branching_possible": true,
+    "topk_boundary_exists": true,
+    "topk_branching_block_reason": "",
+    "selection_divergence_reason": "top5_member_replacement",
+    "changed_top5_members_count": 8,
+    "changed_top10_members_count": 13,
+    "changed_top20_members_count": null,
+    "changed_rank_count": 13,
+    "top5_metric_basis": "shared_top3_proxy_due_to_candidate_symbol_count_3",
+    "top10_metric_basis": "shared_top3_proxy_due_to_candidate_symbol_count_3",
+    "top20_metric_basis": "not_observable_candidate_symbol_count_lt_20",
+    "top5_uplift": 0.2284258211135688,
+    "top10_uplift": 0.13174515571477596,
+    "top20_uplift": null,
+    "top5_median_uplift": 0.15741010238339337,
+    "top10_median_uplift": -0.005127769976042543,
+    "top20_median_uplift": null,
+    "top5_boundary_score_gap": -0.002130674725762109,
+    "top10_boundary_score_gap": -0.0008121611192603642,
+    "top20_boundary_score_gap": null,
+    "bad_pick_removal": 0.3097138061506074,
+    "bad_pick_removal_detail": {
+      "metric": "liquidity_fail_rate_reduction",
+      "baseline_liquidity_fail_count": 45761,
+      "candidate_liquidity_fail_count": 140,
+      "baseline_liquidity_fail_rate": 0.976380472817274,
+      "candidate_liquidity_fail_rate": 0.6666666666666666,
+      "delta": 0.3097138061506074
+    },
+    "liquidity_quality_delta": 0.3097138061506074,
+    "liquidity_quality_detail": {
+      "metric": "liquidity_fail_rate_reduction",
+      "baseline_liquidity_fail_count": 45761,
+      "candidate_liquidity_fail_count": 140,
+      "baseline_liquidity_fail_rate": 0.976380472817274,
+      "candidate_liquidity_fail_rate": 0.6666666666666666,
+      "delta": 0.3097138061506074
+    },
+    "baseline_symbol_count": 671,
+    "candidate_symbol_count": 3,
+    "shared_symbol_count": 3,
+    "regime_wise_result_deltas": {
+      "up:up:20250626:20250829": -0.030023054328301074,
+      "down:down:20250331:20250409": -0.03613198353310432,
+      "flat:flat:20230803:20230828": -0.06640321958834655
+    },
+    "worst_regime_delta": -0.06640321958834655,
+    "top20_observability_status": "not_observable_candidate_symbols_lt_20",
+    "top20_blocker_reason": "candidate_symbol_count_lt_20"
+  },
+  "authoritative_compare_path": "G:\\Tradex\\scratch\\research_families\\tradex-research-buy-surface-operational-validation-r11-r1-defensive\\compare.json",
+  "source_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_surface_operational_validation_r11_r1_defensive.json"
+}

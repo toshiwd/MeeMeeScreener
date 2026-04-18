@@ -79,7 +79,10 @@
     "single_symbol_similarity_check_current_source": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\2531_similarity_check_current_source.json",
     "tradex_runtime_db_contract": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\tradex_runtime_db_contract.json",
     "turnover_shadow_blocker_eval": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_turnover_blocker_shadow_eval.json",
-    "turnover_warning_policy": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_turnover_warning_policy.json"
+    "turnover_warning_policy": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_turnover_warning_policy.json",
+    "buy_surface_operational_validation_r11_r1_defensive": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_surface_operational_validation_r11_r1_defensive.json",
+    "buy_surface_operational_validation_r11_r1_defensive_plan": "C:\\work\\meemee-screener\\docs\\plans\\buy_surface_operational_validation_r11_r1_defensive.md",
+    "buy_surface_operational_validation_r11_gate_decision": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_surface_operational_validation_r11_gate_decision.json"
   },
   "buy_surface_allowed_regimes": [
     "risk_on",
@@ -89,7 +92,7 @@
     "neutral"
   ],
   "buy_surface_compare_unit": "symbol",
-  "buy_surface_operational_challenger": "buy_surface_operational_compare_r10_r9_scope_aware",
+  "buy_surface_operational_challenger": "buy_surface_operational_validation_r11_r1_defensive",
   "buy_surface_operational_compare_r10_gate_decision_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_surface_operational_compare_r10_gate_decision.json",
   "buy_surface_operational_compare_r10_r9_scope_aware_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_surface_operational_compare_r10_r9_scope_aware.json",
   "buy_surface_operational_diagnosis_r8_gate_decision_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_surface_operational_diagnosis_r8_gate_decision.json",
@@ -306,7 +309,7 @@
     "status": "research_fallback_blocked_by_incomplete_horizon",
     "trade_validation_blocker": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\judgment_trade_validation_blocker.json"
   },
-  "next_round_priority": "buy_surface_operational_compare_r10_r9_scope_aware",
+  "next_round_priority": "buy_surface_operational_validation_r11_r1_defensive",
   "outcome_only_branching_redesign": {
     "baseline_closed_as": "drop/no_op",
     "blocked_lanes": {
@@ -442,7 +445,7 @@
       "worst_regime_delta": 0.0
     }
   },
-  "primary_next_axis": "buy_surface_operational_compare_r10_r9_scope_aware",
+  "primary_next_axis": "buy_surface_operational_validation_r11_r1_defensive",
   "runtime_db_contract": {
     "active_deep_dive_candidate": "bp_liquidity_trap_penalty/v1",
     "evidence_bearing_run_summary": {
@@ -1573,5 +1576,11 @@
       "unit_name": "liq_adv20_plus_followthrough_penalty_v1/v1",
       "variant_name": "v1"
     }
-  ]
+  ],
+  "buy_surface_r11_validation_status": "keep",
+  "buy_surface_r11_compare_unit": "symbol",
+  "buy_surface_r11_liquidity_quality_status": "improved",
+  "buy_surface_r11_authoritative_decision": "keep",
+  "buy_surface_operational_validation_r11_r1_defensive_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_surface_operational_validation_r11_r1_defensive.json",
+  "buy_surface_operational_validation_r11_gate_decision_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_surface_operational_validation_r11_gate_decision.json"
 }
