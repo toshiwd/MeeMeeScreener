@@ -43,6 +43,7 @@ import DailyMemoPanel from "../components/DailyMemoPanel";
 import { buildConsultCopyText, copyToClipboard as copyConsultToClipboard } from "../utils/consultCopy";
 import { useChartSync } from "../hooks/useChartSync";
 import { useDetailInfo } from "../hooks/useDetailInfo";
+import { shouldShowOperatorConsole } from "../utils/operatorConsole";
 import { useExactDecisionRange, type ExactDecisionTone } from "./detail/hooks/useExactDecisionRange";
 import { useAsOfItemFetch } from "./detail/hooks/useAsOfItemFetch";
 import {
@@ -50,6 +51,7 @@ import {
   loadDetailChartPrefetch,
   prefetchDetailChartFrames,
   readDetailChartPrefetchSync,
+  type ChartPrefetchEntry,
   type ChartPrefetchFrames,
 } from "./detail/detailChartPrefetch";
 import { openDetailWithPrefetch } from "./detail/openDetailWithPrefetch";
@@ -311,6 +313,48 @@ const ANALYSIS_NEIGHBOR_PREFETCH_DELAY_MS = 1200;
 const ANALYSIS_JOB_POLL_DELAY_MS = 1200;
 const TRADES_FETCH_DELAY_MS = 1200;
 
+type DetailFrameOverwriteObservability = {
+  dataVersion: string | null;
+  fetchedAt: number | null;
+  rowCount: number;
+  boxCount: number;
+};
+
+type DetailOverwriteObservability = {
+  timeframe: Timeframe;
+  mainAsOf: string | null;
+  daily: DetailFrameOverwriteObservability | null;
+  weekly: DetailFrameOverwriteObservability | null;
+  monthly: DetailFrameOverwriteObservability | null;
+};
+
+const summarizeDetailFrameOverwriteObservability = (
+  frame: ChartPrefetchEntry | null | undefined
+): DetailFrameOverwriteObservability | null => {
+  if (!frame) return null;
+  return {
+    dataVersion: frame.dataVersion ?? null,
+    fetchedAt: frame.fetchedAt ?? null,
+    rowCount: Array.isArray(frame.rows) ? frame.rows.length : 0,
+    boxCount: Array.isArray(frame.boxes) ? frame.boxes.length : 0,
+  };
+};
+
+const summarizeDetailOverwriteObservability = (
+  frames: Partial<ChartPrefetchFrames> | null | undefined,
+  timeframe: Timeframe,
+  mainAsOf: string | null
+): DetailOverwriteObservability | null => {
+  if (!frames) return null;
+  return {
+    timeframe,
+    mainAsOf,
+    daily: summarizeDetailFrameOverwriteObservability(frames.daily),
+    weekly: summarizeDetailFrameOverwriteObservability(frames.weekly),
+    monthly: summarizeDetailFrameOverwriteObservability(frames.monthly),
+  };
+};
+
 const isRetryableTradesError = (error: unknown) => {
   const status = (error as { response?: { status?: number } })?.response?.status;
   const payload = (error as { response?: { data?: { retryable?: boolean } } })?.response?.data;
@@ -322,6 +366,10 @@ export default function DetailView() {
   const location = useLocation();
   const navigate = useNavigate();
   const { ready: backendReady } = useBackendReadyState();
+  const overwriteLiveValidationMode = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    return shouldShowOperatorConsole() && params.get("overwriteLiveValidation") === "1";
+  }, [location.search]);
   const dailyChartRef = useRef<DetailChartHandle | null>(null);
   const weeklyChartRef = useRef<DetailChartHandle | null>(null);
   const monthlyChartRef = useRef<DetailChartHandle | null>(null);
@@ -391,6 +439,8 @@ export default function DetailView() {
   const [monthlyErrors, setMonthlyErrors] = useState<string[]>([]);
   const [dailyBarsMeta, setDailyBarsMeta] = useState<BarsMeta | null>(null);
   const [monthlyBarsMeta, setMonthlyBarsMeta] = useState<BarsMeta | null>(null);
+  const [mainChartOverwriteObservability, setMainChartOverwriteObservability] =
+    useState<DetailOverwriteObservability | null>(null);
   const [dailyFetch, setDailyFetch] = useState<FetchState>({
     status: "idle",
     responseCount: 0,
@@ -676,6 +726,7 @@ export default function DetailView() {
     setSecondaryFetchReady(false);
     setSecondaryFetchStableReady(false);
     setSecondaryJobReady(false);
+    setMainChartOverwriteObservability(null);
     const seed =
       code == null
         ? undefined
@@ -688,6 +739,9 @@ export default function DetailView() {
           });
     setMainChartPendingSwap(!hasCompleteDetailChartPrefetch(seed));
     resetMainChartState(seed);
+    setMainChartOverwriteObservability(
+      summarizeDetailOverwriteObservability(seed ?? null, "daily", null)
+    );
     // Reset cursor selection – will be re-initialized once dailyCandles load
     setSelectedBarIndex(null);
     setSelectedBarData(null);
@@ -2138,6 +2192,9 @@ export default function DetailView() {
       setLoadingDaily(false);
       setLoadingMonthly(false);
       setMainChartPendingSwap(false);
+      setMainChartOverwriteObservability(
+        summarizeDetailOverwriteObservability(frames, "daily", null)
+      );
       setDailyErrors([]);
       setWeeklyErrors([]);
       setMonthlyErrors([]);
@@ -6156,6 +6213,20 @@ export default function DetailView() {
         onToggleInfoDetails={() => setShowInfoDetails((prev) => !prev)}
         onClose={() => setDebugOpen(false)}
       />
+      {overwriteLiveValidationMode && mainChartOverwriteObservability != null && (
+        <div className="detail-debug-banner info" data-testid="detail-overwrite-observability">
+          <div className="detail-debug-panel">
+            <div className="detail-debug-header">
+              <div className="detail-debug-title">Overwrite Observability</div>
+            </div>
+            <div className="detail-debug-lines">
+              <pre style={{ margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+{JSON.stringify(mainChartOverwriteObservability, null, 2)}
+              </pre>
+            </div>
+          </div>
+        </div>
+      )}
       {showIndicators && (
         <Suspense fallback={null}>
           <LazyDetailIndicatorOverlay
