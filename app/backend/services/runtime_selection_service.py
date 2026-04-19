@@ -17,6 +17,7 @@ from external_analysis.results.publish import load_published_logic_catalog
 from external_analysis.results.publish_candidates import load_publish_candidate_maintenance_state
 from external_analysis.results.publish_registry import load_publish_registry_state as load_external_publish_registry_state
 from app.backend.services.operator_mutation_lock import get_operator_mutation_observability
+from app.backend.services.tradex_shadow_integration_state import load_tradex_shadow_integration_state
 from shared.contracts.logic_selection import (
     DEFAULT_LOGIC_POINTER_NAME,
     LAST_KNOWN_GOOD_ARTIFACT_NAME,
@@ -407,6 +408,7 @@ def build_runtime_selection_snapshot(
     valid_catalog_entries = [_validate_catalog_entry(entry, config_repo=config_repo) for entry in raw_catalog_manifest]
     lkg_state = _validate_last_known_good_state(local_state.get(LAST_KNOWN_GOOD_ARTIFACT_NAME), config_repo=config_repo)
     maintenance_state = load_publish_candidate_maintenance_state(db_path=_resolved_result_db_path(db_path))
+    shadow_integration = load_tradex_shadow_integration_state()
     selection_issues: list[dict[str, Any]] = []
     snapshot = _build_resolution_snapshot(
         config_repo=config_repo,
@@ -455,6 +457,14 @@ def build_runtime_selection_snapshot(
     snapshot["maintenance_degraded"] = bool(maintenance_state.get("maintenance_degraded"))
     snapshot["maintenance_state"] = maintenance_state
     snapshot["operator_mutation_observability"] = get_operator_mutation_observability()
+    snapshot["shadow_integration"] = shadow_integration
+    snapshot["shadow_integration_state"] = shadow_integration.get("state")
+    snapshot["shadow_monitoring_contract"] = shadow_integration.get("monitoring_contract")
+    snapshot["shadow_rollout_boundary"] = shadow_integration.get("rollout_boundary")
+    snapshot["shadow_verify"] = shadow_integration.get("verify")
+    snapshot["shadow_only"] = bool(shadow_integration.get("shadow_only"))
+    snapshot["shadow_integration_available"] = bool(shadow_integration.get("available"))
+    snapshot["shadow_integration_validation_issues"] = shadow_integration.get("validation_issues") or []
     return snapshot
 
 

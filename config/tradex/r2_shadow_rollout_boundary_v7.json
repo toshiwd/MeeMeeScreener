@@ -1,0 +1,27 @@
+{
+  "schema_version": "tradex_r2_shadow_rollout_boundary_v7",
+  "accepted_for_shadow_integration_only": "R2 failed_rebound_reshort_chain",
+  "adoption_readiness": "shadow_only",
+  "production_wiring_readiness": false,
+  "shadow_only": true,
+  "publish_candidate_allowed": false,
+  "meeMee_reflect_allowed": false,
+  "production_path_allowed": false,
+  "allowed": [
+    "json artifact adoption",
+    "champion/challenger compare adoption",
+    "shadow monitoring"
+  ],
+  "not_allowed": [
+    "publish candidate inclusion",
+    "MeeMee reflection",
+    "production auto-wire",
+    "production ranking path change"
+  ],
+  "rollback": {
+    "can_disable_shadow_only": true,
+    "toggle": "MEEMEE_ENABLE_TRADEX_R2_SHADOW",
+    "default_enabled": false,
+    "scope": "TRADEX research/shadow only"
+  }
+}
