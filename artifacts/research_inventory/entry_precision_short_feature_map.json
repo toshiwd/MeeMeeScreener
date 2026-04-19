@@ -1,0 +1,66 @@
+{
+  "session_id": "entry-short-precision-20260419-095312",
+  "baseline_id": "current_rule_trade_gate_baseline",
+  "feature_map": {
+    "families": [
+      {
+        "name": "short_extension_filters",
+        "target": "bad-pick removal",
+        "why_short_only": "Suppresses short names that are already too stretched or too close to a mean-reversion pocket.",
+        "long_side_impact": "no change",
+        "features": [
+          "dist_ma20_signed",
+          "dist_low20",
+          "close_pos"
+        ]
+      },
+      {
+        "name": "followthrough_quality",
+        "target": "bad-pick removal",
+        "why_short_only": "Keeps only shorts that close weakly and have enough downside followthrough to be enterable at the close.",
+        "long_side_impact": "no change",
+        "features": [
+          "day_change_pct",
+          "close_pos",
+          "short_ret_5",
+          "short_ret_10"
+        ]
+      },
+      {
+        "name": "bottom_risk_suppression",
+        "target": "neutral suppression",
+        "why_short_only": "Avoids short names where reversal risk is high because the close is too close to a short-term floor.",
+        "long_side_impact": "no change",
+        "features": [
+          "close_pos",
+          "dist_low20",
+          "mae20"
+        ]
+      },
+      {
+        "name": "event_risk_suppression",
+        "target": "neutral suppression",
+        "why_short_only": "Excludes names with near-term earnings or rights dates that can distort short entry quality.",
+        "long_side_impact": "no change",
+        "features": [
+          "earnings_planned",
+          "ex_rights"
+        ],
+        "note": "research-fallback: no borrow table was found, so borrow/cost is only proxied by low liquidity."
+      },
+      {
+        "name": "trend_alignment",
+        "target": "bad-pick removal",
+        "why_short_only": "Keeps only shorts with aligned daily trend context and slope confirmation.",
+        "long_side_impact": "no change",
+        "features": [
+          "trendDownStrict",
+          "ma20_slope",
+          "ma60_slope",
+          "weeklyBreakoutDownProb",
+          "monthlyBreakoutDownProb"
+        ]
+      }
+    ]
+  }
+}

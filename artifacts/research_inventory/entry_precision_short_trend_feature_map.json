@@ -1,0 +1,47 @@
+{
+  "session_id": "entry-short-trend-precision-20260419-100803",
+  "baseline_id": "current_rule_trade_gate_baseline",
+  "feature_map": {
+    "families": [
+      {
+        "name": "higher_timeframe_alignment",
+        "target": "bad-pick removal",
+        "why_short_only": "Keeps shorts only when weekly and monthly downside context are aligned enough to justify a close entry.",
+        "expected_short_count_effect": "decrease",
+        "expected_short_quality_effect": "hit rate up, median ret20 up, fewer trend-misaligned shorts",
+        "long_side_impact": "no change",
+        "features": [
+          "weeklyBreakoutDownProb",
+          "monthlyBreakoutDownProb",
+          "marketRiskOff"
+        ]
+      },
+      {
+        "name": "range_middle_suppression",
+        "target": "bad-pick removal",
+        "why_short_only": "Suppresses shorts that sit inside broad range-middle noise rather than on a real downside edge.",
+        "expected_short_count_effect": "decrease",
+        "expected_short_quality_effect": "hit rate up, median ret20 up, fewer range-middle false shorts",
+        "long_side_impact": "no change",
+        "features": [
+          "monthlyRangeProb",
+          "monthlyRangePos",
+          "close_pos"
+        ]
+      },
+      {
+        "name": "support_break_validity",
+        "target": "bad-pick removal",
+        "why_short_only": "Filters shorts that are already too extended below support or are likely to mean-revert into noise.",
+        "expected_short_count_effect": "decrease",
+        "expected_short_quality_effect": "hit rate up, median ret20 up, fewer already-fallen shorts",
+        "long_side_impact": "no change",
+        "features": [
+          "dist_ma20_signed",
+          "dist_low20",
+          "day_change_pct"
+        ]
+      }
+    ]
+  }
+}

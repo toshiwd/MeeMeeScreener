@@ -1,0 +1,631 @@
+{
+  "schema_version": "tradex_entry_precision_short_trend_regime_split_v1",
+  "session_id": "entry-short-trend-regime-20260419-113315",
+  "generated_at": "2026-04-19T11:39:33.172135+00:00",
+  "baseline_id": "current_rule_trade_gate_baseline",
+  "challenger_id": "short_trend_alignment_v1",
+  "frozen_from_session_id": "entry-short-trend-wide-20260419-103720",
+  "long_freeze_confirmed": true,
+  "wide_window": {
+    "start_ymd": 20240101,
+    "end_ymd": 20260226
+  },
+  "local_window": {
+    "start_ymd": 20250101,
+    "end_ymd": 20260226
+  },
+  "regime_buckets": [
+    {
+      "regime": "high_volatility_selloff_regime",
+      "regime_label": "neutral_regime",
+      "evidence_strength": "medium",
+      "sample_count": 1024,
+      "baseline_count": 3,
+      "challenger_count": 3,
+      "baseline": {
+        "count": 3,
+        "hit_rate": 0.6666666666666666,
+        "mean_ret20": 0.023486975435889873,
+        "median_ret20": 0.011116637426333521,
+        "mean_mae20": 0.025090043054961837,
+        "median_mae20": 0.030029060381013883,
+        "mean_mfe20": 0.2134715072701788,
+        "median_mfe20": 0.1938941158465482,
+        "flat_rate": 0.0,
+        "immediate_reverse_rate": 0.0
+      },
+      "challenger": {
+        "count": 3,
+        "hit_rate": 0.6666666666666666,
+        "mean_ret20": 0.023486975435889873,
+        "median_ret20": 0.011116637426333521,
+        "mean_mae20": 0.025090043054961837,
+        "median_mae20": 0.030029060381013883,
+        "mean_mfe20": 0.2134715072701788,
+        "median_mfe20": 0.1938941158465482,
+        "flat_rate": 0.0,
+        "immediate_reverse_rate": 0.0
+      },
+      "delta": {
+        "hit_rate_delta": 0.0,
+        "median_ret20_delta": 0.0,
+        "mean_ret20_delta": 0.0,
+        "bad_short_removal_count": 0,
+        "changed_top5_short_count": 0,
+        "changed_top10_short_count": 0,
+        "changed_rank_short_count": 0
+      },
+      "monthly_split": {
+        "baseline": {
+          "months_with_selection": 1,
+          "positive_months": 1,
+          "negative_months": 0,
+          "monthly_median_ret20": {
+            "20250331": 0.011116637426333521
+          }
+        },
+        "challenger": {
+          "months_with_selection": 1,
+          "positive_months": 1,
+          "negative_months": 0,
+          "monthly_median_ret20": {
+            "20250331": 0.011116637426333521
+          }
+        }
+      },
+      "representative_examples": [
+        {
+          "ymd": 20250331,
+          "code": "3436",
+          "short_ret_20": 0.011116637426333521,
+          "marketRegime": "risk_off",
+          "marketRiskOff": true,
+          "trendDownStrict": true,
+          "monthlyRangeProb": 0.0,
+          "monthlyRangePos": 0.0
+        },
+        {
+          "ymd": 20250331,
+          "code": "4186",
+          "short_ret_20": -0.009041007426541814,
+          "marketRegime": "risk_off",
+          "marketRiskOff": true,
+          "trendDownStrict": true,
+          "monthlyRangeProb": 0.0,
+          "monthlyRangePos": 0.0
+        },
+        {
+          "ymd": 20250331,
+          "code": "4188",
+          "short_ret_20": 0.06838529630787792,
+          "marketRegime": "risk_off",
+          "marketRiskOff": true,
+          "trendDownStrict": false,
+          "monthlyRangeProb": 0.23977133779240148,
+          "monthlyRangePos": 0.0
+        }
+      ],
+      "market_regime_counts": {
+        "risk_off": 1024
+      }
+    },
+    {
+      "regime": "broad_down_regime",
+      "regime_label": "failure_regime",
+      "evidence_strength": "medium",
+      "sample_count": 953,
+      "baseline_count": 10,
+      "challenger_count": 5,
+      "baseline": {
+        "count": 10,
+        "hit_rate": 0.5,
+        "mean_ret20": -0.02394172769227531,
+        "median_ret20": -0.017756346160049025,
+        "mean_mae20": 0.0755805944130606,
+        "median_mae20": 0.07923486984031394,
+        "mean_mfe20": 0.04315630935666951,
+        "median_mfe20": 0.020019388158073137,
+        "flat_rate": 0.1,
+        "immediate_reverse_rate": 0.5
+      },
+      "challenger": {
+        "count": 5,
+        "hit_rate": 0.4,
+        "mean_ret20": -0.03408597369962153,
+        "median_ret20": -0.038834951456310676,
+        "mean_mae20": 0.08338084501001543,
+        "median_mae20": 0.07766990291262135,
+        "mean_mfe20": 0.058382614458961535,
+        "median_mfe20": 0.024735776928266246,
+        "flat_rate": 0.0,
+        "immediate_reverse_rate": 0.6
+      },
+      "delta": {
+        "hit_rate_delta": -0.09999999999999998,
+        "median_ret20_delta": -0.02107860529626165,
+        "mean_ret20_delta": -0.010144246007346223,
+        "bad_short_removal_count": 2,
+        "changed_top5_short_count": 5,
+        "changed_top10_short_count": 5,
+        "changed_rank_short_count": 17
+      },
+      "monthly_split": {
+        "baseline": {
+          "months_with_selection": 7,
+          "positive_months": 4,
+          "negative_months": 3,
+          "monthly_median_ret20": {
+            "20240229": -0.03647997142458746,
+            "20241129": -0.04468475821260967,
+            "20241230": 0.02855316428723631,
+            "20250131": -0.09084413506644047,
+            "20250228": 0.022037328536091746,
+            "20250331": 0.0030014711561858892,
+            "20250930": 0.0033222591362126247
+          }
+        },
+        "challenger": {
+          "months_with_selection": 4,
+          "positive_months": 2,
+          "negative_months": 2,
+          "monthly_median_ret20": {
+            "20240229": -0.10856269113149847,
+            "20250131": -0.08990744821507272,
+            "20250228": 0.022037328536091746,
+            "20250331": 0.0030014711561858892
+          }
+        }
+      },
+      "representative_examples": [
+        {
+          "ymd": 20250131,
+          "code": "4072",
+          "short_ret_20": -0.08990744821507272,
+          "marketRegime": "risk_off",
+          "marketRiskOff": true,
+          "trendDownStrict": true,
+          "monthlyRangeProb": 0.011931457188773031,
+          "monthlyRangePos": 0.0
+        },
+        {
+          "ymd": 20250331,
+          "code": "7630",
+          "short_ret_20": -0.038834951456310676,
+          "marketRegime": "risk_off",
+          "marketRiskOff": true,
+          "trendDownStrict": true,
+          "monthlyRangeProb": 0.18064167094142114,
+          "monthlyRangePos": 0.0
+        },
+        {
+          "ymd": 20250331,
+          "code": "4208",
+          "short_ret_20": 0.044837893768682455,
+          "marketRegime": "risk_off",
+          "marketRiskOff": true,
+          "trendDownStrict": true,
+          "monthlyRangeProb": 0.20649924403656444,
+          "monthlyRangePos": 0.0
+        }
+      ],
+      "market_regime_counts": {
+        "risk_off": 953
+      }
+    },
+    {
+      "regime": "broad_range_sideways_regime",
+      "regime_label": "support_regime",
+      "evidence_strength": "low",
+      "sample_count": 3247,
+      "baseline_count": 8,
+      "challenger_count": 1,
+      "baseline": {
+        "count": 8,
+        "hit_rate": 0.625,
+        "mean_ret20": 0.012095750437770187,
+        "median_ret20": 0.016369181046039884,
+        "mean_mae20": 0.02903481358195889,
+        "median_mae20": 0.014174909842878593,
+        "mean_mfe20": 0.05412232112520777,
+        "median_mfe20": 0.029815529815529814,
+        "flat_rate": 0.0,
+        "immediate_reverse_rate": 0.375
+      },
+      "challenger": {
+        "count": 1,
+        "hit_rate": 1.0,
+        "mean_ret20": 0.04559270516717325,
+        "median_ret20": 0.04559270516717325,
+        "mean_mae20": 0.0,
+        "median_mae20": 0.0,
+        "mean_mfe20": 0.0790273556231003,
+        "median_mfe20": 0.0790273556231003,
+        "flat_rate": 0.0,
+        "immediate_reverse_rate": 0.0
+      },
+      "delta": {
+        "hit_rate_delta": 0.375,
+        "median_ret20_delta": 0.029223524121133368,
+        "mean_ret20_delta": 0.03349695472940306,
+        "bad_short_removal_count": 3,
+        "changed_top5_short_count": 4,
+        "changed_top10_short_count": 7,
+        "changed_rank_short_count": 1
+      },
+      "monthly_split": {
+        "baseline": {
+          "months_with_selection": 7,
+          "positive_months": 5,
+          "negative_months": 2,
+          "monthly_median_ret20": {
+            "20240131": 0.0424597364568082,
+            "20240628": 0.04559270516717325,
+            "20240731": 0.09371428571428571,
+            "20240830": 0.02248673115079365,
+            "20250731": -0.05372153781608757,
+            "20250829": 0.010251630941286114,
+            "20251128": -0.010296010296010296
+          }
+        },
+        "challenger": {
+          "months_with_selection": 1,
+          "positive_months": 1,
+          "negative_months": 0,
+          "monthly_median_ret20": {
+            "20240628": 0.04559270516717325
+          }
+        }
+      },
+      "representative_examples": [
+        {
+          "ymd": 20240628,
+          "code": "9284",
+          "short_ret_20": 0.04559270516717325,
+          "marketRegime": "neutral",
+          "marketRiskOff": false,
+          "trendDownStrict": true,
+          "monthlyRangeProb": 0.1110197368421052,
+          "monthlyRangePos": 0.0
+        }
+      ],
+      "market_regime_counts": {
+        "risk_on": 1168,
+        "risk_off": 711,
+        "neutral": 1368
+      }
+    },
+    {
+      "regime": "broad_up_countertrend_regime",
+      "regime_label": "failure_regime",
+      "evidence_strength": "medium",
+      "sample_count": 7039,
+      "baseline_count": 14,
+      "challenger_count": 5,
+      "baseline": {
+        "count": 14,
+        "hit_rate": 0.35714285714285715,
+        "mean_ret20": 0.0029230311165247846,
+        "median_ret20": -0.011497289488007004,
+        "mean_mae20": 0.06211589622954866,
+        "median_mae20": 0.03925340665669123,
+        "mean_mfe20": 0.04625483274709591,
+        "median_mfe20": 0.024996678623621628,
+        "flat_rate": 0.07142857142857142,
+        "immediate_reverse_rate": 0.5714285714285714
+      },
+      "challenger": {
+        "count": 5,
+        "hit_rate": 0.4,
+        "mean_ret20": -0.005759062825895904,
+        "median_ret20": -0.042761015845452575,
+        "mean_mae20": 0.10863269643235789,
+        "median_mae20": 0.09910854745673833,
+        "mean_mfe20": 0.05103183584559199,
+        "median_mfe20": 0.05306761991183749,
+        "flat_rate": 0.0,
+        "immediate_reverse_rate": 0.6
+      },
+      "delta": {
+        "hit_rate_delta": 0.04285714285714287,
+        "median_ret20_delta": -0.03126372635744557,
+        "mean_ret20_delta": -0.008682093942420688,
+        "bad_short_removal_count": 6,
+        "changed_top5_short_count": 8,
+        "changed_top10_short_count": 7,
+        "changed_rank_short_count": 30
+      },
+      "monthly_split": {
+        "baseline": {
+          "months_with_selection": 5,
+          "positive_months": 2,
+          "negative_months": 3,
+          "monthly_median_ret20": {
+            "20240329": 0.012095045579947108,
+            "20241031": 0.098005698005698,
+            "20250630": -0.015284974093264249,
+            "20251031": -0.042761015845452575,
+            "20251128": -0.029876555178178305
+          }
+        },
+        "challenger": {
+          "months_with_selection": 3,
+          "positive_months": 1,
+          "negative_months": 2,
+          "monthly_median_ret20": {
+            "20250630": 0.08169014084507042,
+            "20251031": -0.042761015845452575,
+            "20251128": -0.05516014234875445
+          }
+        }
+      },
+      "representative_examples": [
+        {
+          "ymd": 20251031,
+          "code": "7205",
+          "short_ret_20": -0.06552706552706553,
+          "marketRegime": "risk_on",
+          "marketRiskOff": false,
+          "trendDownStrict": true,
+          "monthlyRangeProb": 0.010310835949880442,
+          "monthlyRangePos": 0.0
+        },
+        {
+          "ymd": 20251128,
+          "code": "4443",
+          "short_ret_20": -0.05516014234875445,
+          "marketRegime": "risk_on",
+          "marketRiskOff": false,
+          "trendDownStrict": true,
+          "monthlyRangeProb": 0.0,
+          "monthlyRangePos": 0.0
+        },
+        {
+          "ymd": 20250630,
+          "code": "6036",
+          "short_ret_20": 0.08169014084507042,
+          "marketRegime": "risk_on",
+          "marketRiskOff": false,
+          "trendDownStrict": true,
+          "monthlyRangeProb": 0.19690333433648943,
+          "monthlyRangePos": 0.0
+        }
+      ],
+      "market_regime_counts": {
+        "risk_on": 7039
+      }
+    },
+    {
+      "regime": "weak_trend_noisy_regime",
+      "regime_label": "failure_regime",
+      "evidence_strength": "low",
+      "sample_count": 4152,
+      "baseline_count": 5,
+      "challenger_count": 1,
+      "baseline": {
+        "count": 5,
+        "hit_rate": 1.0,
+        "mean_ret20": 0.03930305973467052,
+        "median_ret20": 0.012978585334198572,
+        "mean_mae20": 0.04203054530191731,
+        "median_mae20": 0.05546813532651455,
+        "mean_mfe20": 0.06226973753886973,
+        "median_mfe20": 0.03783680489203134,
+        "flat_rate": 0.2,
+        "immediate_reverse_rate": 0.6
+      },
+      "challenger": {
+        "count": 1,
+        "hit_rate": 1.0,
+        "mean_ret20": 0.012588512981904013,
+        "median_ret20": 0.012588512981904013,
+        "mean_mae20": 0.05546813532651455,
+        "median_mae20": 0.05546813532651455,
+        "mean_mfe20": 0.013375295043273014,
+        "median_mfe20": 0.013375295043273014,
+        "flat_rate": 0.0,
+        "immediate_reverse_rate": 1.0
+      },
+      "delta": {
+        "hit_rate_delta": 0.0,
+        "median_ret20_delta": -0.00039007235229455983,
+        "mean_ret20_delta": -0.026714546752766508,
+        "bad_short_removal_count": 0,
+        "changed_top5_short_count": 4,
+        "changed_top10_short_count": 4,
+        "changed_rank_short_count": 3
+      },
+      "monthly_split": {
+        "baseline": {
+          "months_with_selection": 4,
+          "positive_months": 4,
+          "negative_months": 0,
+          "monthly_median_ret20": {
+            "20240229": 0.12617114303560276,
+            "20250131": 0.0011465698452130708,
+            "20250228": 0.012978585334198572,
+            "20250829": 0.028109500229169082
+          }
+        },
+        "challenger": {
+          "months_with_selection": 1,
+          "positive_months": 1,
+          "negative_months": 0,
+          "monthly_median_ret20": {
+            "20250829": 0.012588512981904013
+          }
+        }
+      },
+      "representative_examples": [
+        {
+          "ymd": 20250829,
+          "code": "2801",
+          "short_ret_20": 0.012588512981904013,
+          "marketRegime": "risk_off",
+          "marketRiskOff": true,
+          "trendDownStrict": false,
+          "monthlyRangeProb": 0.06479492137988979,
+          "monthlyRangePos": 0.0
+        }
+      ],
+      "market_regime_counts": {
+        "risk_off": 4152
+      }
+    },
+    {
+      "regime": "neutral_regime",
+      "regime_label": "neutral_regime",
+      "evidence_strength": "low",
+      "sample_count": 0,
+      "baseline_count": 0,
+      "challenger_count": 0,
+      "baseline": {
+        "count": 0,
+        "hit_rate": null,
+        "mean_ret20": null,
+        "median_ret20": null,
+        "mean_mae20": null,
+        "median_mae20": null,
+        "mean_mfe20": null,
+        "median_mfe20": null,
+        "flat_rate": null,
+        "immediate_reverse_rate": null
+      },
+      "challenger": {
+        "count": 0,
+        "hit_rate": null,
+        "mean_ret20": null,
+        "median_ret20": null,
+        "mean_mae20": null,
+        "median_mae20": null,
+        "mean_mfe20": null,
+        "median_mfe20": null,
+        "flat_rate": null,
+        "immediate_reverse_rate": null
+      },
+      "delta": {
+        "hit_rate_delta": null,
+        "median_ret20_delta": null,
+        "mean_ret20_delta": null,
+        "bad_short_removal_count": 0,
+        "changed_top5_short_count": 0,
+        "changed_top10_short_count": 0,
+        "changed_rank_short_count": 0
+      },
+      "monthly_split": {
+        "baseline": {
+          "months_with_selection": 0,
+          "positive_months": 0,
+          "negative_months": 0,
+          "monthly_median_ret20": {}
+        },
+        "challenger": {
+          "months_with_selection": 0,
+          "positive_months": 0,
+          "negative_months": 0,
+          "monthly_median_ret20": {}
+        }
+      },
+      "representative_examples": [],
+      "market_regime_counts": {}
+    }
+  ],
+  "regime_bucket_overview": [
+    {
+      "regime": "high_volatility_selloff_regime",
+      "sample_count": 1024,
+      "market_regime_counts": {
+        "risk_off": 1024
+      },
+      "marketRiskOff_counts": {
+        "true": 1024
+      },
+      "trendDownStrict_counts": {
+        "false": 761,
+        "true": 263
+      }
+    },
+    {
+      "regime": "broad_down_regime",
+      "sample_count": 953,
+      "market_regime_counts": {
+        "risk_off": 953
+      },
+      "marketRiskOff_counts": {
+        "true": 953
+      },
+      "trendDownStrict_counts": {
+        "true": 953
+      }
+    },
+    {
+      "regime": "broad_range_sideways_regime",
+      "sample_count": 3247,
+      "market_regime_counts": {
+        "risk_on": 1168,
+        "risk_off": 711,
+        "neutral": 1368
+      },
+      "marketRiskOff_counts": {
+        "false": 2536,
+        "true": 711
+      },
+      "trendDownStrict_counts": {
+        "false": 2900,
+        "true": 347
+      }
+    },
+    {
+      "regime": "broad_up_countertrend_regime",
+      "sample_count": 7039,
+      "market_regime_counts": {
+        "risk_on": 7039
+      },
+      "marketRiskOff_counts": {
+        "false": 7039
+      },
+      "trendDownStrict_counts": {
+        "true": 850,
+        "false": 6189
+      }
+    },
+    {
+      "regime": "weak_trend_noisy_regime",
+      "sample_count": 4152,
+      "market_regime_counts": {
+        "risk_off": 4152
+      },
+      "marketRiskOff_counts": {
+        "true": 4152
+      },
+      "trendDownStrict_counts": {
+        "false": 4152
+      }
+    },
+    {
+      "regime": "neutral_regime",
+      "sample_count": 0,
+      "market_regime_counts": {},
+      "marketRiskOff_counts": {},
+      "trendDownStrict_counts": {}
+    }
+  ],
+  "comparison_contract": {
+    "same_universe": true,
+    "same_period": true,
+    "same_top_k": true,
+    "same_regime": true,
+    "same_cost": true,
+    "same_artifact_detail_level": true,
+    "long_short_separated": true,
+    "long_logic_frozen": true,
+    "no_meemee_ui_change": true,
+    "wide_window": {
+      "start_ymd": 20240101,
+      "end_ymd": 20260226
+    },
+    "local_reference_window": {
+      "start_ymd": 20250101,
+      "end_ymd": 20260226
+    }
+  }
+}

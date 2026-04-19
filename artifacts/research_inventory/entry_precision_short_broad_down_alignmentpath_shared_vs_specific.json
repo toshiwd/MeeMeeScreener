@@ -1,0 +1,21 @@
+{
+  "schema_version": "tradex_entry_precision_short_broad_down_alignmentpath_shared_vs_specific_v1",
+  "session_id": "entry-short-broad-down-alignmentpath-20260419-141959",
+  "generated_at": "2026-04-19T14:19:59.554594+00:00",
+  "focused_regime": "broad_down_regime",
+  "shared_blockers": [
+    "monthly_alignment_failed"
+  ],
+  "name_specific_blockers": {
+    "4684": [
+      "close_pos_failed",
+      "midrange_off_failed"
+    ]
+  },
+  "stale_or_aggregate_reason_codes": [],
+  "shared_blocker_interpretation": {
+    "monthly_alignment_failed": "direct_single_gate",
+    "monthly_alignment_failed_is_not_aggregate": true,
+    "monthly_alignment_failed_is_not_fallback": true
+  }
+}

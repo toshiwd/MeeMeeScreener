@@ -1,0 +1,36 @@
+{
+  "schema_version": "tradex_entry_precision_short_trend_regime_decision_v1",
+  "session_id": "entry-short-trend-regime-20260419-113315",
+  "generated_at": "2026-04-19T11:39:33.192129+00:00",
+  "baseline_id": "current_rule_trade_gate_baseline",
+  "challenger_id": "short_trend_alignment_v1",
+  "frozen_from_session_id": "entry-short-trend-wide-20260419-103720",
+  "long_freeze_confirmed": true,
+  "overall_decision": "hold",
+  "decision_reasons": [
+    "support_regimes=broad_range_sideways_regime",
+    "failure_regimes=broad_down_regime,broad_up_countertrend_regime,weak_trend_noisy_regime",
+    "selected_2024_rows=2",
+    "selected_2025_rows=13",
+    "mixed_regime_response"
+  ],
+  "confirmed": [
+    "short_logic_frozen",
+    "long_logic_frozen",
+    "same_window_reference_retained",
+    "wider_history_used",
+    "regime_buckets_explicit",
+    "json_is_authoritative"
+  ],
+  "provisional": [
+    "trend_alignment_is_still_proxy_based",
+    "regime_support_is_sample_thin_in_some_buckets",
+    "2024_is_tiny_sample"
+  ],
+  "remaining_risks": [
+    "support_buckets_are_small_and_may_not_generalize",
+    "failure_buckets_are_not_uniform_across_years",
+    "trend_logic_is_still_proxy_based",
+    "future_passes_should_not_tune_without_more_context"
+  ]
+}

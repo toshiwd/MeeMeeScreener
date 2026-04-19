@@ -1,0 +1,458 @@
+{
+  "schema_version": "tradex_entry_precision_short_broad_down_failure_taxonomy_v1",
+  "session_id": "entry-short-broad-down-20260419-130000",
+  "generated_at": "2026-04-19T13:03:33.021828+00:00",
+  "baseline_id": "current_rule_trade_gate_baseline",
+  "challenger_id": "short_trend_alignment_v1",
+  "frozen_from_session_id": "entry-short-trend-regime-20260419-113315",
+  "focused_regime": "broad_down_regime",
+  "bucket_definitions": {
+    "overfiltered_valid_breakdown": "removed profitable broad-down shorts that should have remained enterable",
+    "removed_good_followthrough": "removed profitable shorts with clean early followthrough",
+    "kept_late_short_after_extension": "kept shorts that were already too extended at the close",
+    "kept_weak_continuation": "kept shorts with weak post-trigger continuation",
+    "removed_high_quality_short_too_early": "removed profitable shorts that still had mixed early path behavior",
+    "selected_noise_inside_downtrend": "kept shorts that remained noisy despite broad-down context",
+    "no_material_difference": "unchanged core names that do not explain the degradation"
+  },
+  "failure_buckets": {
+    "overfiltered_valid_breakdown": {
+      "count": 0,
+      "baseline": {
+        "count": 0,
+        "hit_rate": null,
+        "mean_ret20": null,
+        "median_ret20": null,
+        "mean_mae20": null,
+        "median_mae20": null,
+        "mean_mfe20": null,
+        "median_mfe20": null,
+        "flat_rate": null,
+        "immediate_reverse_rate": null
+      },
+      "challenger": {
+        "count": 0,
+        "hit_rate": null,
+        "mean_ret20": null,
+        "median_ret20": null,
+        "mean_mae20": null,
+        "median_mae20": null,
+        "mean_mfe20": null,
+        "median_mfe20": null,
+        "flat_rate": null,
+        "immediate_reverse_rate": null
+      },
+      "reason_code_summary": {},
+      "representative_examples": []
+    },
+    "removed_good_followthrough": {
+      "count": 2,
+      "baseline": {
+        "count": 2,
+        "hit_rate": 1.0,
+        "mean_ret20": 0.03207795628477993,
+        "median_ret20": 0.03207795628477993,
+        "mean_mae20": 0.018715529514701085,
+        "median_mae20": 0.018715529514701085,
+        "mean_mfe20": 0.052934899919385034,
+        "median_mfe20": 0.052934899919385034,
+        "flat_rate": 0.0,
+        "immediate_reverse_rate": 0.0
+      },
+      "challenger": {
+        "count": 0,
+        "hit_rate": null,
+        "mean_ret20": null,
+        "median_ret20": null,
+        "mean_mae20": null,
+        "median_mae20": null,
+        "mean_mfe20": null,
+        "median_mfe20": null,
+        "flat_rate": null,
+        "immediate_reverse_rate": null
+      },
+      "reason_code_summary": {
+        "daily_trigger_but_monthly_not_aligned": 2,
+        "removed_good_followthrough": 2,
+        "baseline_only": 2,
+        "range_middle_short_without_edge": 1
+      },
+      "representative_examples": [
+        {
+          "ymd": 20240229,
+          "code": "6750",
+          "short_ret_20": 0.03560274828232355,
+          "short_ret_5": 0.029356652092442224,
+          "short_ret_10": 0.03622735790131168,
+          "mae20": 0.021236727045596503,
+          "mfe20": 0.046845721424109935,
+          "entryScore": 0.5875553952015568,
+          "close_pos": 0.047619047619047616,
+          "dist_ma20_signed": -0.02952051888222104,
+          "dist_low20": 0.025624599615631016,
+          "monthlyRangeProb": 0.4544560082568348,
+          "monthlyRangePos": 0.6906187624750499,
+          "weeklyBreakoutDownProb": 0.7359683486921338,
+          "monthlyBreakoutDownProb": 0.30957424558627616,
+          "trendDownStrict": true,
+          "marketRiskOff": true,
+          "marketRegime": "risk_off",
+          "classification": "removed_good_followthrough",
+          "reason_codes": [
+            "daily_trigger_but_monthly_not_aligned",
+            "removed_good_followthrough",
+            "baseline_only"
+          ]
+        },
+        {
+          "ymd": 20241230,
+          "code": "4684",
+          "short_ret_20": 0.02855316428723631,
+          "short_ret_5": 0.032601747283187724,
+          "short_ret_10": 0.042829746430854465,
+          "mae20": 0.016194331983805668,
+          "mfe20": 0.05902407841466013,
+          "entryScore": 0.6244904483988124,
+          "close_pos": 0.28125,
+          "dist_ma20_signed": -0.02964012116575524,
+          "dist_low20": 0.011204481792717047,
+          "monthlyRangeProb": 0.627982473920689,
+          "monthlyRangePos": 0.6285425101214575,
+          "weeklyBreakoutDownProb": 0.758928845897053,
+          "monthlyBreakoutDownProb": 0.44136277846232075,
+          "trendDownStrict": true,
+          "marketRiskOff": true,
+          "marketRegime": "risk_off",
+          "classification": "removed_good_followthrough",
+          "reason_codes": [
+            "daily_trigger_but_monthly_not_aligned",
+            "range_middle_short_without_edge",
+            "removed_good_followthrough",
+            "baseline_only"
+          ]
+        }
+      ]
+    },
+    "kept_late_short_after_extension": {
+      "count": 2,
+      "baseline": {
+        "count": 2,
+        "hit_rate": 0.0,
+        "mean_ret20": -0.0643711998356917,
+        "median_ret20": -0.0643711998356917,
+        "mean_mae20": 0.10273975533467118,
+        "median_mae20": 0.10273975533467118,
+        "mean_mfe20": 0.037187351874117786,
+        "median_mfe20": 0.037187351874117786,
+        "flat_rate": 0.0,
+        "immediate_reverse_rate": 0.5
+      },
+      "challenger": {
+        "count": 2,
+        "hit_rate": 0.0,
+        "mean_ret20": -0.0643711998356917,
+        "median_ret20": -0.0643711998356917,
+        "mean_mae20": 0.10273975533467118,
+        "median_mae20": 0.10273975533467118,
+        "mean_mfe20": 0.037187351874117786,
+        "median_mfe20": 0.037187351874117786,
+        "flat_rate": 0.0,
+        "immediate_reverse_rate": 0.5
+      },
+      "reason_code_summary": {
+        "failed_followthrough_after_break": 1,
+        "kept_late_short_after_extension": 2,
+        "shared_core_name": 2
+      },
+      "representative_examples": [
+        {
+          "ymd": 20250131,
+          "code": "4072",
+          "short_ret_20": -0.08990744821507272,
+          "short_ret_5": -0.04098721903922433,
+          "short_ret_10": -0.07139709122961657,
+          "mae20": 0.127809607756721,
+          "mfe20": 0.00749228735125606,
+          "entryScore": 0.7757416468011606,
+          "close_pos": 0.046875,
+          "dist_ma20_signed": -0.043665177442468145,
+          "dist_low20": 0.0013239187996469948,
+          "monthlyRangeProb": 0.011931457188773031,
+          "monthlyRangePos": 0.0,
+          "weeklyBreakoutDownProb": 0.7836088273474686,
+          "monthlyBreakoutDownProb": 1.0,
+          "trendDownStrict": true,
+          "marketRiskOff": true,
+          "marketRegime": "risk_off",
+          "classification": "kept_late_short_after_extension",
+          "reason_codes": [
+            "failed_followthrough_after_break",
+            "kept_late_short_after_extension",
+            "shared_core_name"
+          ]
+        },
+        {
+          "ymd": 20250331,
+          "code": "7630",
+          "short_ret_20": -0.038834951456310676,
+          "short_ret_5": 0.040992448759439054,
+          "short_ret_10": -0.03559870550161812,
+          "mae20": 0.07766990291262135,
+          "mfe20": 0.0668824163969795,
+          "entryScore": 0.7652999325100415,
+          "close_pos": 0.0,
+          "dist_ma20_signed": -0.033468877072255265,
+          "dist_low20": 0.0,
+          "monthlyRangeProb": 0.18064167094142114,
+          "monthlyRangePos": 0.0,
+          "weeklyBreakoutDownProb": 0.7820660838968607,
+          "monthlyBreakoutDownProb": 0.8473388773388774,
+          "trendDownStrict": true,
+          "marketRiskOff": true,
+          "marketRegime": "risk_off",
+          "classification": "kept_late_short_after_extension",
+          "reason_codes": [
+            "kept_late_short_after_extension",
+            "shared_core_name"
+          ]
+        }
+      ]
+    },
+    "kept_weak_continuation": {
+      "count": 1,
+      "baseline": {
+        "count": 1,
+        "hit_rate": 0.0,
+        "mean_ret20": -0.10856269113149847,
+        "median_ret20": -0.10856269113149847,
+        "mean_mae20": 0.1198776758409786,
+        "median_mae20": 0.1198776758409786,
+        "mean_mfe20": 0.01529051987767584,
+        "median_mfe20": 0.01529051987767584,
+        "flat_rate": 0.0,
+        "immediate_reverse_rate": 1.0
+      },
+      "challenger": {
+        "count": 1,
+        "hit_rate": 0.0,
+        "mean_ret20": -0.10856269113149847,
+        "median_ret20": -0.10856269113149847,
+        "mean_mae20": 0.1198776758409786,
+        "median_mae20": 0.1198776758409786,
+        "mean_mfe20": 0.01529051987767584,
+        "median_mfe20": 0.01529051987767584,
+        "flat_rate": 0.0,
+        "immediate_reverse_rate": 1.0
+      },
+      "reason_code_summary": {
+        "failed_followthrough_after_break": 1,
+        "kept_weak_continuation": 1,
+        "shared_core_name": 1
+      },
+      "representative_examples": [
+        {
+          "ymd": 20240229,
+          "code": "6976",
+          "short_ret_20": -0.10856269113149847,
+          "short_ret_5": -0.011314984709480122,
+          "short_ret_10": -0.0061162079510703364,
+          "mae20": 0.1198776758409786,
+          "mfe20": 0.01529051987767584,
+          "entryScore": 0.7175612227209243,
+          "close_pos": 0.10126582278481013,
+          "dist_ma20_signed": -0.053038530037791604,
+          "dist_low20": 0.002452483139178341,
+          "monthlyRangeProb": 0.19191997753148832,
+          "monthlyRangePos": 0.0,
+          "weeklyBreakoutDownProb": 0.7462810860141456,
+          "monthlyBreakoutDownProb": 0.7892446043165467,
+          "trendDownStrict": true,
+          "marketRiskOff": true,
+          "marketRegime": "risk_off",
+          "classification": "kept_weak_continuation",
+          "reason_codes": [
+            "failed_followthrough_after_break",
+            "kept_weak_continuation",
+            "shared_core_name"
+          ]
+        }
+      ]
+    },
+    "removed_high_quality_short_too_early": {
+      "count": 1,
+      "baseline": {
+        "count": 1,
+        "hit_rate": 1.0,
+        "mean_ret20": 0.0033222591362126247,
+        "median_ret20": 0.0033222591362126247,
+        "mean_mae20": 0.09601328903654485,
+        "median_mae20": 0.09601328903654485,
+        "mean_mfe20": 0.011627906976744186,
+        "median_mfe20": 0.011627906976744186,
+        "flat_rate": 1.0,
+        "immediate_reverse_rate": 1.0
+      },
+      "challenger": {
+        "count": 0,
+        "hit_rate": null,
+        "mean_ret20": null,
+        "median_ret20": null,
+        "mean_mae20": null,
+        "median_mae20": null,
+        "mean_mfe20": null,
+        "median_mfe20": null,
+        "flat_rate": null,
+        "immediate_reverse_rate": null
+      },
+      "reason_code_summary": {
+        "daily_trigger_but_monthly_not_aligned": 1,
+        "failed_followthrough_after_break": 1,
+        "removed_high_quality_short_too_early": 1,
+        "baseline_only": 1
+      },
+      "representative_examples": [
+        {
+          "ymd": 20250930,
+          "code": "9861",
+          "short_ret_20": 0.0033222591362126247,
+          "short_ret_5": -0.006644518272425249,
+          "short_ret_10": -0.08737541528239202,
+          "mae20": 0.09601328903654485,
+          "mfe20": 0.011627906976744186,
+          "entryScore": 0.6528763552634642,
+          "close_pos": 0.10526315789473684,
+          "dist_ma20_signed": -0.02817015094035031,
+          "dist_low20": 0.0006648936170212671,
+          "monthlyRangeProb": 0.6907851609669997,
+          "monthlyRangePos": 0.3091364205256571,
+          "weeklyBreakoutDownProb": 0.7372800773761814,
+          "monthlyBreakoutDownProb": 0.6432088937844382,
+          "trendDownStrict": true,
+          "marketRiskOff": true,
+          "marketRegime": "risk_off",
+          "classification": "removed_high_quality_short_too_early",
+          "reason_codes": [
+            "daily_trigger_but_monthly_not_aligned",
+            "failed_followthrough_after_break",
+            "removed_high_quality_short_too_early",
+            "baseline_only"
+          ]
+        }
+      ]
+    },
+    "selected_noise_inside_downtrend": {
+      "count": 0,
+      "baseline": {
+        "count": 0,
+        "hit_rate": null,
+        "mean_ret20": null,
+        "median_ret20": null,
+        "mean_mae20": null,
+        "median_mae20": null,
+        "mean_mfe20": null,
+        "median_mfe20": null,
+        "flat_rate": null,
+        "immediate_reverse_rate": null
+      },
+      "challenger": {
+        "count": 0,
+        "hit_rate": null,
+        "mean_ret20": null,
+        "median_ret20": null,
+        "mean_mae20": null,
+        "median_mae20": null,
+        "mean_mfe20": null,
+        "median_mfe20": null,
+        "flat_rate": null,
+        "immediate_reverse_rate": null
+      },
+      "reason_code_summary": {},
+      "representative_examples": []
+    },
+    "no_material_difference": {
+      "count": 2,
+      "baseline": {
+        "count": 2,
+        "hit_rate": 1.0,
+        "mean_ret20": 0.0334376111523871,
+        "median_ret20": 0.0334376111523871,
+        "mean_mae20": 0.045773519269878084,
+        "median_mae20": 0.045773519269878084,
+        "mean_mfe20": 0.10112392433444814,
+        "median_mfe20": 0.10112392433444814,
+        "flat_rate": 0.0,
+        "immediate_reverse_rate": 0.5
+      },
+      "challenger": {
+        "count": 2,
+        "hit_rate": 1.0,
+        "mean_ret20": 0.0334376111523871,
+        "median_ret20": 0.0334376111523871,
+        "mean_mae20": 0.045773519269878084,
+        "median_mae20": 0.045773519269878084,
+        "mean_mfe20": 0.10112392433444814,
+        "median_mfe20": 0.10112392433444814,
+        "flat_rate": 0.0,
+        "immediate_reverse_rate": 0.5
+      },
+      "reason_code_summary": {
+        "failed_followthrough_after_break": 1,
+        "no_material_difference": 2,
+        "shared_core_name": 2
+      },
+      "representative_examples": [
+        {
+          "ymd": 20250228,
+          "code": "4208",
+          "short_ret_20": 0.022037328536091746,
+          "short_ret_5": -0.05621767483696874,
+          "short_ret_10": -0.03170676860805037,
+          "mae20": 0.05981560602653474,
+          "mfe20": 0.024735776928266246,
+          "entryScore": 0.7140761868422196,
+          "close_pos": 0.08333333333333333,
+          "dist_ma20_signed": -0.009212739648200421,
+          "dist_low20": 0.017387325554792943,
+          "monthlyRangeProb": 0.2104031859690086,
+          "monthlyRangePos": 0.0,
+          "weeklyBreakoutDownProb": 0.74578125,
+          "monthlyBreakoutDownProb": 0.8164356002624098,
+          "trendDownStrict": true,
+          "marketRiskOff": true,
+          "marketRegime": "risk_off",
+          "classification": "no_material_difference",
+          "reason_codes": [
+            "failed_followthrough_after_break",
+            "no_material_difference",
+            "shared_core_name"
+          ]
+        },
+        {
+          "ymd": 20250331,
+          "code": "4208",
+          "short_ret_20": 0.044837893768682455,
+          "short_ret_5": 0.1572775350655323,
+          "short_ret_10": 0.09404460795585191,
+          "mae20": 0.03173143251322143,
+          "mfe20": 0.17751207174063002,
+          "entryScore": 0.7386721203184037,
+          "close_pos": 0.11650485436893204,
+          "dist_ma20_signed": -0.05056106186962414,
+          "dist_low20": 0.002766889554991936,
+          "monthlyRangeProb": 0.20649924403656444,
+          "monthlyRangePos": 0.0,
+          "weeklyBreakoutDownProb": 0.7591922331846647,
+          "monthlyBreakoutDownProb": 0.7971306498763211,
+          "trendDownStrict": true,
+          "marketRiskOff": true,
+          "marketRegime": "risk_off",
+          "classification": "no_material_difference",
+          "reason_codes": [
+            "no_material_difference",
+            "shared_core_name"
+          ]
+        }
+      ]
+    }
+  }
+}

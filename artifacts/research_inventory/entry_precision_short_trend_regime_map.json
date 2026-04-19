@@ -1,0 +1,76 @@
+{
+  "schema_version": "tradex_entry_precision_short_trend_regime_map_v1",
+  "session_id": "entry-short-trend-regime-20260419-113315",
+  "generated_at": "2026-04-19T11:39:33.192129+00:00",
+  "baseline_id": "current_rule_trade_gate_baseline",
+  "challenger_id": "short_trend_alignment_v1",
+  "frozen_from_session_id": "entry-short-trend-wide-20260419-103720",
+  "regime_map": [
+    {
+      "regime": "high_volatility_selloff_regime",
+      "regime_label": "neutral_regime",
+      "evidence_strength": "medium",
+      "why": "mixed or sample-thin",
+      "baseline_count": 3,
+      "challenger_count": 3,
+      "hit_rate_delta": 0.0,
+      "median_ret20_delta": 0.0,
+      "mean_ret20_delta": 0.0
+    },
+    {
+      "regime": "broad_down_regime",
+      "regime_label": "failure_regime",
+      "evidence_strength": "medium",
+      "why": "challenger degraded hit rate or mean quality",
+      "baseline_count": 10,
+      "challenger_count": 5,
+      "hit_rate_delta": -0.09999999999999998,
+      "median_ret20_delta": -0.02107860529626165,
+      "mean_ret20_delta": -0.010144246007346223
+    },
+    {
+      "regime": "broad_range_sideways_regime",
+      "regime_label": "support_regime",
+      "evidence_strength": "low",
+      "why": "challenger clearly improved actionable short quality",
+      "baseline_count": 8,
+      "challenger_count": 1,
+      "hit_rate_delta": 0.375,
+      "median_ret20_delta": 0.029223524121133368,
+      "mean_ret20_delta": 0.03349695472940306
+    },
+    {
+      "regime": "broad_up_countertrend_regime",
+      "regime_label": "failure_regime",
+      "evidence_strength": "medium",
+      "why": "challenger degraded hit rate or mean quality",
+      "baseline_count": 14,
+      "challenger_count": 5,
+      "hit_rate_delta": 0.04285714285714287,
+      "median_ret20_delta": -0.03126372635744557,
+      "mean_ret20_delta": -0.008682093942420688
+    },
+    {
+      "regime": "weak_trend_noisy_regime",
+      "regime_label": "failure_regime",
+      "evidence_strength": "low",
+      "why": "challenger degraded hit rate or mean quality",
+      "baseline_count": 5,
+      "challenger_count": 1,
+      "hit_rate_delta": 0.0,
+      "median_ret20_delta": -0.00039007235229455983,
+      "mean_ret20_delta": -0.026714546752766508
+    },
+    {
+      "regime": "neutral_regime",
+      "regime_label": "neutral_regime",
+      "evidence_strength": "low",
+      "why": "mixed or sample-thin",
+      "baseline_count": 0,
+      "challenger_count": 0,
+      "hit_rate_delta": null,
+      "median_ret20_delta": null,
+      "mean_ret20_delta": null
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "schema_version": "tradex_entry_precision_short_broad_down_decision_v1",
+  "session_id": "entry-short-broad-down-20260419-130000",
+  "generated_at": "2026-04-19T13:03:33.021828+00:00",
+  "baseline_id": "current_rule_trade_gate_baseline",
+  "challenger_id": "short_trend_alignment_v1",
+  "frozen_from_session_id": "entry-short-trend-regime-20260419-113315",
+  "long_freeze_confirmed": true,
+  "overall_decision": "drop",
+  "decision_reasons": [
+    "broad_down_baseline_count=10",
+    "broad_down_challenger_count=5",
+    "broad_down_hit_rate_delta=-0.09999999999999998",
+    "broad_down_median_ret20_delta=-0.02107860529626165",
+    "broad_down_mean_ret20_delta=-0.010144246007346223",
+    "helpful_removals=2",
+    "harmful_removals=3",
+    "unchanged_core_count=5",
+    "challenger_degrades_broad_down_quality"
+  ],
+  "confirmed": [
+    "short_logic_frozen",
+    "long_logic_frozen",
+    "same_window_reference_retained",
+    "broad_down_only_reviewed",
+    "json_is_authoritative"
+  ],
+  "provisional": [
+    "trend_alignment_is_still_proxy_based",
+    "regime_labels_are_proxy_derived",
+    "helpful_removals_are_still_small_in_count"
+  ],
+  "remaining_risks": [
+    "broad_down_failure_is_clear_but_the_classifier_is_still_proxy_based",
+    "sample_size_is_small_relative_to_the_full_history",
+    "future_passes_should_not_reprice_the_gate_without_more_context"
+  ]
+}

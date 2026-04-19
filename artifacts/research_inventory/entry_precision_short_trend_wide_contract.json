@@ -1,0 +1,39 @@
+{
+  "schema_version": "tradex_entry_precision_short_trend_wide_contract_v1",
+  "frozen_from_session_id": "entry-short-trend-precision-20260419-100803",
+  "baseline_id": "current_rule_trade_gate_baseline",
+  "challenger_id": "short_trend_alignment_v1",
+  "frozen_baseline_definition": {
+    "source_artifact": "current_rule_trade_gate_baseline",
+    "role": "short-side baseline from the frozen trend lane"
+  },
+  "frozen_challenger_definition": {
+    "name": "short_trend_alignment_v1",
+    "target": "bad-pick removal",
+    "weekly_breakout_down_min": 0.66,
+    "monthly_breakout_down_min": 0.66,
+    "monthly_range_prob_max": 0.25,
+    "close_pos_max": 0.2,
+    "require_midrange_off": true
+  },
+  "comparison_contract": {
+    "same_universe": true,
+    "same_period": true,
+    "same_top_k": true,
+    "same_regime": true,
+    "same_cost": true,
+    "same_artifact_detail_level": true,
+    "long_short_separated": true,
+    "long_logic_frozen": true,
+    "no_meemee_ui_change": true,
+    "rolling_oos": true,
+    "local_reference_window": {
+      "start_ymd": 20250101,
+      "end_ymd": 20260226
+    },
+    "wide_window": {
+      "start_ymd": 20240101,
+      "end_ymd": 20260226
+    }
+  }
+}

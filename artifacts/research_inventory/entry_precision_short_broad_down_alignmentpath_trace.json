@@ -1,0 +1,432 @@
+{
+  "schema_version": "tradex_entry_precision_short_broad_down_alignmentpath_trace_v1",
+  "session_id": "entry-short-broad-down-alignmentpath-20260419-141959",
+  "generated_at": "2026-04-19T14:19:59.554594+00:00",
+  "baseline_id": "current_rule_trade_gate_baseline",
+  "challenger_id": "short_trend_alignment_v1",
+  "frozen_failure_session_id": "entry-short-broad-down-rangeprob-20260419-133254",
+  "long_freeze_confirmed": true,
+  "comparison_contract": {
+    "same_universe": true,
+    "same_period": true,
+    "same_top_k": true,
+    "same_regime": true,
+    "same_cost": true,
+    "same_artifact_detail_level": true,
+    "long_short_separated": true,
+    "long_logic_frozen": true,
+    "no_meemee_ui_change": true,
+    "rolling_oos": true,
+    "wide_window": {
+      "start_ymd": 20240101,
+      "end_ymd": 20260226
+    },
+    "local_reference_window": {
+      "start_ymd": 20250101,
+      "end_ymd": 20260226
+    }
+  },
+  "current_reference_variant": {
+    "name": "broad_down_monthly_rangeprob_off_v1",
+    "target": "bad-pick removal",
+    "weekly_breakout_down_min": 0.66,
+    "monthly_breakout_down_min": 0.66,
+    "monthly_range_prob_max": null,
+    "close_pos_max": 0.2,
+    "require_midrange_off": true
+  },
+  "rule_path_definition": [
+    {
+      "reason_code": "monthly_alignment_failed",
+      "direct_gate": true,
+      "aggregate": false,
+      "fallback": false,
+      "source_function": "monthly_fix._gate_blockers",
+      "source_condition": "monthlyBreakoutDownProb < monthly_breakout_down_min",
+      "current_threshold": 0.66,
+      "prior_ablation_tested": true,
+      "notes": [
+        "This label is emitted directly from the monthly breakout threshold check.",
+        "It is not an umbrella label for the range-probability or close-position gates."
+      ]
+    },
+    {
+      "reason_code": "monthly_range_prob_failed",
+      "direct_gate": true,
+      "aggregate": false,
+      "fallback": false,
+      "source_function": "monthly_fix._gate_blockers",
+      "source_condition": "monthlyRangeProb > monthly_range_prob_max",
+      "current_threshold": null,
+      "prior_ablation_tested": true
+    },
+    {
+      "reason_code": "close_pos_failed",
+      "direct_gate": true,
+      "aggregate": false,
+      "fallback": false,
+      "source_function": "monthly_fix._gate_blockers",
+      "source_condition": "close_pos > close_pos_max",
+      "current_threshold": 0.2,
+      "prior_ablation_tested": false
+    },
+    {
+      "reason_code": "midrange_off_failed",
+      "direct_gate": true,
+      "aggregate": false,
+      "fallback": false,
+      "source_function": "monthly_fix._gate_blockers",
+      "source_condition": "0.35 <= monthlyRangePos <= 0.65",
+      "current_threshold": "0.35..0.65",
+      "prior_ablation_tested": false
+    }
+  ],
+  "exact_blocker_path_summary": {
+    "monthly_alignment_failed_is_direct_gate": true,
+    "monthly_alignment_failed_is_aggregate": false,
+    "monthly_alignment_failed_is_fallback": false,
+    "shared_blocker": "monthly_alignment_failed",
+    "shared_blocker_rule_path": "monthlyBreakoutDownProb < monthly_breakout_down_min"
+  },
+  "name_audit_index": {
+    "20240229::6750": {
+      "ymd": 20240229,
+      "code": "6750",
+      "baseline_selected": true,
+      "reference_selected": false,
+      "feature_values": {
+        "weeklyBreakoutDownProb": 0.7359683486921338,
+        "monthlyBreakoutDownProb": 0.30957424558627616,
+        "monthlyRangeProb": 0.4544560082568348,
+        "monthlyRangePos": 0.6906187624750499,
+        "close_pos": 0.047619047619047616,
+        "dist_ma20_signed": -0.02952051888222104,
+        "dist_low20": 0.025624599615631016,
+        "trendDownStrict": true
+      },
+      "rule_path": [
+        {
+          "order": 1,
+          "gate": "selected_by_baseline",
+          "value": true,
+          "threshold": null,
+          "passed": true,
+          "failed": false,
+          "reason_code": null,
+          "source": "trend.TrendVariant.matches / monthly_fix._gate_blockers"
+        },
+        {
+          "order": 2,
+          "gate": "weekly_alignment_failed",
+          "feature": "weeklyBreakoutDownProb",
+          "value": 0.7359683486921338,
+          "threshold": 0.66,
+          "active": true,
+          "passed": true,
+          "failed": false,
+          "reason_code": null,
+          "source": "monthly_fix._gate_blockers"
+        },
+        {
+          "order": 3,
+          "gate": "monthly_alignment_failed",
+          "feature": "monthlyBreakoutDownProb",
+          "value": 0.30957424558627616,
+          "threshold": 0.66,
+          "active": true,
+          "passed": false,
+          "failed": true,
+          "reason_code": "monthly_alignment_failed",
+          "source": "monthly_fix._gate_blockers"
+        },
+        {
+          "order": 4,
+          "gate": "monthly_range_prob_failed",
+          "feature": "monthlyRangeProb",
+          "value": 0.4544560082568348,
+          "threshold": null,
+          "active": false,
+          "passed": true,
+          "failed": false,
+          "reason_code": null,
+          "source": "monthly_fix._gate_blockers"
+        },
+        {
+          "order": 5,
+          "gate": "close_pos_failed",
+          "feature": "close_pos",
+          "value": 0.047619047619047616,
+          "threshold": 0.2,
+          "active": true,
+          "passed": true,
+          "failed": false,
+          "reason_code": null,
+          "source": "monthly_fix._gate_blockers"
+        },
+        {
+          "order": 6,
+          "gate": "midrange_off_failed",
+          "feature": "monthlyRangePos",
+          "value": 0.6906187624750499,
+          "threshold": "0.35..0.65",
+          "active": true,
+          "passed": true,
+          "failed": false,
+          "reason_code": null,
+          "source": "monthly_fix._gate_blockers"
+        }
+      ],
+      "first_failing_gate": "monthly_alignment_failed",
+      "failed_gates": [
+        "monthly_alignment_failed"
+      ],
+      "emitted_reason_codes": [
+        "monthly_alignment_failed"
+      ],
+      "prior_ablation_status": {
+        "monthly_alignment_failed": "tested",
+        "monthly_range_prob_failed": "tested",
+        "close_pos_failed": "not_tested",
+        "midrange_off_failed": "not_tested"
+      }
+    },
+    "20241230::4684": {
+      "ymd": 20241230,
+      "code": "4684",
+      "baseline_selected": true,
+      "reference_selected": false,
+      "feature_values": {
+        "weeklyBreakoutDownProb": 0.758928845897053,
+        "monthlyBreakoutDownProb": 0.44136277846232075,
+        "monthlyRangeProb": 0.627982473920689,
+        "monthlyRangePos": 0.6285425101214575,
+        "close_pos": 0.28125,
+        "dist_ma20_signed": -0.02964012116575524,
+        "dist_low20": 0.011204481792717047,
+        "trendDownStrict": true
+      },
+      "rule_path": [
+        {
+          "order": 1,
+          "gate": "selected_by_baseline",
+          "value": true,
+          "threshold": null,
+          "passed": true,
+          "failed": false,
+          "reason_code": null,
+          "source": "trend.TrendVariant.matches / monthly_fix._gate_blockers"
+        },
+        {
+          "order": 2,
+          "gate": "weekly_alignment_failed",
+          "feature": "weeklyBreakoutDownProb",
+          "value": 0.758928845897053,
+          "threshold": 0.66,
+          "active": true,
+          "passed": true,
+          "failed": false,
+          "reason_code": null,
+          "source": "monthly_fix._gate_blockers"
+        },
+        {
+          "order": 3,
+          "gate": "monthly_alignment_failed",
+          "feature": "monthlyBreakoutDownProb",
+          "value": 0.44136277846232075,
+          "threshold": 0.66,
+          "active": true,
+          "passed": false,
+          "failed": true,
+          "reason_code": "monthly_alignment_failed",
+          "source": "monthly_fix._gate_blockers"
+        },
+        {
+          "order": 4,
+          "gate": "monthly_range_prob_failed",
+          "feature": "monthlyRangeProb",
+          "value": 0.627982473920689,
+          "threshold": null,
+          "active": false,
+          "passed": true,
+          "failed": false,
+          "reason_code": null,
+          "source": "monthly_fix._gate_blockers"
+        },
+        {
+          "order": 5,
+          "gate": "close_pos_failed",
+          "feature": "close_pos",
+          "value": 0.28125,
+          "threshold": 0.2,
+          "active": true,
+          "passed": false,
+          "failed": true,
+          "reason_code": "close_pos_failed",
+          "source": "monthly_fix._gate_blockers"
+        },
+        {
+          "order": 6,
+          "gate": "midrange_off_failed",
+          "feature": "monthlyRangePos",
+          "value": 0.6285425101214575,
+          "threshold": "0.35..0.65",
+          "active": true,
+          "passed": false,
+          "failed": true,
+          "reason_code": "midrange_off_failed",
+          "source": "monthly_fix._gate_blockers"
+        }
+      ],
+      "first_failing_gate": "monthly_alignment_failed",
+      "failed_gates": [
+        "monthly_alignment_failed",
+        "close_pos_failed",
+        "midrange_off_failed"
+      ],
+      "emitted_reason_codes": [
+        "monthly_alignment_failed",
+        "close_pos_failed",
+        "midrange_off_failed"
+      ],
+      "prior_ablation_status": {
+        "monthly_alignment_failed": "tested",
+        "monthly_range_prob_failed": "tested",
+        "close_pos_failed": "not_tested",
+        "midrange_off_failed": "not_tested"
+      }
+    },
+    "20250930::9861": {
+      "ymd": 20250930,
+      "code": "9861",
+      "baseline_selected": true,
+      "reference_selected": false,
+      "feature_values": {
+        "weeklyBreakoutDownProb": 0.7372800773761814,
+        "monthlyBreakoutDownProb": 0.6432088937844382,
+        "monthlyRangeProb": 0.6907851609669997,
+        "monthlyRangePos": 0.3091364205256571,
+        "close_pos": 0.10526315789473684,
+        "dist_ma20_signed": -0.02817015094035031,
+        "dist_low20": 0.0006648936170212671,
+        "trendDownStrict": true
+      },
+      "rule_path": [
+        {
+          "order": 1,
+          "gate": "selected_by_baseline",
+          "value": true,
+          "threshold": null,
+          "passed": true,
+          "failed": false,
+          "reason_code": null,
+          "source": "trend.TrendVariant.matches / monthly_fix._gate_blockers"
+        },
+        {
+          "order": 2,
+          "gate": "weekly_alignment_failed",
+          "feature": "weeklyBreakoutDownProb",
+          "value": 0.7372800773761814,
+          "threshold": 0.66,
+          "active": true,
+          "passed": true,
+          "failed": false,
+          "reason_code": null,
+          "source": "monthly_fix._gate_blockers"
+        },
+        {
+          "order": 3,
+          "gate": "monthly_alignment_failed",
+          "feature": "monthlyBreakoutDownProb",
+          "value": 0.6432088937844382,
+          "threshold": 0.66,
+          "active": true,
+          "passed": false,
+          "failed": true,
+          "reason_code": "monthly_alignment_failed",
+          "source": "monthly_fix._gate_blockers"
+        },
+        {
+          "order": 4,
+          "gate": "monthly_range_prob_failed",
+          "feature": "monthlyRangeProb",
+          "value": 0.6907851609669997,
+          "threshold": null,
+          "active": false,
+          "passed": true,
+          "failed": false,
+          "reason_code": null,
+          "source": "monthly_fix._gate_blockers"
+        },
+        {
+          "order": 5,
+          "gate": "close_pos_failed",
+          "feature": "close_pos",
+          "value": 0.10526315789473684,
+          "threshold": 0.2,
+          "active": true,
+          "passed": true,
+          "failed": false,
+          "reason_code": null,
+          "source": "monthly_fix._gate_blockers"
+        },
+        {
+          "order": 6,
+          "gate": "midrange_off_failed",
+          "feature": "monthlyRangePos",
+          "value": 0.3091364205256571,
+          "threshold": "0.35..0.65",
+          "active": true,
+          "passed": true,
+          "failed": false,
+          "reason_code": null,
+          "source": "monthly_fix._gate_blockers"
+        }
+      ],
+      "first_failing_gate": "monthly_alignment_failed",
+      "failed_gates": [
+        "monthly_alignment_failed"
+      ],
+      "emitted_reason_codes": [
+        "monthly_alignment_failed"
+      ],
+      "prior_ablation_status": {
+        "monthly_alignment_failed": "tested",
+        "monthly_range_prob_failed": "tested",
+        "close_pos_failed": "not_tested",
+        "midrange_off_failed": "not_tested"
+      }
+    }
+  },
+  "branching": {
+    "changed_top5_short_count": 6,
+    "changed_top10_short_count": 4,
+    "changed_rank_short_count": 23,
+    "selection_divergence_reason": "reference_refinement_preserves_shared_monthly_alignment_blocker"
+  },
+  "broad_down_metrics": {
+    "baseline": {
+      "count": 10,
+      "hit_rate": 0.5,
+      "mean_ret20": -0.02394172769227531,
+      "median_ret20": -0.017756346160049025,
+      "mean_mae20": 0.0755805944130606,
+      "median_mae20": 0.07923486984031394,
+      "mean_mfe20": 0.04315630935666951,
+      "median_mfe20": 0.020019388158073137,
+      "flat_rate": 0.1,
+      "immediate_reverse_rate": 0.5
+    },
+    "reference": {
+      "count": 6,
+      "hit_rate": 0.3333333333333333,
+      "mean_ret20": -0.04370178173598598,
+      "median_ret20": -0.0643711998356917,
+      "mean_mae20": 0.09026029321610873,
+      "median_mae20": 0.09877378937679998,
+      "mean_mfe20": 0.04979373122721681,
+      "median_mfe20": 0.020013148402971043,
+      "flat_rate": 0.0,
+      "immediate_reverse_rate": 0.6666666666666666
+    }
+  }
+}
