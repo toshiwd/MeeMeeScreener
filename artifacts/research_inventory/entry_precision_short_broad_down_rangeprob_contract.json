@@ -1,0 +1,57 @@
+{
+  "schema_version": "tradex_entry_precision_short_broad_down_rangeprob_contract_v1",
+  "session_id": "entry-short-broad-down-rangeprob-20260419-133254",
+  "generated_at": "2026-04-19T13:36:42.889035+00:00",
+  "baseline_id": "current_rule_trade_gate_baseline",
+  "challenger_id": "short_trend_alignment_v1",
+  "frozen_failure_session_id": "entry-short-broad-down-monthly-fix-20260419-131348",
+  "frozen_challenger_definition": {
+    "name": "short_trend_alignment_v1",
+    "target": "bad-pick removal",
+    "weekly_breakout_down_min": 0.66,
+    "monthly_breakout_down_min": 0.66,
+    "monthly_range_prob_max": 0.25,
+    "close_pos_max": 0.2,
+    "require_midrange_off": true
+  },
+  "monthly_rangeprob_variants": [
+    {
+      "name": "broad_down_monthly_rangeprob_relaxed_v1",
+      "target": "bad-pick removal",
+      "weekly_breakout_down_min": 0.66,
+      "monthly_breakout_down_min": 0.66,
+      "monthly_range_prob_max": 0.35,
+      "close_pos_max": 0.2,
+      "require_midrange_off": true
+    },
+    {
+      "name": "broad_down_monthly_rangeprob_off_v1",
+      "target": "bad-pick removal",
+      "weekly_breakout_down_min": 0.66,
+      "monthly_breakout_down_min": 0.66,
+      "monthly_range_prob_max": null,
+      "close_pos_max": 0.2,
+      "require_midrange_off": true
+    }
+  ],
+  "comparison_contract": {
+    "same_universe": true,
+    "same_period": true,
+    "same_top_k": true,
+    "same_regime": true,
+    "same_cost": true,
+    "same_artifact_detail_level": true,
+    "long_short_separated": true,
+    "long_logic_frozen": true,
+    "no_meemee_ui_change": true,
+    "rolling_oos": true,
+    "wide_window": {
+      "start_ymd": 20240101,
+      "end_ymd": 20260226
+    },
+    "local_reference_window": {
+      "start_ymd": 20250101,
+      "end_ymd": 20260226
+    }
+  }
+}

@@ -1,0 +1,228 @@
+{
+  "session_id": "entry-precision-20260419-090221",
+  "baseline_id": "current_rule_trade_gate_baseline",
+  "challenger_id": "precision_first_stricter_gate_v1",
+  "round_trip_cost": 0.0,
+  "buckets": {
+    "bad_pick": {
+      "count": 138,
+      "by_side": {
+        "up": 121,
+        "down": 17
+      },
+      "by_month": {
+        "20251128": 23,
+        "20250930": 20,
+        "20250131": 17,
+        "20251230": 15,
+        "20251031": 14,
+        "20250430": 13,
+        "20250630": 10,
+        "20250731": 10,
+        "20250331": 8,
+        "20250829": 4,
+        "20250530": 3,
+        "20250228": 1
+      },
+      "by_regime": {
+        "risk_on": 70,
+        "risk_off": 65,
+        "neutral": 3
+      },
+      "representative_examples": [
+        {
+          "asof_ymd": 20251031,
+          "code": "2802",
+          "side": "up",
+          "ret20": -0.1957466270294992,
+          "mae20": 0.19666133089412302,
+          "mfe20": 0.03910359021266865,
+          "entry_score": 0.7846633200781102,
+          "reason_codes": [
+            "false_positive",
+            "strong_adverse_excursion",
+            "high_score_no_followthrough",
+            "breakout_blur",
+            "range_middle"
+          ],
+          "trade_entry_class": "box_upper_breakout",
+          "setup_type": "breakout"
+        },
+        {
+          "asof_ymd": 20250731,
+          "code": "4689",
+          "side": "up",
+          "ret20": -0.1553152823233388,
+          "mae20": 0.180540507548564,
+          "mfe20": 0.016036080025338656,
+          "entry_score": 0.7598016591565628,
+          "reason_codes": [
+            "false_positive",
+            "strong_adverse_excursion",
+            "high_score_no_followthrough",
+            "breakout_blur",
+            "range_middle"
+          ],
+          "trade_entry_class": "box_upper_breakout",
+          "setup_type": "breakout"
+        },
+        {
+          "asof_ymd": 20251031,
+          "code": "7004",
+          "side": "up",
+          "ret20": -0.15109170305676856,
+          "mae20": 0.20611353711790392,
+          "mfe20": 0.013100436681222707,
+          "entry_score": 0.7049584993014163,
+          "reason_codes": [
+            "false_positive",
+            "strong_adverse_excursion",
+            "high_score_no_followthrough",
+            "breakout_blur",
+            "range_middle"
+          ],
+          "trade_entry_class": "box_upper_breakout",
+          "setup_type": "breakout"
+        },
+        {
+          "asof_ymd": 20250331,
+          "code": "8750",
+          "side": "up",
+          "ret20": -0.12144746300612275,
+          "mae20": 0.28031771896375735,
+          "mfe20": 0.030450132391879964,
+          "entry_score": 0.6094639480610123,
+          "reason_codes": [
+            "false_positive",
+            "strong_adverse_excursion",
+            "high_score_no_followthrough",
+            "range_middle"
+          ],
+          "trade_entry_class": "box_upper_breakout",
+          "setup_type": "breakout"
+        },
+        {
+          "asof_ymd": 20250430,
+          "code": "2579",
+          "side": "up",
+          "ret20": -0.11102817689867517,
+          "mae20": 0.12968837469677177,
+          "mfe20": 0.0,
+          "entry_score": 0.834330478733093,
+          "reason_codes": [
+            "false_positive",
+            "immediate_reverse",
+            "strong_adverse_excursion",
+            "high_score_no_followthrough",
+            "breakout_blur",
+            "range_middle"
+          ],
+          "trade_entry_class": "box_upper_breakout",
+          "setup_type": "breakout"
+        }
+      ]
+    },
+    "false_neutral": {
+      "count": 4795,
+      "by_side": {
+        "up": 2741,
+        "down": 2054
+      },
+      "by_month": {
+        "20250630": 463,
+        "20250530": 461,
+        "20250731": 424,
+        "20251230": 420,
+        "20250930": 401,
+        "20250430": 400,
+        "20250829": 398,
+        "20251031": 388,
+        "20250131": 384,
+        "20251128": 381,
+        "20250228": 358,
+        "20250331": 317
+      },
+      "by_regime": {
+        "risk_off": 2278,
+        "risk_on": 2056,
+        "neutral": 461
+      },
+      "representative_examples": [
+        {
+          "asof_ymd": 20250731,
+          "code": "2700",
+          "side": "up",
+          "ret20": 1.3273990447242725,
+          "mae20": 0.014329135909683021,
+          "mfe20": 1.8658271819366044,
+          "entry_score": 0.2585574666986526,
+          "reason_codes": [
+            "early_confirmation"
+          ],
+          "trade_entry_class": null,
+          "setup_type": "reject"
+        },
+        {
+          "asof_ymd": 20251230,
+          "code": "6330",
+          "side": "up",
+          "ret20": 0.948051948051948,
+          "mae20": 0.0,
+          "mfe20": 1.844155844155844,
+          "entry_score": 0.4127499306473075,
+          "reason_codes": [
+            "breakout_blur",
+            "risk_watch:地合いが弱く買いは厳選",
+            "early_confirmation"
+          ],
+          "trade_entry_class": null,
+          "setup_type": "reject"
+        },
+        {
+          "asof_ymd": 20250630,
+          "code": "4316",
+          "side": "up",
+          "ret20": 0.9386666666666668,
+          "mae20": 0.018666666666666668,
+          "mfe20": 1.3253333333333333,
+          "entry_score": 0.38622987869293646,
+          "reason_codes": [
+            "range_middle",
+            "early_confirmation"
+          ],
+          "trade_entry_class": null,
+          "setup_type": "reject"
+        },
+        {
+          "asof_ymd": 20250530,
+          "code": "5597",
+          "side": "up",
+          "ret20": 0.8670103092783505,
+          "mae20": 0.0,
+          "mfe20": 1.5402061855670104,
+          "entry_score": 0.17270936022231204,
+          "reason_codes": [
+            "early_confirmation"
+          ],
+          "trade_entry_class": null,
+          "setup_type": "reject"
+        },
+        {
+          "asof_ymd": 20250630,
+          "code": "4889",
+          "side": "up",
+          "ret20": 0.6767788196359625,
+          "mae20": 0.020959735245449532,
+          "mfe20": 0.8063982349696636,
+          "entry_score": 0.4455200428718733,
+          "reason_codes": [
+            "breakout_blur",
+            "early_confirmation"
+          ],
+          "trade_entry_class": null,
+          "setup_type": "reject"
+        }
+      ]
+    }
+  }
+}

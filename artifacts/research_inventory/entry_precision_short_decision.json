@@ -1,0 +1,183 @@
+{
+  "schema_version": "tradex_entry_precision_short_decision_v1",
+  "session_id": "entry-short-precision-20260419-095312",
+  "generated_at": "2026-04-19T09:54:49.340484+00:00",
+  "baseline_id": "current_rule_trade_gate_baseline",
+  "long_freeze_confirmed": true,
+  "overall_decision": "keep",
+  "decisions": {
+    "short_cleanup_followthrough_v1": {
+      "decision": "keep",
+      "decision_reasons": [
+        "top5_branching_observed",
+        "bad_short_removal_visible",
+        "coverage_reduced",
+        "hit_rate_improved",
+        "median_ret20_improved",
+        "mean_ret20_improved",
+        "actionable_short_quality_improved"
+      ],
+      "baseline_id": "current_rule_trade_gate_baseline",
+      "challenger_id": "short_cleanup_followthrough_v1",
+      "metrics": {
+        "baseline": {
+          "count": 27,
+          "hit_rate": 0.4444444444444444,
+          "mean_ret20": -0.009497575310862419,
+          "median_ret20": -0.007709604882749759,
+          "mean_mae20": 0.06566610156164114,
+          "median_mae20": 0.05546813532651455,
+          "mean_mfe20": 0.055033453408636204,
+          "median_mfe20": 0.024735776928266246,
+          "flat_rate": 0.1111111111111111,
+          "immediate_reverse_rate": 0.5925925925925926
+        },
+        "challenger": {
+          "count": 17,
+          "hit_rate": 0.5882352941176471,
+          "mean_ret20": 0.002114094949289557,
+          "median_ret20": 0.010251630941286114,
+          "mean_mae20": 0.0687831387728123,
+          "median_mae20": 0.05790465930514409,
+          "mean_mfe20": 0.07569721921359708,
+          "median_mfe20": 0.05306761991183749,
+          "flat_rate": 0.11764705882352941,
+          "immediate_reverse_rate": 0.5294117647058824
+        },
+        "delta": {
+          "selected_count_delta": -10,
+          "hit_rate_delta": 0.14379084967320266,
+          "median_ret20_delta": 0.017961235824035873,
+          "mean_ret20_delta": 0.011611670260151976,
+          "changed_top5_short_count": 10,
+          "changed_top10_short_count": 10,
+          "changed_rank_short_count": 1,
+          "bad_short_removal_count": 8,
+          "false_neutral_short_recovery_count": 0
+        }
+      }
+    },
+    "short_cleanup_late_extension_v1": {
+      "decision": "hold",
+      "decision_reasons": [
+        "top5_branching_observed",
+        "bad_short_removal_visible",
+        "coverage_reduced",
+        "hit_rate_improved",
+        "median_ret20_improved",
+        "mean_ret20_improved",
+        "sample_thin",
+        "sample_or_stability_insufficient"
+      ],
+      "baseline_id": "current_rule_trade_gate_baseline",
+      "challenger_id": "short_cleanup_late_extension_v1",
+      "metrics": {
+        "baseline": {
+          "count": 27,
+          "hit_rate": 0.4444444444444444,
+          "mean_ret20": -0.009497575310862419,
+          "median_ret20": -0.007709604882749759,
+          "mean_mae20": 0.06566610156164114,
+          "median_mae20": 0.05546813532651455,
+          "mean_mfe20": 0.055033453408636204,
+          "median_mfe20": 0.024735776928266246,
+          "flat_rate": 0.1111111111111111,
+          "immediate_reverse_rate": 0.5925925925925926
+        },
+        "challenger": {
+          "count": 10,
+          "hit_rate": 0.5,
+          "mean_ret20": 0.0010715040697275471,
+          "median_ret20": 0.0032618347093656833,
+          "mean_mae20": 0.057746655776156466,
+          "median_mae20": 0.031498470599042476,
+          "mean_mfe20": 0.10674166958210127,
+          "median_mfe20": 0.09048346171961652,
+          "flat_rate": 0.1,
+          "immediate_reverse_rate": 0.3
+        },
+        "delta": {
+          "selected_count_delta": -17,
+          "hit_rate_delta": 0.05555555555555558,
+          "median_ret20_delta": 0.010971439592115443,
+          "mean_ret20_delta": 0.010569079380589966,
+          "changed_top5_short_count": 17,
+          "changed_top10_short_count": 17,
+          "changed_rank_short_count": 1,
+          "bad_short_removal_count": 10,
+          "false_neutral_short_recovery_count": 0
+        }
+      }
+    },
+    "short_cleanup_bottom_risk_v1": {
+      "decision": "keep",
+      "decision_reasons": [
+        "top5_branching_observed",
+        "bad_short_removal_visible",
+        "coverage_reduced",
+        "hit_rate_improved",
+        "median_ret20_improved",
+        "mean_ret20_improved",
+        "actionable_short_quality_improved"
+      ],
+      "baseline_id": "current_rule_trade_gate_baseline",
+      "challenger_id": "short_cleanup_bottom_risk_v1",
+      "metrics": {
+        "baseline": {
+          "count": 27,
+          "hit_rate": 0.4444444444444444,
+          "mean_ret20": -0.009497575310862419,
+          "median_ret20": -0.007709604882749759,
+          "mean_mae20": 0.06566610156164114,
+          "median_mae20": 0.05546813532651455,
+          "mean_mfe20": 0.055033453408636204,
+          "median_mfe20": 0.024735776928266246,
+          "flat_rate": 0.1111111111111111,
+          "immediate_reverse_rate": 0.5925925925925926
+        },
+        "challenger": {
+          "count": 14,
+          "hit_rate": 0.5,
+          "mean_ret20": -0.0044157002621589255,
+          "median_ret20": 0.00282933146684198,
+          "mean_mae20": 0.07378190332251534,
+          "median_mae20": 0.05668639731582932,
+          "mean_mfe20": 0.07325421186676948,
+          "median_mfe20": 0.03935432277643157,
+          "flat_rate": 0.07142857142857142,
+          "immediate_reverse_rate": 0.5714285714285714
+        },
+        "delta": {
+          "selected_count_delta": -13,
+          "hit_rate_delta": 0.05555555555555558,
+          "median_ret20_delta": 0.01053893634959174,
+          "mean_ret20_delta": 0.005081875048703493,
+          "changed_top5_short_count": 13,
+          "changed_top10_short_count": 13,
+          "changed_rank_short_count": 1,
+          "bad_short_removal_count": 8,
+          "false_neutral_short_recovery_count": 0
+        }
+      }
+    }
+  },
+  "confirmed": [
+    "short_side_only_changed",
+    "long_side_frozen",
+    "same_window_fixed",
+    "same_universe_fixed",
+    "same_top_k_fixed",
+    "json_is_authoritative"
+  ],
+  "provisional": [
+    "borrow_cost_is_proxy_only",
+    "event_risk_is_proxy_based",
+    "short_false_neutral_recovery_count_is_subset_based"
+  ],
+  "remaining_risks": [
+    "baseline_short_sample_is_small",
+    "borrow_or_cost_has_no_direct_table",
+    "event_risk_can_be_sparse_in_this_window",
+    "monthly_stability_is_only_partially_observed"
+  ]
+}

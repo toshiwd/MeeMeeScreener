@@ -1,0 +1,471 @@
+{
+  "session_id": "entry-short-precision-20260419-095312",
+  "baseline_id": "current_rule_trade_gate_baseline",
+  "window": {
+    "start_ymd": 20250101,
+    "end_ymd": 20260226
+  },
+  "taxonomy": {
+    "late_short_already_extended": {
+      "count": 380,
+      "median_ret20": 0.015365734089982161,
+      "hit_rate": 0.6105263157894737,
+      "reason_code_summary": {
+        "late_short_already_extended": 380,
+        "trend_misaligned_short": 212,
+        "short_false_neutral_recoverable": 59,
+        "range_middle_false_short": 96
+      },
+      "representative_examples": [
+        {
+          "ymd": 20250228,
+          "code": "7776",
+          "short_ret_20": -0.44559585492227977,
+          "entryScore": 0.3907023592140161,
+          "close_pos": 0.2222222222222222,
+          "dist_low20": 0.05753424657534256,
+          "reason_codes": [
+            "late_short_already_extended"
+          ]
+        },
+        {
+          "ymd": 20250228,
+          "code": "3692",
+          "short_ret_20": -0.39780577001219014,
+          "entryScore": 0.38801971209707,
+          "close_pos": 0.14606741573033707,
+          "dist_low20": 0.025416666666666643,
+          "reason_codes": [
+            "late_short_already_extended",
+            "trend_misaligned_short"
+          ]
+        },
+        {
+          "ymd": 20250131,
+          "code": "4165",
+          "short_ret_20": -0.37575757575757573,
+          "entryScore": 0.6494160348182713,
+          "close_pos": 0.034482758620689655,
+          "dist_low20": 0.044303797468354444,
+          "reason_codes": [
+            "late_short_already_extended"
+          ]
+        },
+        {
+          "ymd": 20251230,
+          "code": "5597",
+          "short_ret_20": -0.37084398976982097,
+          "entryScore": 0.6480821690994804,
+          "close_pos": 0.0,
+          "dist_low20": 0.03897254207263057,
+          "reason_codes": [
+            "late_short_already_extended"
+          ]
+        },
+        {
+          "ymd": 20250331,
+          "code": "2726",
+          "short_ret_20": -0.3136288998357964,
+          "entryScore": 0.4784205265583921,
+          "close_pos": 0.2,
+          "dist_low20": 0.006611570247933907,
+          "reason_codes": [
+            "late_short_already_extended"
+          ]
+        }
+      ]
+    },
+    "bottom_zone_reversal_risk": {
+      "count": 238,
+      "median_ret20": 0.003905554097316876,
+      "hit_rate": 0.5294117647058824,
+      "reason_code_summary": {
+        "bottom_zone_reversal_risk": 238,
+        "late_short_already_extended": 110,
+        "short_false_neutral_recoverable": 76,
+        "trend_misaligned_short": 110
+      },
+      "representative_examples": [
+        {
+          "ymd": 20250228,
+          "code": "7011",
+          "short_ret_20": -0.2712632108706593,
+          "entryScore": 0.6772873411942515,
+          "close_pos": 0.06766917293233082,
+          "dist_low20": 0.004804045512010191,
+          "reason_codes": [
+            "bottom_zone_reversal_risk",
+            "late_short_already_extended"
+          ]
+        },
+        {
+          "ymd": 20250228,
+          "code": "7327",
+          "short_ret_20": -0.15652496442935288,
+          "entryScore": 0.4391578394990116,
+          "close_pos": 0.0,
+          "dist_low20": 0.0,
+          "reason_codes": [
+            "bottom_zone_reversal_risk"
+          ]
+        },
+        {
+          "ymd": 20251031,
+          "code": "9022",
+          "short_ret_20": -0.15639936271906532,
+          "entryScore": 0.3686108281364471,
+          "close_pos": 0.0,
+          "dist_low20": 0.0,
+          "reason_codes": [
+            "bottom_zone_reversal_risk",
+            "trend_misaligned_short"
+          ]
+        },
+        {
+          "ymd": 20251230,
+          "code": "6302",
+          "short_ret_20": -0.15449505905037358,
+          "entryScore": 0.33514117353634626,
+          "close_pos": 0.0,
+          "dist_low20": 0.009243493067380149,
+          "reason_codes": [
+            "bottom_zone_reversal_risk",
+            "trend_misaligned_short"
+          ]
+        },
+        {
+          "ymd": 20250331,
+          "code": "4478",
+          "short_ret_20": -0.14144271570014144,
+          "entryScore": 0.3086025797979761,
+          "close_pos": 0.0,
+          "dist_low20": 0.0042613636363635354,
+          "reason_codes": [
+            "bottom_zone_reversal_risk",
+            "late_short_already_extended",
+            "trend_misaligned_short"
+          ]
+        }
+      ]
+    },
+    "weak_break_no_followthrough": {
+      "count": 2,
+      "median_ret20": -0.011497289488007004,
+      "hit_rate": 0.0,
+      "reason_code_summary": {
+        "weak_break_no_followthrough": 2
+      },
+      "representative_examples": [
+        {
+          "ymd": 20250630,
+          "code": "9064",
+          "short_ret_20": -0.015284974093264249,
+          "entryScore": 0.5831678504570941,
+          "close_pos": 0.2571428571428571,
+          "dist_low20": 0.01685985247629085,
+          "reason_codes": [
+            "weak_break_no_followthrough"
+          ]
+        },
+        {
+          "ymd": 20251031,
+          "code": "3048",
+          "short_ret_20": -0.007709604882749759,
+          "entryScore": 0.623254290971569,
+          "close_pos": 0.17391304347826086,
+          "dist_low20": 0.015329419439008563,
+          "reason_codes": [
+            "weak_break_no_followthrough"
+          ]
+        }
+      ]
+    },
+    "event_risk_short": {
+      "count": 0,
+      "median_ret20": null,
+      "hit_rate": null,
+      "reason_code_summary": {},
+      "representative_examples": []
+    },
+    "borrow_or_cost_unfavorable": {
+      "count": 577,
+      "median_ret20": -0.006980802792321117,
+      "hit_rate": 0.4055459272097054,
+      "reason_code_summary": {
+        "borrow_or_cost_unfavorable": 577,
+        "bottom_zone_reversal_risk": 36,
+        "range_middle_false_short": 140,
+        "trend_misaligned_short": 509,
+        "short_false_neutral_recoverable": 15,
+        "late_short_already_extended": 18
+      },
+      "representative_examples": [
+        {
+          "ymd": 20250331,
+          "code": "9235",
+          "short_ret_20": -1.2669584245076586,
+          "entryScore": 0.8624999826465882,
+          "close_pos": 0.0,
+          "dist_low20": 0.0,
+          "reason_codes": [
+            "borrow_or_cost_unfavorable",
+            "bottom_zone_reversal_risk",
+            "late_short_already_extended"
+          ]
+        },
+        {
+          "ymd": 20250630,
+          "code": "4316",
+          "short_ret_20": -0.9386666666666666,
+          "entryScore": 0.41867881244555877,
+          "close_pos": 0.7142857142857143,
+          "dist_low20": 0.024590163934426146,
+          "reason_codes": [
+            "borrow_or_cost_unfavorable",
+            "trend_misaligned_short"
+          ]
+        },
+        {
+          "ymd": 20250731,
+          "code": "7082",
+          "short_ret_20": -0.6542502387774594,
+          "entryScore": 0.1573233705102815,
+          "close_pos": 0.7419354838709677,
+          "dist_low20": 0.0224609375,
+          "reason_codes": [
+            "borrow_or_cost_unfavorable",
+            "trend_misaligned_short"
+          ]
+        },
+        {
+          "ymd": 20250131,
+          "code": "5597",
+          "short_ret_20": -0.6206896551724138,
+          "entryScore": 0.3360886969691491,
+          "close_pos": 0.27522935779816515,
+          "dist_low20": 0.24609375,
+          "reason_codes": [
+            "borrow_or_cost_unfavorable",
+            "trend_misaligned_short"
+          ]
+        },
+        {
+          "ymd": 20251230,
+          "code": "7794",
+          "short_ret_20": -0.6077922077922078,
+          "entryScore": 0.5323648706091151,
+          "close_pos": 0.5555555555555556,
+          "dist_low20": 0.06944444444444442,
+          "reason_codes": [
+            "borrow_or_cost_unfavorable",
+            "range_middle_false_short",
+            "trend_misaligned_short"
+          ]
+        }
+      ]
+    },
+    "range_middle_false_short": {
+      "count": 2031,
+      "median_ret20": -0.014537902388369679,
+      "hit_rate": 0.4194977843426883,
+      "reason_code_summary": {
+        "range_middle_false_short": 2031,
+        "trend_misaligned_short": 1828,
+        "weak_break_no_followthrough": 3
+      },
+      "representative_examples": [
+        {
+          "ymd": 20250630,
+          "code": "7250",
+          "short_ret_20": -0.5555555555555556,
+          "entryScore": 0.457244285957918,
+          "close_pos": 0.35714285714285715,
+          "dist_low20": 0.04732350659425921,
+          "reason_codes": [
+            "range_middle_false_short",
+            "trend_misaligned_short"
+          ]
+        },
+        {
+          "ymd": 20250930,
+          "code": "6330",
+          "short_ret_20": -0.5481434864694776,
+          "entryScore": 0.2081271920707418,
+          "close_pos": 0.4125,
+          "dist_low20": 0.10577592205984687,
+          "reason_codes": [
+            "range_middle_false_short",
+            "trend_misaligned_short"
+          ]
+        },
+        {
+          "ymd": 20250430,
+          "code": "4259",
+          "short_ret_20": -0.45768025078369906,
+          "entryScore": 0.3521392122259746,
+          "close_pos": 0.625,
+          "dist_low20": 0.40528634361233484,
+          "reason_codes": [
+            "range_middle_false_short",
+            "trend_misaligned_short"
+          ]
+        },
+        {
+          "ymd": 20250731,
+          "code": "7003",
+          "short_ret_20": -0.44881889763779526,
+          "entryScore": 0.06702802021129994,
+          "close_pos": 0.4117647058823529,
+          "dist_low20": 0.240234375,
+          "reason_codes": [
+            "range_middle_false_short",
+            "trend_misaligned_short"
+          ]
+        },
+        {
+          "ymd": 20250829,
+          "code": "5016",
+          "short_ret_20": -0.437316715542522,
+          "entryScore": 0.1551196572265166,
+          "close_pos": 0.6438356164383562,
+          "dist_low20": 0.5777906304222094,
+          "reason_codes": [
+            "range_middle_false_short",
+            "trend_misaligned_short"
+          ]
+        }
+      ]
+    },
+    "trend_misaligned_short": {
+      "count": 4489,
+      "median_ret20": -0.013087447947650209,
+      "hit_rate": 0.4112274448652261,
+      "reason_code_summary": {
+        "trend_misaligned_short": 4489,
+        "short_false_neutral_recoverable": 135
+      },
+      "representative_examples": [
+        {
+          "ymd": 20250731,
+          "code": "2700",
+          "short_ret_20": -1.3273990447242727,
+          "entryScore": 0.21315681901563308,
+          "close_pos": 0.0,
+          "dist_low20": 0.19388284085018137,
+          "reason_codes": [
+            "trend_misaligned_short"
+          ]
+        },
+        {
+          "ymd": 20250331,
+          "code": "4784",
+          "short_ret_20": -1.169811320754717,
+          "entryScore": 0.18467501358326646,
+          "close_pos": 0.9090909090909091,
+          "dist_low20": 0.05711695376246606,
+          "reason_codes": [
+            "trend_misaligned_short"
+          ]
+        },
+        {
+          "ymd": 20250731,
+          "code": "4316",
+          "short_ret_20": -1.140646976090014,
+          "entryScore": 0.11657398686147856,
+          "close_pos": 0.32142857142857145,
+          "dist_low20": 0.9268292682926829,
+          "reason_codes": [
+            "trend_misaligned_short"
+          ]
+        },
+        {
+          "ymd": 20250630,
+          "code": "3905",
+          "short_ret_20": -0.9950124688279302,
+          "entryScore": 0.1398299372601595,
+          "close_pos": 0.2792207792207792,
+          "dist_low20": 0.25312500000000004,
+          "reason_codes": [
+            "trend_misaligned_short"
+          ]
+        },
+        {
+          "ymd": 20251230,
+          "code": "6330",
+          "short_ret_20": -0.948051948051948,
+          "entryScore": 0.18896435506697823,
+          "close_pos": 0.046153846153846156,
+          "dist_low20": 0.43389199255121036,
+          "reason_codes": [
+            "trend_misaligned_short"
+          ]
+        }
+      ]
+    },
+    "short_false_neutral_recoverable": {
+      "count": 20,
+      "median_ret20": 0.07205152674577832,
+      "hit_rate": 1.0,
+      "reason_code_summary": {
+        "short_false_neutral_recoverable": 20
+      },
+      "representative_examples": [
+        {
+          "ymd": 20251230,
+          "code": "4776",
+          "short_ret_20": 0.1641207815275311,
+          "entryScore": 0.5187340339588143,
+          "close_pos": 0.03773584905660377,
+          "dist_low20": 0.019927536231884035,
+          "reason_codes": [
+            "short_false_neutral_recoverable"
+          ]
+        },
+        {
+          "ymd": 20250331,
+          "code": "4499",
+          "short_ret_20": 0.14090019569471623,
+          "entryScore": 0.3748138736317949,
+          "close_pos": 0.08653846153846154,
+          "dist_low20": 0.12012275317843057,
+          "reason_codes": [
+            "short_false_neutral_recoverable"
+          ]
+        },
+        {
+          "ymd": 20250131,
+          "code": "9843",
+          "short_ret_20": 0.13346175013758943,
+          "entryScore": 0.557893087070187,
+          "close_pos": 0.0,
+          "dist_low20": 0.016503496503496473,
+          "reason_codes": [
+            "short_false_neutral_recoverable"
+          ]
+        },
+        {
+          "ymd": 20250228,
+          "code": "3436",
+          "short_ret_20": 0.1131161971830986,
+          "entryScore": 0.6595203527393216,
+          "close_pos": 0.14736842105263157,
+          "dist_low20": 0.051851851851851816,
+          "reason_codes": [
+            "short_false_neutral_recoverable"
+          ]
+        },
+        {
+          "ymd": 20250331,
+          "code": "7867",
+          "short_ret_20": 0.11050201961915752,
+          "entryScore": 0.45077587407381725,
+          "close_pos": 0.09482758620689655,
+          "dist_low20": 0.049031476997578594,
+          "reason_codes": [
+            "short_false_neutral_recoverable"
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "schema_version": "tradex_r2_shadow_integration_state_v7",
+  "candidate_id": "r2_failed_rebound_reshort_chain",
+  "candidate_name": "R2 failed_rebound_reshort_chain",
+  "logic_key": "r2_failed_rebound_reshort_chain:boundary_local_rerank_v5",
+  "acceptance_state": "accepted_for_shadow_integration_only",
+  "adoption_readiness": "shadow_only",
+  "production_wiring_readiness": false,
+  "compare_method": "boundary_local_rerank",
+  "outside_top20_locked": true,
+  "shadow_only": true,
+  "publish_candidate_allowed": false,
+  "meeMee_reflect_allowed": false,
+  "production_path_allowed": false,
+  "accepted_at": "2026-04-19T00:00:00+09:00",
+  "fixed_contract": {
+    "logic_key": "r2_failed_rebound_reshort_chain:boundary_local_rerank_v5",
+    "artifact_name": "r2_failed_rebound_reshort_chain_contract_v3.json",
+    "artifact_path": "G:/Tradex/keep/research/r2_cross_symbol_20260419_v3/r2_failed_rebound_reshort_chain_contract_v3.json",
+    "contract_version": "v3"
+  },
+  "non_adopted_alternatives": [
+    "HMB-3 weekly_confirmed_box_breakdown",
+    "HMB-1 high_zone_first_break",
+    "HMB-2 failed_rebound_reshort_chain",
+    "fixed additive full-universe boost",
+    "HMB-family revalidation"
+  ],
+  "notes": [
+    "research success",
+    "adoption readiness is shadow only",
+    "production wiring readiness remains false"
+  ],
+  "monitoring_contract_ref": "r2_shadow_monitoring_contract_v7.json",
+  "rollout_boundary_ref": "r2_shadow_rollout_boundary_v7.json",
+  "verify_ref": "r2_shadow_verify_v7.json"
+}

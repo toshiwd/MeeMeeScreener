@@ -1101,6 +1101,34 @@ body {
   flex: 0 0 auto;
 }
 
+.rank-target-stack {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.tradex-shadow-readout {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.tradex-shadow-readout .rank-score-badge {
+  font-size: 11px;
+  padding: 3px 8px;
+}
+
+.detail-status-stack {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
 .header-row-bottom {
   display: flex;
   align-items: center;

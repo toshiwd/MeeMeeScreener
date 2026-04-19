@@ -449,7 +449,28 @@ describe("DetailView", () => {
     mocks.backendReadyRef.value = false;
     mocks.apiGet.mockReset();
     mocks.apiPost.mockReset();
-    mocks.apiGet.mockResolvedValue({ data: {} });
+    mocks.apiGet.mockImplementation((url: string) => {
+      if (url === "/system/runtime-selection") {
+        return Promise.resolve({
+          data: {
+            shadow_integration_available: true,
+            shadow_only: true,
+            shadow_integration_state: {
+              acceptance_state: "accepted_for_shadow_integration_only",
+              adoption_readiness: "shadow_only",
+              compare_method: "boundary_local_rerank",
+              outside_top20_locked: true,
+              shadow_only: true,
+            },
+            shadow_rollout_boundary: {
+              outside_top20_locked: true,
+              shadow_only: true,
+            },
+          },
+        });
+      }
+      return Promise.resolve({ data: {} });
+    });
     mocks.storeState.tickers = [
       {
         code: "7203",
@@ -499,8 +520,10 @@ describe("DetailView", () => {
   it("renders the detail route without throwing when the EDINET request is null", async () => {
     const render = await renderDetailView();
     const { container } = render;
+    await flushMicrotasks();
 
     expect(container.querySelector("[data-testid='detail-header-chrome']")).not.toBeNull();
+    expect(container.textContent).toContain("R2 shadow: ON");
     expect(mocks.apiPost).not.toHaveBeenCalledWith("/jobs/edinet/official-backfill", expect.anything(), expect.anything());
 
     render.cleanup();

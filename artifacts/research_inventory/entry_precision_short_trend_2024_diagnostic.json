@@ -1,0 +1,190 @@
+{
+  "schema_version": "tradex_entry_precision_short_trend_2024_diagnostic_v1",
+  "session_id": "entry-short-trend-regime-20260419-113315",
+  "generated_at": "2026-04-19T11:39:33.192129+00:00",
+  "baseline_id": "current_rule_trade_gate_baseline",
+  "challenger_id": "short_trend_alignment_v1",
+  "frozen_from_session_id": "entry-short-trend-wide-20260419-103720",
+  "wide_window": {
+    "start_ymd": 20240101,
+    "end_ymd": 20260226
+  },
+  "diagnostic": {
+    "wide_window": {
+      "start_ymd": 20240101,
+      "end_ymd": 20260226
+    },
+    "selected_2024_rows": 2,
+    "selected_2025_rows": 13,
+    "composition": {
+      "2024": {
+        "total_rows": 8199,
+        "baseline_selected": 13,
+        "challenger_selected": 2,
+        "baseline_regime_counts": {
+          "broad_range_sideways_regime": 4,
+          "broad_down_regime": 4,
+          "weak_trend_noisy_regime": 1,
+          "broad_up_countertrend_regime": 4
+        },
+        "challenger_regime_counts": {
+          "broad_range_sideways_regime": 1,
+          "broad_down_regime": 1
+        },
+        "regime_breakdown": [
+          {
+            "regime": "broad_down_regime",
+            "baseline": {
+              "count": 4,
+              "hit_rate": 0.5,
+              "mean_ret20": -0.02227288419363707,
+              "median_ret20": -0.00806579696268668,
+              "mean_mae20": 0.05952714290959682,
+              "median_mae20": 0.05101828190680152,
+              "mean_mfe20": 0.03411582977608148,
+              "median_mfe20": 0.03107436040599498,
+              "flat_rate": 0.0,
+              "immediate_reverse_rate": 0.25
+            },
+            "challenger": {
+              "count": 1,
+              "hit_rate": 0.0,
+              "mean_ret20": -0.10856269113149847,
+              "median_ret20": -0.10856269113149847,
+              "mean_mae20": 0.1198776758409786,
+              "median_mae20": 0.1198776758409786,
+              "mean_mfe20": 0.01529051987767584,
+              "median_mfe20": 0.01529051987767584,
+              "flat_rate": 0.0,
+              "immediate_reverse_rate": 1.0
+            },
+            "delta": {
+              "hit_rate_delta": -0.5,
+              "median_ret20_delta": -0.10049689416881179,
+              "mean_ret20_delta": -0.0862898069378614
+            }
+          },
+          {
+            "regime": "broad_range_sideways_regime",
+            "baseline": {
+              "count": 4,
+              "hit_rate": 1.0,
+              "mean_ret20": 0.0510633646222652,
+              "median_ret20": 0.04402622081199073,
+              "mean_mae20": 0.004610381633970694,
+              "median_mae20": 0.0026069859861953567,
+              "mean_mfe20": 0.0922352720555113,
+              "median_mfe20": 0.07172451236499086,
+              "flat_rate": 0.0,
+              "immediate_reverse_rate": 0.0
+            },
+            "challenger": {
+              "count": 1,
+              "hit_rate": 1.0,
+              "mean_ret20": 0.04559270516717325,
+              "median_ret20": 0.04559270516717325,
+              "mean_mae20": 0.0,
+              "median_mae20": 0.0,
+              "mean_mfe20": 0.0790273556231003,
+              "median_mfe20": 0.0790273556231003,
+              "flat_rate": 0.0,
+              "immediate_reverse_rate": 0.0
+            },
+            "delta": {
+              "hit_rate_delta": 0.0,
+              "median_ret20_delta": 0.0015664843551825222,
+              "mean_ret20_delta": -0.005470659455091946
+            }
+          },
+          {
+            "regime": "broad_up_countertrend_regime",
+            "baseline": {
+              "count": 4,
+              "hit_rate": 0.75,
+              "mean_ret20": 0.045087213958736896,
+              "median_ret20": 0.05505037179282255,
+              "mean_mae20": 0.02839875383396232,
+              "median_mae20": 0.007138763347597867,
+              "mean_mfe20": 0.07363778494035467,
+              "median_mfe20": 0.05665067893952486,
+              "flat_rate": 0.0,
+              "immediate_reverse_rate": 0.5
+            },
+            "challenger": {
+              "count": 0,
+              "hit_rate": null,
+              "mean_ret20": null,
+              "median_ret20": null,
+              "mean_mae20": null,
+              "median_mae20": null,
+              "mean_mfe20": null,
+              "median_mfe20": null,
+              "flat_rate": null,
+              "immediate_reverse_rate": null
+            },
+            "delta": {
+              "hit_rate_delta": null,
+              "median_ret20_delta": null,
+              "mean_ret20_delta": null
+            }
+          },
+          {
+            "regime": "weak_trend_noisy_regime",
+            "baseline": {
+              "count": 1,
+              "hit_rate": 1.0,
+              "mean_ret20": 0.12617114303560276,
+              "median_ret20": 0.12617114303560276,
+              "mean_mae20": 0.0,
+              "median_mae20": 0.0,
+              "mean_mfe20": 0.17801374141161774,
+              "median_mfe20": 0.17801374141161774,
+              "flat_rate": 0.0,
+              "immediate_reverse_rate": 0.0
+            },
+            "challenger": {
+              "count": 0,
+              "hit_rate": null,
+              "mean_ret20": null,
+              "median_ret20": null,
+              "mean_mae20": null,
+              "median_mae20": null,
+              "mean_mfe20": null,
+              "median_mfe20": null,
+              "flat_rate": null,
+              "immediate_reverse_rate": null
+            },
+            "delta": {
+              "hit_rate_delta": null,
+              "median_ret20_delta": null,
+              "mean_ret20_delta": null
+            }
+          }
+        ]
+      },
+      "2025": {
+        "total_rows": 8216,
+        "baseline_selected": 27,
+        "challenger_selected": 13,
+        "baseline_regime_counts": {
+          "broad_down_regime": 6,
+          "weak_trend_noisy_regime": 4,
+          "high_volatility_selloff_regime": 3,
+          "broad_up_countertrend_regime": 10,
+          "broad_range_sideways_regime": 4
+        },
+        "challenger_regime_counts": {
+          "high_volatility_selloff_regime": 3,
+          "broad_down_regime": 4,
+          "broad_up_countertrend_regime": 5,
+          "weak_trend_noisy_regime": 1
+        }
+      }
+    },
+    "conclusion": "sample_thin_artifact_with_regime_skew",
+    "notes": [
+      "2024 has very few challenger rows, so a severe loss can dominate the year",
+      "regime composition is skewed toward broad_down and broad_range buckets rather than a broad spread"
+    ]
+  }
+}

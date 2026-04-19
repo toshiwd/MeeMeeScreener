@@ -1,0 +1,24 @@
+{
+  "schema_version": "tradex_r2_shadow_verify_v7",
+  "checks": [
+    "R2 shadow path only",
+    "production ranking path unchanged",
+    "outside_top20_locked maintained",
+    "HMB-family non-adopted",
+    "rollback possible"
+  ],
+  "expected": {
+    "shadow_only": true,
+    "production_wiring_readiness": false,
+    "publish_candidate_allowed": false,
+    "meeMee_reflect_allowed": false,
+    "outside_top20_locked": true,
+    "hmb_family_non_adopted": true
+  },
+  "observed": {
+    "accepted_state": "accepted_for_shadow_integration_only",
+    "compare_method": "boundary_local_rerank",
+    "contract_fixed": true
+  },
+  "pass_expected": true
+}

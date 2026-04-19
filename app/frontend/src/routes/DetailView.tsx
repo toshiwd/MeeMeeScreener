@@ -28,6 +28,7 @@ import DetailHeaderChrome from "../components/DetailHeaderChrome";
 import DetailModeTabs from "../components/DetailModeTabs";
 import DetailTimeframeSwitcher from "../components/DetailTimeframeSwitcher";
 import DetailDrawToolbar from "../components/DetailDrawToolbar";
+import TradexShadowReadout from "../components/TradexShadowReadout";
 import ScreenPanel from "../components/ScreenPanel";
 import {
   buildAiExplainBarsPayload,
@@ -5439,7 +5440,12 @@ export default function DetailView() {
             </div>
           ) : null
         }
-        summaryCenter={headerRangeControls}
+        summaryCenter={
+          <div className="detail-status-stack">
+            <TradexShadowReadout variant="detail" />
+            {headerRangeControls}
+          </div>
+        }
         summaryActions={
           <>
             <button

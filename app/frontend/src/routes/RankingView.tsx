@@ -12,6 +12,7 @@ import TradexListSummary from "../components/TradexListSummary";
 import Toast from "../components/Toast";
 import UnifiedListHeader from "../components/UnifiedListHeader";
 import VirtualizedCardGrid from "../components/VirtualizedCardGrid";
+import TradexShadowReadout from "../components/TradexShadowReadout";
 import AiExplainDock from "../features/aiExplain/AiExplainDock";
 import { buildAiExplainImages } from "../features/aiExplain/aiExplainImages";
 import { MaSetting, useStore } from "../store";
@@ -1725,19 +1726,22 @@ export default function RankingView() {
         sortOptions={[]}
         onSortChange={() => {}}
         topRowLeftExtra={
-          <div className="rank-target-switch">
-            <div className="segmented segmented-compact">
-              {(["up", "down"] as const).map((key) => (
-                <button
-                  key={key}
-                  type="button"
-                  className={dir === key ? "active" : ""}
-                  onClick={() => setDir(key)}
-                >
-                  {key === "up" ? "買い" : "売り"}
-                </button>
-              ))}
+          <div className="rank-target-stack">
+            <div className="rank-target-switch">
+              <div className="segmented segmented-compact">
+                {(["up", "down"] as const).map((key) => (
+                  <button
+                    key={key}
+                    type="button"
+                    className={dir === key ? "active" : ""}
+                    onClick={() => setDir(key)}
+                  >
+                    {key === "up" ? "買い" : "売り"}
+                  </button>
+                ))}
+              </div>
             </div>
+            <TradexShadowReadout variant="ranking" />
           </div>
         }
         columns={columns}

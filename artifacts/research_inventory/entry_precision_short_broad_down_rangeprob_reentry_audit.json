@@ -1,0 +1,201 @@
+{
+  "schema_version": "tradex_entry_precision_short_broad_down_rangeprob_reentry_audit_v1",
+  "session_id": "entry-short-broad-down-rangeprob-20260419-133642",
+  "generated_at": "2026-04-19T13:36:42.889035+00:00",
+  "focused_regime": "broad_down_regime",
+  "profitable_removed_names": [
+    {
+      "ymd": 20240229,
+      "code": "6750",
+      "baseline_selected": true,
+      "frozen_challenger_selected": false,
+      "baseline_short_ret_20": 0.03560274828232355,
+      "baseline_short_ret_5": 0.029356652092442224,
+      "baseline_short_ret_10": 0.03622735790131168,
+      "baseline_blockers": [
+        "monthly_alignment_failed",
+        "monthly_range_prob_failed"
+      ],
+      "short_trend_alignment_v1": {
+        "selected": false,
+        "blockers": [
+          "monthly_alignment_failed",
+          "monthly_range_prob_failed"
+        ]
+      },
+      "broad_down_monthly_rangeprob_relaxed_v1": {
+        "selected": false,
+        "blockers": [
+          "monthly_alignment_failed",
+          "monthly_range_prob_failed"
+        ]
+      },
+      "broad_down_monthly_rangeprob_off_v1": {
+        "selected": false,
+        "blockers": [
+          "monthly_alignment_failed"
+        ]
+      }
+    },
+    {
+      "ymd": 20241230,
+      "code": "4684",
+      "baseline_selected": true,
+      "frozen_challenger_selected": false,
+      "baseline_short_ret_20": 0.02855316428723631,
+      "baseline_short_ret_5": 0.032601747283187724,
+      "baseline_short_ret_10": 0.042829746430854465,
+      "baseline_blockers": [
+        "monthly_alignment_failed",
+        "monthly_range_prob_failed",
+        "close_pos_failed",
+        "midrange_off_failed"
+      ],
+      "short_trend_alignment_v1": {
+        "selected": false,
+        "blockers": [
+          "monthly_alignment_failed",
+          "monthly_range_prob_failed",
+          "close_pos_failed",
+          "midrange_off_failed"
+        ]
+      },
+      "broad_down_monthly_rangeprob_relaxed_v1": {
+        "selected": false,
+        "blockers": [
+          "monthly_alignment_failed",
+          "monthly_range_prob_failed",
+          "close_pos_failed",
+          "midrange_off_failed"
+        ]
+      },
+      "broad_down_monthly_rangeprob_off_v1": {
+        "selected": false,
+        "blockers": [
+          "monthly_alignment_failed",
+          "close_pos_failed",
+          "midrange_off_failed"
+        ]
+      }
+    },
+    {
+      "ymd": 20250930,
+      "code": "9861",
+      "baseline_selected": true,
+      "frozen_challenger_selected": false,
+      "baseline_short_ret_20": 0.0033222591362126247,
+      "baseline_short_ret_5": -0.006644518272425249,
+      "baseline_short_ret_10": -0.08737541528239202,
+      "baseline_blockers": [
+        "monthly_alignment_failed",
+        "monthly_range_prob_failed"
+      ],
+      "short_trend_alignment_v1": {
+        "selected": false,
+        "blockers": [
+          "monthly_alignment_failed",
+          "monthly_range_prob_failed"
+        ]
+      },
+      "broad_down_monthly_rangeprob_relaxed_v1": {
+        "selected": false,
+        "blockers": [
+          "monthly_alignment_failed",
+          "monthly_range_prob_failed"
+        ]
+      },
+      "broad_down_monthly_rangeprob_off_v1": {
+        "selected": false,
+        "blockers": [
+          "monthly_alignment_failed"
+        ]
+      }
+    }
+  ],
+  "losing_kept_names": [
+    {
+      "ymd": 20240229,
+      "code": "6976",
+      "baseline_selected": true,
+      "frozen_challenger_selected": true,
+      "baseline_short_ret_20": -0.10856269113149847,
+      "baseline_short_ret_5": -0.011314984709480122,
+      "baseline_short_ret_10": -0.0061162079510703364,
+      "baseline_blockers": [],
+      "short_trend_alignment_v1": {
+        "selected": true,
+        "blockers": []
+      },
+      "broad_down_monthly_rangeprob_relaxed_v1": {
+        "selected": true,
+        "blockers": []
+      },
+      "broad_down_monthly_rangeprob_off_v1": {
+        "selected": true,
+        "blockers": []
+      }
+    },
+    {
+      "ymd": 20250131,
+      "code": "4072",
+      "baseline_selected": true,
+      "frozen_challenger_selected": true,
+      "baseline_short_ret_20": -0.08990744821507272,
+      "baseline_short_ret_5": -0.04098721903922433,
+      "baseline_short_ret_10": -0.07139709122961657,
+      "baseline_blockers": [],
+      "short_trend_alignment_v1": {
+        "selected": true,
+        "blockers": []
+      },
+      "broad_down_monthly_rangeprob_relaxed_v1": {
+        "selected": true,
+        "blockers": []
+      },
+      "broad_down_monthly_rangeprob_off_v1": {
+        "selected": true,
+        "blockers": []
+      }
+    },
+    {
+      "ymd": 20250331,
+      "code": "7630",
+      "baseline_selected": true,
+      "frozen_challenger_selected": true,
+      "baseline_short_ret_20": -0.038834951456310676,
+      "baseline_short_ret_5": 0.040992448759439054,
+      "baseline_short_ret_10": -0.03559870550161812,
+      "baseline_blockers": [],
+      "short_trend_alignment_v1": {
+        "selected": true,
+        "blockers": []
+      },
+      "broad_down_monthly_rangeprob_relaxed_v1": {
+        "selected": true,
+        "blockers": []
+      },
+      "broad_down_monthly_rangeprob_off_v1": {
+        "selected": true,
+        "blockers": []
+      }
+    }
+  ],
+  "reentry_summary": {
+    "short_trend_alignment_v1": {
+      "profitable_removed_reentered": 0,
+      "losing_kept_still_selected": 3
+    },
+    "broad_down_monthly_rangeprob_relaxed_v1": {
+      "profitable_removed_reentered": 0,
+      "losing_kept_still_selected": 3
+    },
+    "broad_down_monthly_rangeprob_off_v1": {
+      "profitable_removed_reentered": 0,
+      "losing_kept_still_selected": 3
+    }
+  },
+  "conclusion": {
+    "monthly_range_prob_main_shared_blocker": false,
+    "reason": "monthly_range_prob_changes_do_not_recover_the_removed_profitable_followthrough_shorts_in_broad_down"
+  }
+}

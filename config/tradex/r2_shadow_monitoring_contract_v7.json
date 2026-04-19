@@ -1,0 +1,44 @@
+{
+  "schema_version": "tradex_r2_shadow_monitoring_contract_v7",
+  "monitored_metrics": [
+    "changed_top5_members_count",
+    "changed_top10_members_count",
+    "changed_rank_count",
+    "top5_return_30d_mean",
+    "top5_return_30d_median",
+    "top10_return_30d_mean",
+    "top10_return_30d_median",
+    "support_influenced_picks",
+    "bad_pick_removal",
+    "outside_top20_locked"
+  ],
+  "required_checks": [
+    "same_condition_compare",
+    "outside_top20_locked",
+    "support_counter_separation",
+    "shadow_only_boundary",
+    "no_production_path_change"
+  ],
+  "artifact_boundary": {
+    "json_authoritative": true,
+    "markdown_derived": true,
+    "per_run_json_required": true
+  },
+  "fixed_conditions": {
+    "same_universe": true,
+    "same_period": true,
+    "same_top_k": true,
+    "same_regime_condition": true,
+    "same_cost_slippage": true,
+    "same_artifact_detail_level": true,
+    "confirmed_eod_only": true
+  },
+  "shadow_only": true,
+  "outside_top20_locked": true,
+  "rollback_boundary": {
+    "can_disable_shadow_only": true,
+    "production_path_untouched": true,
+    "publish_candidate_allowed": false,
+    "meeMee_reflect_allowed": false
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "schema_version": "tradex_entry_precision_short_broad_down_monthly_fix_decision_v1",
+  "session_id": "entry-short-broad-down-monthly-fix-20260419-131348",
+  "generated_at": "2026-04-19T13:17:03.518748+00:00",
+  "baseline_id": "current_rule_trade_gate_baseline",
+  "challenger_id": "short_trend_alignment_v1",
+  "frozen_failure_session_id": "entry-short-broad-down-20260419-130000",
+  "long_freeze_confirmed": true,
+  "overall_decision": "drop",
+  "decision_reasons": [
+    "frozen_challenger_count=5",
+    "relaxed_count=5",
+    "off_count=5",
+    "profitable_reentered_relaxed=0",
+    "profitable_reentered_off=0",
+    "losing_kept_relaxed=3",
+    "losing_kept_off=3",
+    "monthly_alignment_not_primary_cause"
+  ],
+  "confirmed": [
+    "short_logic_frozen",
+    "long_logic_frozen",
+    "same_window_reference_retained",
+    "broad_down_only_reviewed",
+    "monthly_alignment_only_ablation",
+    "json_is_authoritative"
+  ],
+  "provisional": [
+    "trend_alignment_is_still_proxy_based",
+    "regime_labels_are_proxy_derived",
+    "monthly_alignment_is_only_one_part_of_the_broad_down_filter"
+  ],
+  "remaining_risks": [
+    "monthly_alignment_ablation_did_not_demonstrate_recovery_of_the_removed_profitable_shorts",
+    "sample_size_is_still_small_relative_to_the_full_history",
+    "other_gates_still_block_the_removed_names"
+  ]
+}

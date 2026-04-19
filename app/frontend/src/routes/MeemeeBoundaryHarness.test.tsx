@@ -299,6 +299,25 @@ describe("MeeMee boundary harness", () => {
     window.localStorage.clear();
     window.sessionStorage.clear();
     mocks.apiGet.mockImplementation((url: string) => {
+      if (url === "/system/runtime-selection") {
+        return Promise.resolve({
+          data: {
+            shadow_integration_available: true,
+            shadow_only: true,
+            shadow_integration_state: {
+              acceptance_state: "accepted_for_shadow_integration_only",
+              adoption_readiness: "shadow_only",
+              compare_method: "boundary_local_rerank",
+              outside_top20_locked: true,
+              shadow_only: true,
+            },
+            shadow_rollout_boundary: {
+              outside_top20_locked: true,
+              shadow_only: true,
+            },
+          },
+        });
+      }
       if (url === "/rankings") {
         return Promise.resolve({
           data: {
@@ -377,6 +396,8 @@ describe("MeeMee boundary harness", () => {
     expect(render.container.textContent).toContain("1301");
     expect(render.container.textContent).toContain("MeeMee Electric");
     expect(render.container.textContent).toContain("7203");
+    expect(render.container.textContent).toContain("R2 shadow: ON");
+    expect(render.container.textContent).toContain("boundary_local_rerank");
     expect(render.container.querySelectorAll("[data-testid='chart-card']")).toHaveLength(2);
 
     render.cleanup();
