@@ -1,0 +1,36 @@
+{
+  "leakage_check": {
+    "checked_rows": 192,
+    "failures": [],
+    "status": "pass"
+  },
+  "leakage_check_status": "pass",
+  "period": {
+    "coverage_months": 16,
+    "end_month": 202205,
+    "start_month": 202102
+  },
+  "schema_version": "tradex_monthly_shape_memory_split_v1",
+  "split_modes": [
+    {
+      "embargo_months": 1,
+      "memory_lookback_months": 6,
+      "purge_months": 1,
+      "rolling_window_months": null,
+      "split_mode": "expanding",
+      "test_contract": "later month block",
+      "train_contract": "all months strictly before the evaluation month",
+      "validation_contract": "next month block"
+    },
+    {
+      "embargo_months": 1,
+      "memory_lookback_months": 6,
+      "purge_months": 1,
+      "rolling_window_months": 6,
+      "split_mode": "rolling",
+      "test_contract": "later month block",
+      "train_contract": "last 6 months before the evaluation month",
+      "validation_contract": "next month block"
+    }
+  ]
+}

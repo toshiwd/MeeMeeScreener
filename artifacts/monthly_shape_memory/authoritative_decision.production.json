@@ -1,0 +1,201 @@
+{
+  "boundary_bucket_effect": {
+    "1-5": {
+      "enter_top10_rate": 1.0,
+      "mean_champion_rank": 3.0,
+      "mean_rank_delta": -1.1125,
+      "mean_rerank_rank": 4.112500000000001,
+      "mean_score_delta": -0.02140261631777316,
+      "sample_count": 80
+    },
+    "11-20": {
+      "enter_top10_rate": 0.28125,
+      "mean_champion_rank": 11.5,
+      "mean_rank_delta": 1.875,
+      "mean_rerank_rank": 9.625,
+      "mean_score_delta": -0.032248740789427764,
+      "sample_count": 32
+    },
+    "21-50": {
+      "enter_top10_rate": 0.0,
+      "mean_champion_rank": 0.0,
+      "mean_rank_delta": 0.0,
+      "mean_rerank_rank": 0.0,
+      "mean_score_delta": 0.0,
+      "sample_count": 0
+    },
+    "6-10": {
+      "enter_top10_rate": 0.8875,
+      "mean_champion_rank": 8.0,
+      "mean_rank_delta": 0.36250000000000004,
+      "mean_rerank_rank": 7.637499999999999,
+      "mean_score_delta": -0.026588245034552035,
+      "sample_count": 80
+    }
+  },
+  "boundary_not_improved": true,
+  "branch_contribution_summary": {
+    "champion_only": {
+      "mean_candidate_pool_bad_pick_removal": 0.0,
+      "mean_candidate_pool_top10_capture": 10.0,
+      "mean_next_month_return_top10": 0.005293334664081087,
+      "mean_top10_boundary_outcome_gap": -0.0002556302239383815,
+      "mean_top10_hit_rate": 0.8875,
+      "mean_top5_boundary_outcome_gap": 4.172733171722842e-05,
+      "mean_top5_hit_rate": 0.775
+    },
+    "champion_plus_shape_rerank": {
+      "mean_candidate_pool_bad_pick_removal": 0.0,
+      "mean_candidate_pool_top10_capture": 10.0,
+      "mean_next_month_return_top10": 0.005306666848011896,
+      "mean_top10_boundary_outcome_gap": -0.00026586119665245045,
+      "mean_top10_hit_rate": 0.875,
+      "mean_top5_boundary_outcome_gap": 0.0010878124215304916,
+      "mean_top5_hit_rate": 0.8
+    },
+    "image_only": {
+      "mean_candidate_pool_bad_pick_removal": 0.0,
+      "mean_candidate_pool_top10_capture": 10.0,
+      "mean_next_month_return_top10": 0.005187446910684139,
+      "mean_top10_boundary_outcome_gap": 0.00025750537607006213,
+      "mean_top10_hit_rate": 0.84375,
+      "mean_top5_boundary_outcome_gap": 5.8931521788617436e-05,
+      "mean_top5_hit_rate": 0.75
+    },
+    "image_plus_similarity": {
+      "mean_candidate_pool_bad_pick_removal": 0.0,
+      "mean_candidate_pool_top10_capture": 10.0,
+      "mean_next_month_return_top10": 0.005017139186246576,
+      "mean_top10_boundary_outcome_gap": -0.0015294957329573672,
+      "mean_top10_hit_rate": 0.80625,
+      "mean_top5_boundary_outcome_gap": -0.00036657759665739004,
+      "mean_top5_hit_rate": 0.6875
+    },
+    "numeric_image_similarity": {
+      "mean_candidate_pool_bad_pick_removal": 0.0,
+      "mean_candidate_pool_top10_capture": 10.0,
+      "mean_next_month_return_top10": 0.005119457246819765,
+      "mean_top10_boundary_outcome_gap": 0.0006044626351262711,
+      "mean_top10_hit_rate": 0.8125,
+      "mean_top5_boundary_outcome_gap": -0.0011374672349275528,
+      "mean_top5_hit_rate": 0.7124999999999999
+    },
+    "numeric_only": {
+      "mean_candidate_pool_bad_pick_removal": 0.0,
+      "mean_candidate_pool_top10_capture": 10.0,
+      "mean_next_month_return_top10": 0.005129220849849507,
+      "mean_top10_boundary_outcome_gap": -0.000646578181663901,
+      "mean_top10_hit_rate": 0.8187500000000001,
+      "mean_top5_boundary_outcome_gap": -0.0002010854303236831,
+      "mean_top5_hit_rate": 0.75
+    },
+    "numeric_plus_image": {
+      "mean_candidate_pool_bad_pick_removal": 0.0,
+      "mean_candidate_pool_top10_capture": 10.0,
+      "mean_next_month_return_top10": 0.005029606437139832,
+      "mean_top10_boundary_outcome_gap": -0.0005846501773747875,
+      "mean_top10_hit_rate": 0.80625,
+      "mean_top5_boundary_outcome_gap": -0.0003526491464661899,
+      "mean_top5_hit_rate": 0.7000000000000001
+    },
+    "numeric_plus_similarity": {
+      "mean_candidate_pool_bad_pick_removal": 0.0,
+      "mean_candidate_pool_top10_capture": 10.0,
+      "mean_next_month_return_top10": 0.005105728435062372,
+      "mean_top10_boundary_outcome_gap": 0.0006042878843200428,
+      "mean_top10_hit_rate": 0.8187500000000001,
+      "mean_top5_boundary_outcome_gap": 0.00021198584871802428,
+      "mean_top5_hit_rate": 0.7625
+    },
+    "similarity_only": {
+      "mean_candidate_pool_bad_pick_removal": 0.0,
+      "mean_candidate_pool_top10_capture": 10.0,
+      "mean_next_month_return_top10": 0.005097890237962172,
+      "mean_top10_boundary_outcome_gap": -0.00024042597512302644,
+      "mean_top10_hit_rate": 0.8187500000000001,
+      "mean_top5_boundary_outcome_gap": -0.0013294130326161196,
+      "mean_top5_hit_rate": 0.7375
+    }
+  },
+  "branch_eval_ref": "tradex_monthly_shape_memory_branch_eval_v1",
+  "candidate_id": "monthly_shape_memory_v1",
+  "candidate_pool_bad_pick_removal": 0.0,
+  "candidate_pool_bad_pick_removal_delta": 0.0,
+  "candidate_pool_top10_capture": 10.0,
+  "candidate_pool_top10_capture_delta": 0.0,
+  "changed_top10_members_count": 1.125,
+  "changed_top5_members_count": 2.625,
+  "coverage_months": 16,
+  "decision": "drop",
+  "decision_reason_typed": "no_stable_oos_uplift",
+  "failure_mode_typed": "signal_not_useful",
+  "final_top10_bad_pick_removal": 0.5625,
+  "final_top10_uplift": -0.125,
+  "image_branch_disposition": "keep_optional",
+  "image_branch_reason_typed": "image_branch_retained",
+  "leakage_check_status": "pass",
+  "loser_removal_delta": 0.5625,
+  "next_action_typed": "drop_axis",
+  "oos_bad_pick_removal": 0.5625,
+  "oos_top10_uplift": -0.125,
+  "regime_breakdown": {
+    "mixed": {
+      "mean_bad_pick_removal": 1.0,
+      "mean_candidate_pool_bad_pick_removal": 0.0,
+      "mean_candidate_pool_top10_capture": 10.0,
+      "mean_changed_top10_members_count": 2.0,
+      "mean_top10_boundary_outcome_gap": 3.523714100184261e-05,
+      "mean_top10_uplift": 0.0,
+      "month_count": 1.0,
+      "negative_month_share": 0.0,
+      "positive_month_share": 0.0
+    },
+    "range": {
+      "mean_bad_pick_removal": 0.5333333333333333,
+      "mean_candidate_pool_bad_pick_removal": 0.0,
+      "mean_candidate_pool_top10_capture": 10.0,
+      "mean_changed_top10_members_count": 1.0666666666666667,
+      "mean_top10_boundary_outcome_gap": -0.00028593441916273664,
+      "mean_top10_uplift": -0.13333333333333333,
+      "month_count": 15.0,
+      "negative_month_share": 0.06666666666666667,
+      "positive_month_share": 0.0
+    }
+  },
+  "regime_effect_summary": {
+    "harmful_regimes": [
+      "range"
+    ],
+    "helpful_regimes": [],
+    "regime_breakdown": {
+      "mixed": {
+        "mean_bad_pick_removal": 1.0,
+        "mean_candidate_pool_bad_pick_removal": 0.0,
+        "mean_candidate_pool_top10_capture": 10.0,
+        "mean_changed_top10_members_count": 2.0,
+        "mean_top10_boundary_outcome_gap": 3.523714100184261e-05,
+        "mean_top10_uplift": 0.0,
+        "month_count": 1.0,
+        "negative_month_share": 0.0,
+        "positive_month_share": 0.0
+      },
+      "range": {
+        "mean_bad_pick_removal": 0.5333333333333333,
+        "mean_candidate_pool_bad_pick_removal": 0.0,
+        "mean_candidate_pool_top10_capture": 10.0,
+        "mean_changed_top10_members_count": 1.0666666666666667,
+        "mean_top10_boundary_outcome_gap": -0.00028593441916273664,
+        "mean_top10_uplift": -0.13333333333333333,
+        "month_count": 15.0,
+        "negative_month_share": 0.06666666666666667,
+        "positive_month_share": 0.0
+      }
+    }
+  },
+  "research_axis": "can 6-month shape memory improve monthly next-top10 ranking?",
+  "schema_version": "tradex_monthly_shape_memory_decision_v1",
+  "top5_boundary_outcome_gap": 0.0010878124215304916,
+  "top5_boundary_score_gap": 0.004312675663972244,
+  "winner_promotion_delta": -0.125,
+  "winner_promotion_score_delta": 1.333218393080803e-05
+}

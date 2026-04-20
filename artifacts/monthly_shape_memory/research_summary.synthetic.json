@@ -1,0 +1,138 @@
+{
+  "artifact_suffix": "synthetic",
+  "artifacts": {
+    "authoritative_decision": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\authoritative_decision.synthetic.json",
+    "branch_eval": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\branch_eval.synthetic.json",
+    "monthly_labels": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\monthly_labels.synthetic.parquet",
+    "monthly_samples": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\monthly_samples.synthetic.parquet",
+    "monthly_similarity": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\monthly_similarity.synthetic.parquet",
+    "rerank_compare": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\rerank_compare.synthetic.json",
+    "research_summary": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\research_summary.synthetic.json",
+    "split_contract": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\split_contract.synthetic.json"
+  },
+  "comparison_modes": [
+    "expanding",
+    "rolling"
+  ],
+  "coverage_codes": 12,
+  "coverage_months": 16,
+  "coverage_rows": 192,
+  "end_month": 202205,
+  "failure_mode_typed": "signal_not_useful",
+  "feature_branch_specs": [
+    {
+      "family": "common_feature",
+      "feature": "window_return_1m"
+    },
+    {
+      "family": "common_feature",
+      "feature": "window_return_3m"
+    },
+    {
+      "family": "common_feature",
+      "feature": "window_return_6m"
+    },
+    {
+      "family": "boundary_feature",
+      "feature": "box_width_6m"
+    },
+    {
+      "family": "boundary_feature",
+      "feature": "breakout_proximity_high"
+    },
+    {
+      "family": "boundary_feature",
+      "feature": "breakout_proximity_low"
+    },
+    {
+      "family": "common_feature",
+      "feature": "dist_ma20"
+    },
+    {
+      "family": "regime_correction",
+      "feature": "dist_ma60"
+    },
+    {
+      "family": "regime_correction",
+      "feature": "dist_ma120"
+    },
+    {
+      "family": "common_feature",
+      "feature": "slope_early"
+    },
+    {
+      "family": "common_feature",
+      "feature": "slope_mid"
+    },
+    {
+      "family": "boundary_feature",
+      "feature": "slope_late"
+    },
+    {
+      "family": "bad_pick_removal",
+      "feature": "curvature"
+    },
+    {
+      "family": "symbol_specific_deviation",
+      "feature": "volume_expansion_20_60"
+    },
+    {
+      "family": "symbol_specific_deviation",
+      "feature": "gap_frequency"
+    },
+    {
+      "family": "bad_pick_removal",
+      "feature": "wick_body_ratio"
+    },
+    {
+      "family": "bad_pick_removal",
+      "feature": "drawdown_6m"
+    },
+    {
+      "family": "boundary_feature",
+      "feature": "recovery_6m"
+    },
+    {
+      "family": "regime_correction",
+      "feature": "volatility_6m"
+    },
+    {
+      "family": "symbol_specific_deviation",
+      "feature": "missing_days_ratio"
+    },
+    {
+      "family": "symbol_specific_deviation",
+      "feature": "liquidity_score"
+    },
+    {
+      "family": "regime_correction",
+      "feature": "regime_trend_score"
+    },
+    {
+      "family": "regime_correction",
+      "feature": "regime_volatility_score"
+    }
+  ],
+  "generated_at": "2026-04-20T01:24:39.993413+00:00",
+  "label_contract": {
+    "bottom10_label": "is_next_bottom10",
+    "cohort_label": "cohort_label",
+    "rank_label": "next_month_rank_pct",
+    "top10_label": "is_next_top10"
+  },
+  "leakage_check_status": "pass",
+  "next_action_typed": "drop_axis",
+  "output_dir": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory",
+  "sample_contract": {
+    "analog_k": 4,
+    "candidate_pool_k": 12,
+    "daily_window": "last 6 calendar months of daily bars up to month-end t",
+    "label": "next-month cross-sectional return and rank",
+    "memory_lookback_months": 6,
+    "rolling_window_months": 6,
+    "top_k": 10
+  },
+  "schema_version": "tradex_monthly_shape_memory_v1",
+  "source_db_path": "G:\\Tradex\\scratch\\monthly_shape_memory_demo\\source.duckdb",
+  "start_month": 202102
+}

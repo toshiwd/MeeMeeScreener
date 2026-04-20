@@ -1,0 +1,42 @@
+{
+  "boundary_improved": false,
+  "evidence_summary": {
+    "boundary_improved": false,
+    "full_snapshot_decision": "hold_regime_gated_variant",
+    "full_snapshot_decision_reason": "partial_improvement_without_stable_boundary_gain",
+    "leakage_check_status": "pass",
+    "loser_removal_improved": true,
+    "weekly_diversity_repair": "weekly collapse repaired from one dominant warning label to eight weekly labels",
+    "winner_promotion_improved": false
+  },
+  "full_snapshot_oos_top10_uplift": -0.5555555555555556,
+  "hierarchical_label_layer_decision": "keep_infrastructure",
+  "hierarchical_label_layer_reason": "weekly diversity repair broadened the representation layer and the hierarchy remains useful for diagnostics, filter analysis, and decomposition, but the rerank branch did not become a stable production challenger.",
+  "hierarchical_regime_gated_rerank_decision": "drop_axis",
+  "hierarchical_regime_gated_rerank_reason": "full-snapshot gated oos_top10_uplift=-0.5555555555555556, winner_promotion_improved=False, boundary_improved=False, the challenger remains unstable versus the business target.",
+  "loser_removal_improved": true,
+  "recommended_next_use": "diagnostics / filter-analysis / decomposition only",
+  "schema_version": "tradex_monthly_shape_memory_hierarchical_label_v1",
+  "source_artifacts": {
+    "hierarchical_label_summary": "hierarchical_label_summary.json",
+    "hierarchical_regime_gate_compare": "hierarchical_regime_gate_compare.json",
+    "hierarchical_weekly_diversity_before_after": "hierarchical_weekly_diversity_before_after.json"
+  },
+  "supporting_metrics": {
+    "champion_only_oos_top10_uplift": 0.0,
+    "daily_main_state_count": 6,
+    "gate_activation_rate": 0.11314225225958797,
+    "gate_suppression_rate": 0.19807018972396384,
+    "gate_veto_only_rate": 0.6887875580164482,
+    "gated_boundary_outcome_gap": -0.07185151346808016,
+    "gated_oos_top10_uplift": -0.5555555555555556,
+    "hierarchical_row_count": 24562,
+    "monthly_main_state_count": 4,
+    "ungated_boundary_outcome_gap": 0.053741506267315164,
+    "ungated_oos_top10_uplift": -0.5555555555555556,
+    "weekly_label_count_after": 8,
+    "weekly_label_count_before": 7,
+    "weekly_main_state_count": 8
+  },
+  "winner_promotion_improved": false
+}

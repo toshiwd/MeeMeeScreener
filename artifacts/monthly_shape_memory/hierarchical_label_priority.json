@@ -1,0 +1,100 @@
+{
+  "schema_version": "tradex_monthly_shape_memory_hierarchical_label_v1",
+  "timeframes": [
+    {
+      "event_flag_evaluation_order": [
+        "monthly_change_day_flag",
+        "weekly_change_day_flag",
+        "daily_change_day_flag"
+      ],
+      "insufficient_data_fallback_logic": "emit monthly_range_mid, neutral scores, zero persistence, false flags",
+      "main_state_resolution_order": [
+        "monthly_up_top_warning",
+        "monthly_down_bottom_warning",
+        "monthly_up_mid",
+        "monthly_down_mid",
+        "monthly_range_late",
+        "monthly_range_mid",
+        "monthly_range_pre",
+        "monthly_up_pre"
+      ],
+      "tie_break_logic": "higher candidate score first, then priority order, then more directional states over range states",
+      "timeframe": "monthly",
+      "trigger_flag_evaluation_order": [
+        "daily_gap_up_flag",
+        "daily_gap_down_flag",
+        "daily_engulfing_bull_flag",
+        "daily_engulfing_bear_flag",
+        "daily_reclaim_ma20_flag",
+        "daily_lose_ma20_flag",
+        "daily_long_lower_wick_flag",
+        "daily_long_upper_wick_flag",
+        "daily_small_body_flag"
+      ]
+    },
+    {
+      "event_flag_evaluation_order": [
+        "monthly_change_day_flag",
+        "weekly_change_day_flag",
+        "daily_change_day_flag"
+      ],
+      "insufficient_data_fallback_logic": "emit weekly_range_mid, neutral scores, zero persistence, false flags",
+      "main_state_resolution_order": [
+        "weekly_down_bottom_warning",
+        "weekly_up_late",
+        "weekly_up_mid",
+        "weekly_down_mid",
+        "weekly_up_early",
+        "weekly_down_early",
+        "weekly_range_late",
+        "weekly_range_mid"
+      ],
+      "tie_break_logic": "higher candidate score first, then priority order, then directional states over range states",
+      "timeframe": "weekly",
+      "trigger_flag_evaluation_order": [
+        "daily_gap_up_flag",
+        "daily_gap_down_flag",
+        "daily_engulfing_bull_flag",
+        "daily_engulfing_bear_flag",
+        "daily_reclaim_ma20_flag",
+        "daily_lose_ma20_flag",
+        "daily_long_lower_wick_flag",
+        "daily_long_upper_wick_flag",
+        "daily_small_body_flag"
+      ]
+    },
+    {
+      "event_flag_evaluation_order": [
+        "monthly_change_day_flag",
+        "weekly_change_day_flag",
+        "daily_change_day_flag"
+      ],
+      "insufficient_data_fallback_logic": "emit daily_range_mid, neutral scores, zero persistence, false flags",
+      "main_state_resolution_order": [
+        "daily_reversal_up_candidate",
+        "daily_reversal_down_candidate",
+        "daily_up_top_warning",
+        "daily_down_bottom_warning",
+        "daily_up_mid",
+        "daily_up_early",
+        "daily_down_mid",
+        "daily_down_early",
+        "daily_range_late",
+        "daily_range_mid"
+      ],
+      "tie_break_logic": "higher candidate score first, then priority order, then reversal and warning states over ordinary directional states",
+      "timeframe": "daily",
+      "trigger_flag_evaluation_order": [
+        "daily_gap_up_flag",
+        "daily_gap_down_flag",
+        "daily_engulfing_bull_flag",
+        "daily_engulfing_bear_flag",
+        "daily_reclaim_ma20_flag",
+        "daily_lose_ma20_flag",
+        "daily_long_lower_wick_flag",
+        "daily_long_upper_wick_flag",
+        "daily_small_body_flag"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "fallback_behavior": {
+    "insufficient_data": "retain champion_score",
+    "missing_gate_fields": "retain champion_score"
+  },
+  "full_rerank_gate": {
+    "monthly_environment_score_min": 45.0,
+    "monthly_main_state": [
+      "monthly_range_late",
+      "monthly_up_mid",
+      "monthly_up_top_warning"
+    ],
+    "promotion_condition": "winner_promotion_score >= loser_removal_score",
+    "weekly_main_state": [
+      "weekly_range_late",
+      "weekly_up_late",
+      "weekly_up_mid"
+    ],
+    "weekly_trend_score_min": 45.0
+  },
+  "mode_contract": {
+    "champion_only": "rank by champion_score only",
+    "champion_plus_hierarchical_rerank_regime_gated": "rank by hierarchical_regime_gated_score with regime gate modes",
+    "champion_plus_hierarchical_rerank_ungated": "rank by hierarchical_ungated_score on all samples"
+  },
+  "schema_version": "tradex_monthly_shape_memory_hierarchical_label_v1",
+  "score_composition": {
+    "hierarchical_regime_gated_score": {
+      "full_rerank_mode": "hierarchical_ungated_score",
+      "suppressed_mode": "champion_score",
+      "veto_only_mode": {
+        "champion_score": 0.85,
+        "loser_removal_score": -0.15
+      }
+    },
+    "hierarchical_ungated_score": {
+      "champion_score": 0.5,
+      "loser_removal_score": -0.05,
+      "monthly_environment_score": 0.15,
+      "weekly_trend_score": 0.1,
+      "winner_promotion_score": 0.2
+    }
+  },
+  "suppressed_gate": {
+    "default_mode": "champion_score",
+    "fallback": "when neither full_rerank nor veto_only conditions are satisfied"
+  },
+  "veto_only_gate": {
+    "monthly_main_state": [
+      "monthly_down_bottom_warning",
+      "monthly_down_mid"
+    ],
+    "outside_compatible_states": "champion_score is retained with loser-removal-only downweighting",
+    "promotion_condition": "loser_removal_score > winner_promotion_score",
+    "weekly_main_state": [
+      "weekly_down_bottom_warning",
+      "weekly_down_mid"
+    ]
+  }
+}

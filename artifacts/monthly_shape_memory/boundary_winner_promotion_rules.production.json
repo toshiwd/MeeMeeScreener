@@ -1,0 +1,65 @@
+{
+  "bonus_cap": 1.25,
+  "bonus_scale": 20.0,
+  "candidate_rank_window": [
+    6,
+    30
+  ],
+  "demote_state_keys": [],
+  "fallback_behavior": "retain champion_score when the state is not supported by the impact table or coverage/stability is insufficient.",
+  "filter_only_state_keys": [],
+  "penalty_cap": 1.0,
+  "penalty_scale": 20.0,
+  "promote_state_keys": [],
+  "rank_window_policy": {
+    "default": {
+      "candidate_rank_window": [
+        6,
+        30
+      ],
+      "frozen_prefix": [
+        1,
+        5
+      ],
+      "frozen_suffix": [
+        31,
+        null
+      ],
+      "top5_freeze_enabled": true
+    },
+    "strict_window": {
+      "candidate_rank_window": [
+        8,
+        20
+      ],
+      "frozen_prefix": [
+        1,
+        7
+      ],
+      "frozen_suffix": [
+        21,
+        null
+      ],
+      "top5_freeze_enabled": true
+    }
+  },
+  "schema_version": "tradex_monthly_shape_memory_boundary_winner_promotion_v1",
+  "score_formula": "boundary_winner_bonus = bonus_cap * clamp((winner_promotion_signal - 50.0) / bonus_scale, 0.0, 1.0) for promote states inside the candidate window; boundary_loser_penalty = penalty_cap * clamp((loser_removal_signal - 50.0) / penalty_scale, 0.0, 1.0) for demote states and 0.5 * penalty_cap * clamp((loser_removal_signal - 50.0) / penalty_scale, 0.0, 1.0) for filter_only states inside the candidate window; challenger_score = champion_score + boundary_winner_bonus - boundary_loser_penalty; top5 and tail rows are preserved by rank-window policy.",
+  "source_artifacts": {
+    "hierarchical_label_allowed_uses": "hierarchical_label_allowed_uses.json",
+    "hierarchical_state_failure_map": "hierarchical_state_failure_map.json",
+    "hierarchical_state_winner_loser_decomposition": "hierarchical_state_winner_loser_decomposition.json"
+  },
+  "state_action_priority": [
+    "promote",
+    "demote",
+    "filter_only",
+    "neutral",
+    "avoid"
+  ],
+  "strict_candidate_rank_window": [
+    8,
+    20
+  ],
+  "top5_freeze_enabled": true
+}

@@ -1,0 +1,301 @@
+{
+  "candle_pattern_rules": {
+    "engulfing_rule": "current candle body must engulf previous body and close in the pattern direction",
+    "gap_threshold": 0.002,
+    "long_wick_threshold": 0.35,
+    "small_body_threshold": 0.25
+  },
+  "change_day_rules": {
+    "daily_change_day_flag": "current daily main state differs from previous daily main state for the symbol",
+    "definition": "flag turns true when the current timeframe main state differs from the previous bar in that timeframe",
+    "monthly_change_day_flag": "current monthly main state differs from previous monthly main state for the symbol",
+    "weekly_change_day_flag": "current weekly main state differs from previous weekly main state for the symbol"
+  },
+  "confirmed_ma_conventions": {
+    "daily": [
+      7,
+      20,
+      60
+    ]
+  },
+  "fallback_behavior": {
+    "daily": "daily_range_mid with neutral scores and false change flag",
+    "monthly": "monthly_range_mid with neutral scores and false change flag",
+    "persistence_counts": 0,
+    "scores": 50.0,
+    "trigger_flags": "false",
+    "weekly": "weekly_range_mid with neutral scores and false change flag"
+  },
+  "flat_threshold_definitions": {
+    "alignment_state_definitions": {
+      "bear_stack": "price below short/mid/long MA with falling short slope and non-rising mid slope",
+      "bull_stack": "price above short/mid/long MA with rising short slope and non-declining mid slope",
+      "compressed": "price near all three MA lines with flat short and mid slope",
+      "mixed": "all other combinations"
+    },
+    "price_vs_ma_near_threshold": {
+      "daily": 0.01,
+      "monthly": 0.02,
+      "weekly": 0.015
+    },
+    "slope_flat_definition": "flat when slope delta is between up_threshold and down_threshold"
+  },
+  "ma_periods": {
+    "daily": [
+      7,
+      20,
+      60
+    ],
+    "monthly": [
+      6,
+      12,
+      24
+    ],
+    "weekly": [
+      10,
+      30,
+      60
+    ]
+  },
+  "main_state_assignment_rules": {
+    "daily": {
+      "fallback": "daily_range_mid",
+      "labels": [
+        "daily_up_early",
+        "daily_up_mid",
+        "daily_up_top_warning",
+        "daily_range_mid",
+        "daily_range_late",
+        "daily_down_early",
+        "daily_down_mid",
+        "daily_down_bottom_warning",
+        "daily_reversal_up_candidate",
+        "daily_reversal_down_candidate"
+      ],
+      "priority": [
+        "daily_reversal_up_candidate",
+        "daily_reversal_down_candidate",
+        "daily_up_top_warning",
+        "daily_down_bottom_warning",
+        "daily_up_mid",
+        "daily_up_early",
+        "daily_down_mid",
+        "daily_down_early",
+        "daily_range_late",
+        "daily_range_mid"
+      ]
+    },
+    "monthly": {
+      "fallback": "monthly_range_mid",
+      "labels": [
+        "monthly_up_pre",
+        "monthly_up_mid",
+        "monthly_up_top_warning",
+        "monthly_range_pre",
+        "monthly_range_mid",
+        "monthly_range_late",
+        "monthly_down_mid",
+        "monthly_down_bottom_warning"
+      ],
+      "priority": [
+        "monthly_up_top_warning",
+        "monthly_down_bottom_warning",
+        "monthly_up_mid",
+        "monthly_down_mid",
+        "monthly_range_late",
+        "monthly_range_mid",
+        "monthly_range_pre",
+        "monthly_up_pre"
+      ]
+    },
+    "weekly": {
+      "fallback": "weekly_range_mid",
+      "labels": [
+        "weekly_up_early",
+        "weekly_up_mid",
+        "weekly_up_late",
+        "weekly_range_mid",
+        "weekly_range_late",
+        "weekly_down_early",
+        "weekly_down_mid",
+        "weekly_down_bottom_warning"
+      ],
+      "priority": [
+        "weekly_down_bottom_warning",
+        "weekly_up_late",
+        "weekly_up_mid",
+        "weekly_down_mid",
+        "weekly_up_early",
+        "weekly_down_early",
+        "weekly_range_late",
+        "weekly_range_mid"
+      ]
+    }
+  },
+  "main_state_score_anchors": {
+    "daily": {
+      "daily_down_bottom_warning": 22.0,
+      "daily_down_early": 36.0,
+      "daily_down_mid": 28.0,
+      "daily_range_late": 56.0,
+      "daily_range_mid": 50.0,
+      "daily_reversal_down_candidate": 16.0,
+      "daily_reversal_up_candidate": 86.0,
+      "daily_up_early": 66.0,
+      "daily_up_mid": 78.0,
+      "daily_up_top_warning": 60.0
+    },
+    "monthly": {
+      "monthly_down_bottom_warning": 24.0,
+      "monthly_down_mid": 32.0,
+      "monthly_range_late": 60.0,
+      "monthly_range_mid": 50.0,
+      "monthly_range_pre": 42.0,
+      "monthly_up_mid": 80.0,
+      "monthly_up_pre": 62.0,
+      "monthly_up_top_warning": 56.0
+    },
+    "weekly": {
+      "weekly_down_bottom_warning": 59.0,
+      "weekly_down_early": 56.0,
+      "weekly_down_mid": 60.0,
+      "weekly_range_late": 61.0,
+      "weekly_range_mid": 58.0,
+      "weekly_up_early": 56.0,
+      "weekly_up_late": 62.0,
+      "weekly_up_mid": 60.0
+    }
+  },
+  "persistence_count_rules": {
+    "bucket_labels": [
+      "0",
+      "1-2",
+      "3-5",
+      "6+"
+    ],
+    "cap": 12,
+    "late_threshold": 5,
+    "pre_threshold": 1,
+    "representation": "raw capped count per MA plus bounded persistence score"
+  },
+  "provisional_ma_conventions": {
+    "monthly": [
+      6,
+      12,
+      24
+    ],
+    "weekly": [
+      10,
+      30,
+      60
+    ]
+  },
+  "schema_version": "tradex_monthly_shape_memory_hierarchical_label_v1",
+  "score_composition_rules": {
+    "change_day_score": {
+      "daily_change_day_flag": 20.0,
+      "daily_engulfing_bear_flag": 5.0,
+      "daily_engulfing_bull_flag": 5.0,
+      "daily_gap_down_flag": 5.0,
+      "daily_gap_up_flag": 5.0,
+      "daily_lose_ma20_flag": 10.0,
+      "daily_reclaim_ma20_flag": 10.0,
+      "monthly_change_day_flag": 30.0,
+      "weekly_change_day_flag": 25.0
+    },
+    "daily_execution_score": {
+      "ma_weight": 0.2,
+      "persistence_weight": 0.2,
+      "range": "0..100",
+      "state_weight": 0.35,
+      "trigger_weight": 0.25
+    },
+    "daily_phase_score": "main-state progression score on a 0..100 scale",
+    "loser_removal_score": {
+      "context_weight": 0.25,
+      "similarity_filter_weight": 0.15,
+      "state_label_weight": 0.45,
+      "trigger_weight": 0.15
+    },
+    "monthly_environment_score": {
+      "ma_weight": 0.25,
+      "persistence_weight": 0.2,
+      "range": "0..100",
+      "state_weight": 0.35,
+      "trigger_weight": 0.2
+    },
+    "monthly_phase_score": "main-state progression score on a 0..100 scale",
+    "weekly_phase_score": "main-state progression score on a 0..100 scale",
+    "weekly_trend_score": {
+      "ma_weight": 0.25,
+      "persistence_weight": 0.2,
+      "range": "0..100",
+      "state_weight": 0.4,
+      "trigger_weight": 0.15
+    },
+    "winner_promotion_score": {
+      "context_weight": 0.25,
+      "similarity_filter_weight": 0.15,
+      "state_label_weight": 0.45,
+      "trigger_weight": 0.15
+    }
+  },
+  "slope_threshold_definitions": {
+    "daily": {
+      "down_threshold": {
+        "20": -0.012,
+        "60": -0.015,
+        "7": -0.01
+      },
+      "lookback_bars": {
+        "20": 10,
+        "60": 20,
+        "7": 5
+      },
+      "up_threshold": {
+        "20": 0.012,
+        "60": 0.015,
+        "7": 0.01
+      }
+    },
+    "monthly": {
+      "down_threshold": {
+        "12": -0.03,
+        "24": -0.04,
+        "6": -0.03
+      },
+      "lookback_bars": {
+        "12": 3,
+        "24": 6,
+        "6": 3
+      },
+      "up_threshold": {
+        "12": 0.03,
+        "24": 0.04,
+        "6": 0.03
+      }
+    },
+    "weekly": {
+      "down_threshold": {
+        "10": -0.02,
+        "30": -0.02,
+        "60": -0.03
+      },
+      "lookback_bars": {
+        "10": 4,
+        "30": 8,
+        "60": 12
+      },
+      "up_threshold": {
+        "10": 0.02,
+        "30": 0.02,
+        "60": 0.03
+      }
+    }
+  },
+  "timeframe_role_contract": {
+    "daily": "execution",
+    "monthly": "environment",
+    "weekly": "trend"
+  }
+}

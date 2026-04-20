@@ -1,0 +1,71 @@
+{
+  "allowed_use_cases": [
+    {
+      "reason": "labels separate monthly, weekly, and daily structure and expose regime-gated failure modes.",
+      "use_case": "regime diagnostics"
+    },
+    {
+      "reason": "the hierarchy carries boundary_gap, winner_promotion_score, and loser_removal_score for comparison.",
+      "use_case": "boundary failure analysis"
+    },
+    {
+      "reason": "the MA-aware states and scores can filter similar symbol-month contexts without changing the target.",
+      "use_case": "analog retrieval filtering"
+    },
+    {
+      "reason": "winner_promotion_score and loser_removal_score stay inspectable and additive.",
+      "use_case": "winner/loser decomposition"
+    },
+    {
+      "reason": "the layer remains a stable research representation, not a production rerank axis.",
+      "use_case": "future feature construction"
+    }
+  ],
+  "disallowed_use_cases": [
+    {
+      "reason": "full snapshot did not show stable top10 uplift or boundary improvement.",
+      "use_case": "regime-gated rerank challenger"
+    },
+    {
+      "reason": "champion_only remains the authoritative baseline and should not be displaced by this axis.",
+      "use_case": "production ranking replacement"
+    },
+    {
+      "reason": "the rerank failure is business-level, not a missing-threshold problem.",
+      "use_case": "gate broadening rescue attempt"
+    },
+    {
+      "reason": "the label layer is already compact and image-side expansion is out of scope.",
+      "use_case": "image complexity rescue"
+    }
+  ],
+  "evidence_summary": {
+    "boundary_improved": false,
+    "leakage_check_status": "pass",
+    "loser_removal_improved": true,
+    "regime_gated_rerank_decision": "drop_axis",
+    "split_decision": "keep_infrastructure",
+    "split_reason": "weekly diversity repair broadened the representation layer and the hierarchy remains useful for diagnostics, filter analysis, and decomposition, but the rerank branch did not become a stable production challenger.",
+    "weekly_label_count_after": 7,
+    "weekly_label_count_before": 7,
+    "winner_promotion_improved": false
+  },
+  "full_snapshot_supporting_metrics": {
+    "champion_only_oos_top10_uplift": 0.0,
+    "gate_activation_rate": 0.020833333333333332,
+    "gate_suppression_rate": 0.3177083333333333,
+    "gate_veto_only_rate": 0.6614583333333334,
+    "gated_boundary_outcome_gap": 0.00016735180165189378,
+    "gated_oos_top10_uplift": -0.375,
+    "ungated_boundary_outcome_gap": -7.467599074369169e-05,
+    "ungated_oos_top10_uplift": -0.8125,
+    "weekly_label_count_after": 7,
+    "weekly_label_count_before": 7
+  },
+  "schema_version": "tradex_monthly_shape_memory_hierarchical_label_v1",
+  "source_artifacts": {
+    "hierarchical_labels_keep_rerank_drop": "authoritative_decision.hierarchical_labels_keep_rerank_drop.json",
+    "hierarchical_regime_gate_compare": "hierarchical_regime_gate_compare.json",
+    "hierarchical_weekly_diversity_before_after": "hierarchical_weekly_diversity_before_after.json"
+  }
+}
