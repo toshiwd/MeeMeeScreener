@@ -40,6 +40,7 @@ from external_analysis.labels.rolling_labels import build_rolling_labels
 from external_analysis.labels.store import ensure_label_db
 from external_analysis.image_rerank.cli import run_image_rerank_phase0_3
 from external_analysis.image_rerank.research_runner import run_image_rerank_disposition, run_image_rerank_research
+from external_analysis.monthly_shape_memory import run_monthly_shape_memory_research
 from external_analysis.models.candidate_baseline import run_candidate_baseline
 from external_analysis.models.forecast_surface_evaluation import evaluate_forecast_surface, summarize_forecast_surface_shadow_run
 from external_analysis.ops.ops_schema import ensure_ops_db
@@ -374,6 +375,19 @@ def main() -> int:
         help="Build the derived keep/drop/hold disposition artifact for an existing image rerank research session.",
     )
     image_rerank_disposition_parser.add_argument("--session-id", required=True)
+
+    monthly_shape_memory_parser = sub.add_parser(
+        "monthly-shape-memory-run",
+        help="Build the monthly shape memory research artifacts and compare shape-assisted reranking against the champion proxy.",
+    )
+    monthly_shape_memory_parser.add_argument("--source-db-path", default=None)
+    monthly_shape_memory_parser.add_argument("--artifact-suffix", default="")
+    monthly_shape_memory_parser.add_argument("--top-k", type=int, default=10)
+    monthly_shape_memory_parser.add_argument("--candidate-pool-k", type=int, default=30)
+    monthly_shape_memory_parser.add_argument("--analog-k", type=int, default=8)
+    monthly_shape_memory_parser.add_argument("--memory-lookback-months", type=int, default=24)
+    monthly_shape_memory_parser.add_argument("--rolling-window-months", type=int, default=36)
+    monthly_shape_memory_parser.add_argument("--start-month", type=int, default=201001)
 
     event_image_dataset_build_parser = sub.add_parser(
         "event-image-dataset-build",
@@ -1039,6 +1053,20 @@ def main() -> int:
         return 0
     if args.cmd == "image-rerank-disposition-run":
         print(run_image_rerank_disposition(session_id=args.session_id))
+        return 0
+        if args.cmd == "monthly-shape-memory-run":
+            print(
+                run_monthly_shape_memory_research(
+                    source_db_path=args.source_db_path,
+                    artifact_suffix=str(args.artifact_suffix),
+                    top_k=int(args.top_k),
+                    candidate_pool_k=int(args.candidate_pool_k),
+                    analog_k=int(args.analog_k),
+                memory_lookback_months=int(args.memory_lookback_months),
+                rolling_window_months=int(args.rolling_window_months),
+                start_month=int(args.start_month),
+            )
+        )
         return 0
     if args.cmd == "event-image-dataset-build":
         print(
