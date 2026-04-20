@@ -1,0 +1,28 @@
+{
+  "decision": "keep_multitimeframe_decomposition_layer",
+  "decision_reason": "native hierarchical labels were joined for most rows and equivalent mappings were clearly tagged for the remainder",
+  "equivalent_join_rate": 0.06095538886695618,
+  "exact_join_rate": 0.9390446111330438,
+  "generated_at": "2026-04-20T13:58:04.588382+00:00",
+  "join_contract": {
+    "equivalent_join_source": "confirmed payload fields from basis/reason/score snapshots",
+    "exact_join_source": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\monthly_labels_hierarchical.parquet",
+    "hierarchical_key": [
+      "code",
+      "sample_month"
+    ],
+    "primary_key": [
+      "code",
+      "signal_month"
+    ]
+  },
+  "long_candidate_pool_sizes": {
+    "long_too_late_candidates_multitimeframe": 105,
+    "long_weak_direction_candidates_multitimeframe": 105
+  },
+  "schema_version": "tradex_action_precision_multitimeframe_decision_v1",
+  "short_candidate_pool_sizes": {
+    "short_too_late_candidates_multitimeframe": 90,
+    "short_weak_direction_candidates_multitimeframe": 90
+  }
+}

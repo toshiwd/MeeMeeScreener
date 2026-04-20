@@ -1,0 +1,174 @@
+{
+  "schema_version": "tradex_action_precision_long_weak_direction_rules_v1",
+  "generated_at": "2026-04-20T08:51:03.397915+00:00",
+  "logic_version": "logic:trade:v1",
+  "basis_version": "basis:v1",
+  "split_contract": {
+    "schema_version": "tradex_action_precision_split_contract_v1",
+    "generated_at": "2026-04-20T08:51:02.644959+00:00",
+    "logic_version": "logic:trade:v1",
+    "basis_version": "basis:v1",
+    "snapshot_db_path": "G:\\Tradex\\scratch\\source_snapshots\\action_precision_replay_20260420T085028204590Z.duckdb",
+    "snapshot_max_trade_date": 20260417,
+    "replay_lookback_start_date": 20160417,
+    "last_fully_confirmable_month": 202602,
+    "analysis_cutoff_ymd": 20260227,
+    "train_months": [
+      202403,
+      202404,
+      202405,
+      202406,
+      202407,
+      202408,
+      202409,
+      202410,
+      202411,
+      202412,
+      202501,
+      202502
+    ],
+    "tune_months": [
+      202503,
+      202504,
+      202505,
+      202506,
+      202507,
+      202508
+    ],
+    "validation_months": [
+      202509,
+      202510,
+      202511,
+      202512,
+      202601,
+      202602
+    ],
+    "note": "Signals after the cutoff are excluded. The split is fixed by month and uses only complete 20-day replay rows."
+  },
+  "diagnosis_scope": {
+    "splits": [
+      "train",
+      "tuning"
+    ],
+    "selection_metric": "bounded_weak_direction_rank",
+    "minimum_sample_count": 150,
+    "maximum_sample_count": 190,
+    "block_cluster_count": 1,
+    "excluded_clusters": [
+      "regime=risk_on|monthly=box_upper|weekly=weekly_bull|monthly_state=monthly_bull|daily=daily_bull|candle=candle_other|change=up",
+      "regime=risk_on|monthly=box_upper|weekly=weekly_bull|monthly_state=monthly_bull|daily=daily_bull|candle=candle_other|change=flat"
+    ]
+  },
+  "selected_block_clusters": [
+    "regime=neutral|monthly=box_upper|weekly=weekly_bull|monthly_state=monthly_bull|daily=daily_bull|candle=candle_other|change=flat"
+  ],
+  "compare_modes": {
+    "block": {
+      "action": "block",
+      "applies_to_clusters": [
+        "regime=neutral|monthly=box_upper|weekly=weekly_bull|monthly_state=monthly_bull|daily=daily_bull|candle=candle_other|change=flat"
+      ],
+      "effect": "remove_emitted_buy_rows_from_selected_clusters"
+    },
+    "downgrade": {
+      "action": "downgrade_to_buy_weak",
+      "applies_to_clusters": [
+        "regime=neutral|monthly=box_upper|weekly=weekly_bull|monthly_state=monthly_bull|daily=daily_bull|candle=candle_other|change=flat"
+      ],
+      "effect": "retain_emitted_buy_rows_and_downgrade_selected_clusters_to_BUY_WEAK"
+    }
+  },
+  "decision": {
+    "typed_decision": "keep",
+    "reasons": [
+      "validation_precision_improved",
+      "validation_mfe_not_worse",
+      "validation_mae_not_worse",
+      "validation_too_late_non_degrading",
+      "coverage_loss_acceptable"
+    ]
+  },
+  "validation_summary": {
+    "baseline": {
+      "buy_signal_count": 2892,
+      "count": 2892,
+      "strong_count": 1309,
+      "weak_count": 1583,
+      "no_count": 0,
+      "buy_strong_rate": 0.45262793914246197,
+      "buy_weak_rate": 0.5473720608575381,
+      "buy_precision_strong": 0.45262793914246197,
+      "buy_mfe_20_mean": 0.12004022726980246,
+      "buy_mfe_20_median": 0.09547524840880373,
+      "buy_mae_20_mean": 0.02688034881330929,
+      "buy_days_to_mfe_mean": 15.759681881051176,
+      "buy_mfe_before_stop_mean": 0.11848612350029177,
+      "buy_too_early_rate": 0.17219917012448133,
+      "buy_on_time_rate": 0.8001383125864454,
+      "buy_too_late_rate": 0.027662517289073305,
+      "buy_timing_score_mean": 82.29930817601935,
+      "precision_strong": 0.45262793914246197,
+      "strong_rate": 0.45262793914246197,
+      "weak_rate": 0.5473720608575381,
+      "timing_score_mean": 82.29930817601935,
+      "tradeability_score_mean": 70.74362314027341,
+      "tradeability_score_median": 72.18692489273482,
+      "strong_tradeability_score_mean": 76.12470605412692,
+      "weak_tradeability_score_mean": 66.29394687101615
+    },
+    "block": {
+      "buy_signal_count": 2817,
+      "count": 2817,
+      "strong_count": 1282,
+      "weak_count": 1535,
+      "no_count": 0,
+      "buy_strong_rate": 0.4550940717074902,
+      "buy_weak_rate": 0.5449059282925097,
+      "buy_precision_strong": 0.4550940717074902,
+      "buy_mfe_20_mean": 0.12040939779455141,
+      "buy_mfe_20_median": 0.09549428379287156,
+      "buy_mae_20_mean": 0.02704927041640106,
+      "buy_days_to_mfe_mean": 15.795172168974085,
+      "buy_mfe_before_stop_mean": 0.11889876401446443,
+      "buy_too_early_rate": 0.17429889953851616,
+      "buy_on_time_rate": 0.7983670571529996,
+      "buy_too_late_rate": 0.027334043308484202,
+      "buy_timing_score_mean": 82.17734311081935,
+      "precision_strong": 0.4550940717074902,
+      "strong_rate": 0.4550940717074902,
+      "weak_rate": 0.5449059282925097,
+      "timing_score_mean": 82.17734311081935,
+      "tradeability_score_mean": 70.63642283636783,
+      "tradeability_score_median": 72.14574542897327,
+      "strong_tradeability_score_mean": 76.10433259696592,
+      "weak_tradeability_score_mean": 66.06973859331457
+    },
+    "downgrade": {
+      "buy_signal_count": 2892,
+      "count": 2892,
+      "strong_count": 1282,
+      "weak_count": 1610,
+      "no_count": 0,
+      "buy_strong_rate": 0.4432918395573997,
+      "buy_weak_rate": 0.5567081604426003,
+      "buy_precision_strong": 0.4432918395573997,
+      "buy_mfe_20_mean": 0.12004022726980246,
+      "buy_mfe_20_median": 0.09547524840880373,
+      "buy_mae_20_mean": 0.02688034881330929,
+      "buy_days_to_mfe_mean": 15.759681881051176,
+      "buy_mfe_before_stop_mean": 0.11848612350029177,
+      "buy_too_early_rate": 0.17219917012448133,
+      "buy_on_time_rate": 0.8001383125864454,
+      "buy_too_late_rate": 0.027662517289073305,
+      "buy_timing_score_mean": 82.29930817601935,
+      "precision_strong": 0.4432918395573997,
+      "strong_rate": 0.4432918395573997,
+      "weak_rate": 0.5567081604426003,
+      "timing_score_mean": 82.29930817601935,
+      "tradeability_score_mean": 70.74362314027341,
+      "tradeability_score_median": 72.18692489273482,
+      "strong_tradeability_score_mean": 76.10433259696592,
+      "weak_tradeability_score_mean": 66.47503337413691
+    }
+  }
+}

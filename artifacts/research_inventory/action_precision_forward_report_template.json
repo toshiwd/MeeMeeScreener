@@ -1,0 +1,116 @@
+{
+  "generated_at": "2026-04-20T11:41:43.833611+00:00",
+  "required_artifacts": {
+    "combined_long_block": "authoritative_decision.long_forward_confirm_bundle.json",
+    "long_too_late_block": "action_precision_long_too_late_forward_confirm.json",
+    "long_weak_direction_block": "action_precision_long_weak_direction_forward_confirm.json"
+  },
+  "schema_version": "tradex_action_precision_forward_report_template_v1",
+  "sections": {
+    "combined_long_block": {
+      "baseline_metrics": {
+        "buy_mae_20_mean": null,
+        "buy_mfe_20_mean": null,
+        "buy_mfe_20_median": null,
+        "buy_on_time_rate": null,
+        "buy_precision_strong": null,
+        "buy_signal_count": null,
+        "buy_timing_score_mean": null,
+        "buy_too_late_rate": null,
+        "coverage_loss_pct": null,
+        "mae_delta": null,
+        "mfe_delta": null,
+        "precision_gain": null,
+        "timing_score_delta": null
+      },
+      "block_metrics": {
+        "buy_mae_20_mean": null,
+        "buy_mfe_20_mean": null,
+        "buy_mfe_20_median": null,
+        "buy_on_time_rate": null,
+        "buy_precision_strong": null,
+        "buy_signal_count": null,
+        "buy_timing_score_mean": null,
+        "buy_too_late_rate": null,
+        "coverage_loss_pct": null,
+        "mae_delta": null,
+        "mfe_delta": null,
+        "precision_gain": null,
+        "timing_score_delta": null
+      },
+      "decision": null,
+      "note": "combined long remains gated until both frozen singles confirm on a complete unseen month"
+    },
+    "long_too_late_block": {
+      "baseline_metrics": {
+        "buy_mae_20_mean": null,
+        "buy_mfe_20_mean": null,
+        "buy_mfe_20_median": null,
+        "buy_on_time_rate": null,
+        "buy_precision_strong": null,
+        "buy_signal_count": null,
+        "buy_timing_score_mean": null,
+        "buy_too_late_rate": null,
+        "coverage_loss_pct": null,
+        "mae_delta": null,
+        "mfe_delta": null,
+        "precision_gain": null,
+        "timing_score_delta": null
+      },
+      "block_metrics": {
+        "buy_mae_20_mean": null,
+        "buy_mfe_20_mean": null,
+        "buy_mfe_20_median": null,
+        "buy_on_time_rate": null,
+        "buy_precision_strong": null,
+        "buy_signal_count": null,
+        "buy_timing_score_mean": null,
+        "buy_too_late_rate": null,
+        "coverage_loss_pct": null,
+        "mae_delta": null,
+        "mfe_delta": null,
+        "precision_gain": null,
+        "timing_score_delta": null
+      },
+      "decision": null
+    },
+    "long_weak_direction_block": {
+      "baseline_metrics": {
+        "buy_mae_20_mean": null,
+        "buy_mfe_20_mean": null,
+        "buy_mfe_20_median": null,
+        "buy_on_time_rate": null,
+        "buy_precision_strong": null,
+        "buy_signal_count": null,
+        "buy_timing_score_mean": null,
+        "buy_too_late_rate": null,
+        "coverage_loss_pct": null,
+        "mae_delta": null,
+        "mfe_delta": null,
+        "precision_gain": null,
+        "timing_score_delta": null
+      },
+      "block_metrics": {
+        "buy_mae_20_mean": null,
+        "buy_mfe_20_mean": null,
+        "buy_mfe_20_median": null,
+        "buy_on_time_rate": null,
+        "buy_precision_strong": null,
+        "buy_signal_count": null,
+        "buy_timing_score_mean": null,
+        "buy_too_late_rate": null,
+        "coverage_loss_pct": null,
+        "mae_delta": null,
+        "mfe_delta": null,
+        "precision_gain": null,
+        "timing_score_delta": null
+      },
+      "decision": null
+    }
+  },
+  "stage_order": [
+    "long_too_late_block",
+    "long_weak_direction_block",
+    "combined_long_block"
+  ]
+}

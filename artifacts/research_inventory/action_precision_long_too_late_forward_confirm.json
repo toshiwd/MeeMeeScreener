@@ -1,0 +1,90 @@
+{
+  "schema_version": "tradex_action_precision_long_too_late_forward_confirm_v1",
+  "generated_at": "2026-04-20T08:51:04.615376+00:00",
+  "logic_version": "logic:trade:v1",
+  "basis_version": "basis:v1",
+  "original_split_contract": {
+    "schema_version": "tradex_action_precision_split_contract_v1",
+    "generated_at": "2026-04-20T08:51:02.644959+00:00",
+    "logic_version": "logic:trade:v1",
+    "basis_version": "basis:v1",
+    "snapshot_db_path": "G:\\Tradex\\scratch\\source_snapshots\\action_precision_replay_20260420T085028204590Z.duckdb",
+    "snapshot_max_trade_date": 20260417,
+    "replay_lookback_start_date": 20160417,
+    "last_fully_confirmable_month": 202602,
+    "analysis_cutoff_ymd": 20260227,
+    "train_months": [
+      202403,
+      202404,
+      202405,
+      202406,
+      202407,
+      202408,
+      202409,
+      202410,
+      202411,
+      202412,
+      202501,
+      202502
+    ],
+    "tune_months": [
+      202503,
+      202504,
+      202505,
+      202506,
+      202507,
+      202508
+    ],
+    "validation_months": [
+      202509,
+      202510,
+      202511,
+      202512,
+      202601,
+      202602
+    ],
+    "note": "Signals after the cutoff are excluded. The split is fixed by month and uses only complete 20-day replay rows."
+  },
+  "frozen_block_clusters": [
+    "regime=risk_on|monthly=box_upper|weekly=weekly_bull|monthly_state=monthly_bull|daily=daily_bull|candle=candle_other|change=up",
+    "regime=risk_on|monthly=box_upper|weekly=weekly_bull|monthly_state=monthly_bull|daily=daily_bull|candle=candle_other|change=flat"
+  ],
+  "forward_confirm_period": null,
+  "forward_confirm_period_reason": "no_complete_month_available_after_validation",
+  "baseline_metrics": null,
+  "block_metrics": null,
+  "blocked_signal_count": 0,
+  "blocked_signal_share": null,
+  "coverage_loss_pct": null,
+  "precision_gain": null,
+  "mfe_delta": null,
+  "mae_delta": null,
+  "timing_score_delta": null,
+  "decision": "hold_long_too_late_revision_needs_more_time",
+  "decision_reason": "no_complete_month_available_after_validation; 202603 and 202604 are partial in the current snapshot",
+  "blocked_cluster_drilldown": [
+    {
+      "state_combination": "regime=risk_on|monthly=box_upper|weekly=weekly_bull|monthly_state=monthly_bull|daily=daily_bull|candle=candle_other|change=up",
+      "validation_period_sample_count": 146,
+      "forward_confirm_sample_count": 0,
+      "forward_confirm_precision": null,
+      "forward_confirm_mfe_20_mean": null,
+      "forward_confirm_mae_20_mean": null,
+      "still_too_late_heavy": null,
+      "block_still_appears_justified": null
+    },
+    {
+      "state_combination": "regime=risk_on|monthly=box_upper|weekly=weekly_bull|monthly_state=monthly_bull|daily=daily_bull|candle=candle_other|change=flat",
+      "validation_period_sample_count": 152,
+      "forward_confirm_sample_count": 0,
+      "forward_confirm_precision": null,
+      "forward_confirm_mfe_20_mean": null,
+      "forward_confirm_mae_20_mean": null,
+      "still_too_late_heavy": null,
+      "block_still_appears_justified": null
+    }
+  ],
+  "forward_month_candidates": [],
+  "forward_month_candidate_replay_counts": {},
+  "forward_month_candidate_raw_counts": {}
+}

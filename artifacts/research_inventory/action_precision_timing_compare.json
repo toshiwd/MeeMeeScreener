@@ -1,0 +1,126 @@
+{
+  "schema_version": "tradex_action_precision_timing_compare_v1",
+  "generated_at": "2026-04-20T08:51:03.454926+00:00",
+  "logic_version": "logic:trade:v1",
+  "basis_version": "basis:v1",
+  "split_contract": {
+    "schema_version": "tradex_action_precision_split_contract_v1",
+    "generated_at": "2026-04-20T08:51:02.644959+00:00",
+    "logic_version": "logic:trade:v1",
+    "basis_version": "basis:v1",
+    "snapshot_db_path": "G:\\Tradex\\scratch\\source_snapshots\\action_precision_replay_20260420T085028204590Z.duckdb",
+    "snapshot_max_trade_date": 20260417,
+    "replay_lookback_start_date": 20160417,
+    "last_fully_confirmable_month": 202602,
+    "analysis_cutoff_ymd": 20260227,
+    "train_months": [
+      202403,
+      202404,
+      202405,
+      202406,
+      202407,
+      202408,
+      202409,
+      202410,
+      202411,
+      202412,
+      202501,
+      202502
+    ],
+    "tune_months": [
+      202503,
+      202504,
+      202505,
+      202506,
+      202507,
+      202508
+    ],
+    "validation_months": [
+      202509,
+      202510,
+      202511,
+      202512,
+      202601,
+      202602
+    ],
+    "note": "Signals after the cutoff are excluded. The split is fixed by month and uses only complete 20-day replay rows."
+  },
+  "baseline_thresholds": {
+    "timing_refinement_window_days": 5,
+    "pre_signal_context_window_days": 10,
+    "timing_early_gap_threshold_pct": 0.02,
+    "timing_late_remaining_ratio_threshold": 0.35,
+    "timing_late_pre_move_threshold_pct": 0.05,
+    "target_gain_pct_long": 0.1,
+    "target_gain_pct_short": 0.1,
+    "soft_gain_pct_long": 0.05,
+    "soft_gain_pct_short": 0.05,
+    "max_adverse_pct_long": 0.08,
+    "max_adverse_pct_short": 0.08,
+    "max_days_to_favorable_move": 20,
+    "atr_scaled_stop_enabled": false,
+    "atr_stop_multiple": null
+  },
+  "long_candidate_thresholds": {
+    "timing_refinement_window_days": 5,
+    "pre_signal_context_window_days": 10,
+    "timing_early_gap_threshold_pct": 0.02,
+    "timing_late_remaining_ratio_threshold": 0.35,
+    "timing_late_pre_move_threshold_pct": 0.05,
+    "target_gain_pct_long": 0.1,
+    "target_gain_pct_short": 0.1,
+    "soft_gain_pct_long": 0.05,
+    "soft_gain_pct_short": 0.05,
+    "max_adverse_pct_long": 0.08,
+    "max_adverse_pct_short": 0.08,
+    "max_days_to_favorable_move": 20,
+    "atr_scaled_stop_enabled": false,
+    "atr_stop_multiple": null
+  },
+  "short_candidate_thresholds": {
+    "timing_refinement_window_days": 5,
+    "pre_signal_context_window_days": 10,
+    "timing_early_gap_threshold_pct": 0.02,
+    "timing_late_remaining_ratio_threshold": 0.35,
+    "timing_late_pre_move_threshold_pct": 0.05,
+    "target_gain_pct_long": 0.1,
+    "target_gain_pct_short": 0.1,
+    "soft_gain_pct_long": 0.05,
+    "soft_gain_pct_short": 0.05,
+    "max_adverse_pct_long": 0.08,
+    "max_adverse_pct_short": 0.08,
+    "max_days_to_favorable_move": 20,
+    "atr_scaled_stop_enabled": false,
+    "atr_stop_multiple": null
+  },
+  "validation": {
+    "baseline": {
+      "buy": {
+        "buy_too_early_rate": 0.1283264340626848,
+        "buy_on_time_rate": 0.6838162822787305,
+        "buy_too_late_rate": 0.18785728365858467,
+        "buy_timing_score_mean": 76.95436428083626
+      },
+      "sell": {
+        "sell_too_early_rate": 0.1232876712328767,
+        "sell_on_time_rate": 0.726027397260274,
+        "sell_too_late_rate": 0.1506849315068493,
+        "sell_timing_score_mean": 78.09529867998698
+      }
+    },
+    "candidate": {
+      "buy": {
+        "buy_too_early_rate": 0.1283264340626848,
+        "buy_on_time_rate": 0.6838162822787305,
+        "buy_too_late_rate": 0.18785728365858467,
+        "buy_timing_score_mean": 76.95436428083626
+      },
+      "sell": {
+        "sell_too_early_rate": 0.1232876712328767,
+        "sell_on_time_rate": 0.726027397260274,
+        "sell_too_late_rate": 0.1506849315068493,
+        "sell_timing_score_mean": 78.09529867998698
+      }
+    }
+  }
+}

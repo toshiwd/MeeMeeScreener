@@ -75,3 +75,7 @@ tmp/monthly_all_candidates_with_gate_enriched.csv
 /tmp/codex-check/
 /tsc_errors*.txt
 /tmp_req.json
+
+# TRADEX compare/debug exports are regenerated and should stay out of git.
+# Keep authoritative_decision*.json tracked; only ignore compare-style outputs.
+/artifacts/monthly_shape_memory/*_compare*.json

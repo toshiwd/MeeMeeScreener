@@ -1,0 +1,114 @@
+{
+  "allowed_next_action": "defer_and_wait_for_complete_forward_block",
+  "current_threshold_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\action_precision_thresholds.json",
+  "current_validation_month_end": 202602,
+  "frozen_revisions": [
+    {
+      "allowed_next_action": "forward_confirm_frozen_revision",
+      "exact_cluster_list": [
+        "regime=neutral|monthly=box_upper|weekly=weekly_bull|monthly_state=monthly_bull|daily=daily_bull|candle=candle_other|change=flat"
+      ],
+      "revision_name": "long_weak_direction_1_cluster_block",
+      "source_artifact_paths": [
+        "C:\\work\\meemee-screener\\artifacts\\research_inventory\\action_precision_long_weak_direction_candidates.json",
+        "C:\\work\\meemee-screener\\artifacts\\research_inventory\\action_precision_long_weak_direction_rules.json",
+        "C:\\work\\meemee-screener\\artifacts\\research_inventory\\action_precision_long_weak_direction_compare.json",
+        "C:\\work\\meemee-screener\\artifacts\\research_inventory\\action_precision_long_weak_direction_forward_confirm.json",
+        "C:\\work\\meemee-screener\\artifacts\\research_inventory\\authoritative_decision.long_weak_direction_forward_confirm.json"
+      ],
+      "status": "accepted_frozen",
+      "threshold_contract_hash": "16f91e5ca41d7a195ca5a6840fc733899ef2379c02e0bcd6f0370b98a99b8604"
+    },
+    {
+      "allowed_next_action": "forward_confirm_frozen_revision",
+      "exact_cluster_list": [
+        "regime=risk_on|monthly=box_upper|weekly=weekly_bull|monthly_state=monthly_bull|daily=daily_bull|candle=candle_other|change=up",
+        "regime=risk_on|monthly=box_upper|weekly=weekly_bull|monthly_state=monthly_bull|daily=daily_bull|candle=candle_other|change=flat"
+      ],
+      "revision_name": "long_too_late_2_cluster_block",
+      "source_artifact_paths": [
+        "C:\\work\\meemee-screener\\artifacts\\research_inventory\\action_precision_long_too_late_candidates.json",
+        "C:\\work\\meemee-screener\\artifacts\\research_inventory\\action_precision_long_too_late_rules.json",
+        "C:\\work\\meemee-screener\\artifacts\\research_inventory\\action_precision_long_too_late_compare.json",
+        "C:\\work\\meemee-screener\\artifacts\\research_inventory\\action_precision_long_too_late_forward_confirm.json",
+        "C:\\work\\meemee-screener\\artifacts\\research_inventory\\authoritative_decision.long_too_late_forward_confirm.json"
+      ],
+      "status": "pending_frozen",
+      "threshold_contract_hash": "16f91e5ca41d7a195ca5a6840fc733899ef2379c02e0bcd6f0370b98a99b8604"
+    }
+  ],
+  "generated_at": "2026-04-20T11:41:43.833611+00:00",
+  "last_fully_confirmable_month": 202602,
+  "replay_lookback_start_date": 20160417,
+  "schema_version": "tradex_action_precision_frozen_manifest_v1",
+  "snapshot_db_path": "G:\\Tradex\\scratch\\source_snapshots\\action_precision_forward_control_20260420T114112009903Z.duckdb",
+  "snapshot_max_trade_date": 20260417,
+  "source_db_path": "C:\\Users\\enish\\AppData\\Local\\MeeMeeScreener\\data\\stocks.duckdb",
+  "threshold_contract": {
+    "baseline": {
+      "atr_scaled_stop_enabled": false,
+      "atr_stop_multiple": null,
+      "max_adverse_pct_long": 0.08,
+      "max_adverse_pct_short": 0.08,
+      "max_days_to_favorable_move": 20,
+      "pre_signal_context_window_days": 10,
+      "soft_gain_pct_long": 0.05,
+      "soft_gain_pct_short": 0.05,
+      "target_gain_pct_long": 0.1,
+      "target_gain_pct_short": 0.1,
+      "timing_early_gap_threshold_pct": 0.02,
+      "timing_late_pre_move_threshold_pct": 0.05,
+      "timing_late_remaining_ratio_threshold": 0.35,
+      "timing_refinement_window_days": 5
+    },
+    "combined_candidate": {
+      "atr_scaled_stop_enabled": false,
+      "atr_stop_multiple": null,
+      "max_adverse_pct_long": 0.08,
+      "max_adverse_pct_short": 0.08,
+      "max_days_to_favorable_move": 20,
+      "pre_signal_context_window_days": 10,
+      "soft_gain_pct_long": 0.05,
+      "soft_gain_pct_short": 0.05,
+      "target_gain_pct_long": 0.1,
+      "target_gain_pct_short": 0.1,
+      "timing_early_gap_threshold_pct": 0.02,
+      "timing_late_pre_move_threshold_pct": 0.05,
+      "timing_late_remaining_ratio_threshold": 0.35,
+      "timing_refinement_window_days": 5
+    },
+    "long_candidate": {
+      "atr_scaled_stop_enabled": false,
+      "atr_stop_multiple": null,
+      "max_adverse_pct_long": 0.08,
+      "max_adverse_pct_short": 0.08,
+      "max_days_to_favorable_move": 20,
+      "pre_signal_context_window_days": 10,
+      "soft_gain_pct_long": 0.05,
+      "soft_gain_pct_short": 0.05,
+      "target_gain_pct_long": 0.1,
+      "target_gain_pct_short": 0.1,
+      "timing_early_gap_threshold_pct": 0.02,
+      "timing_late_pre_move_threshold_pct": 0.05,
+      "timing_late_remaining_ratio_threshold": 0.35,
+      "timing_refinement_window_days": 5
+    },
+    "short_candidate": {
+      "atr_scaled_stop_enabled": false,
+      "atr_stop_multiple": null,
+      "max_adverse_pct_long": 0.08,
+      "max_adverse_pct_short": 0.08,
+      "max_days_to_favorable_move": 20,
+      "pre_signal_context_window_days": 10,
+      "soft_gain_pct_long": 0.05,
+      "soft_gain_pct_short": 0.05,
+      "target_gain_pct_long": 0.1,
+      "target_gain_pct_short": 0.1,
+      "timing_early_gap_threshold_pct": 0.02,
+      "timing_late_pre_move_threshold_pct": 0.05,
+      "timing_late_remaining_ratio_threshold": 0.35,
+      "timing_refinement_window_days": 5
+    }
+  },
+  "threshold_contract_hash": "16f91e5ca41d7a195ca5a6840fc733899ef2379c02e0bcd6f0370b98a99b8604"
+}
