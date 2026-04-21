@@ -386,8 +386,12 @@ def _feature_input_repair_dates(conn, *, target_date_keys: list[int]) -> list[in
     feature_rows = conn.execute(
         f"""
         SELECT {feature_dt_sql} AS dt_key, COUNT(DISTINCT code) AS code_count
-        FROM feature_snapshot_daily
+        FROM ml_feature_daily
         WHERE {feature_dt_sql} IN ({placeholders})
+          AND feature_version = (
+              SELECT MAX(feature_version)
+              FROM ml_feature_daily
+          )
         GROUP BY 1
         """,
         [int(value) for value in normalized_targets],

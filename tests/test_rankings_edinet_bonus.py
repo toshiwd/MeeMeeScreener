@@ -300,6 +300,15 @@ def test_edinet_audit_and_monitor_api(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("STOCKS_DB_PATH", str(db_path))
     _prepare_hybrid_ml_cache(monkeypatch)
     monkeypatch.setenv("MEEMEE_RANK_EDINET_BONUS_ENABLED", "1")
+    monkeypatch.setattr(rankings_cache, "is_legacy_analysis_disabled", lambda: False)
+    monkeypatch.setattr(
+        rankings_cache,
+        "_call_apply_monthly_ml_mode",
+        lambda source_items, direction, limit, risk_mode, rank_mode: (list(source_items), 20240229, "mtest"),
+    )
+    rankings_cache._MONTHLY_EDINET_AUDIT_LAST_PERSIST_MONO = {}  # type: ignore[attr-defined]
+    monkeypatch.setattr(rankings_cache, "_acquire_monthly_edinet_audit_persist_window", lambda signature: True)
+    monkeypatch.setattr(rankings_cache, "_release_monthly_edinet_audit_persist_window", lambda signature: None)
 
     now = datetime.now(timezone.utc)
     rankings_cache._CACHE = {  # type: ignore[attr-defined]
@@ -309,6 +318,14 @@ def test_edinet_audit_and_monitor_api(monkeypatch, tmp_path) -> None:
 
     _ = rankings_cache.get_rankings("M", "latest", "up", 3, mode="hybrid")
     _ = rankings_cache.get_rankings("M", "latest", "up", 3, mode="hybrid")
+    rankings_cache._persist_monthly_edinet_audit(  # type: ignore[attr-defined]
+        tf="M",
+        which="latest",
+        direction="up",
+        mode="hybrid",
+        risk_mode="balanced",
+        items=_monthly_cache_items(),
+    )
 
     with duckdb.connect(str(db_path)) as conn:
         count_rows = conn.execute("SELECT COUNT(*) FROM ranking_edinet_audit_daily").fetchone()[0]
@@ -341,3 +358,45 @@ def test_edinet_audit_and_monitor_api(monkeypatch, tmp_path) -> None:
     assert "groups" in monitor
     assert "positive" in monitor["groups"]
     assert "negative" in monitor["groups"]
+
+
+def test_rankings_session_api_returns_confirmed_and_provisional(monkeypatch) -> None:
+    app = FastAPI()
+    app.include_router(rankings_router)
+    client = TestClient(app)
+
+    monkeypatch.setattr(
+        rankings_cache,
+        "get_rankings_session_bundle",
+        lambda *args, **kwargs: {
+            "confirmed_snapshot_as_of": "2026-04-20",
+            "provisional_snapshot_as_of": "2026-04-21",
+            "provisional_source": "yahoo_intraday_unconfirmed_source",
+            "provisional_freshness_state": "fresh",
+            "is_provisional": True,
+            "provisional_fetched_at": "2026-04-21T12:34:56+09:00",
+            "confirmed_actionable_buy_candidates": [{"code": "1301"}],
+            "confirmed_actionable_short_candidates": [],
+            "confirmed_caution_watch_candidates": [{"code": "7203"}],
+            "provisional_actionable_buy_candidates": [{"code": "1301", "is_provisional": True, "rank_delta": 0}],
+            "provisional_actionable_short_candidates": [],
+            "provisional_caution_watch_candidates": [{"code": "7203", "is_provisional": True, "rank_delta": None}],
+            "confirmed_trade_summary": {"actionable_buy": {"count": 1}, "actionable_short": {"count": 0}, "caution_watch": {"count": 1}},
+            "provisional_trade_summary": {"actionable_buy": {"count": 1}, "actionable_short": {"count": 0}, "caution_watch": {"count": 1}},
+            "confirmed_items": [{"code": "1301"}],
+            "provisional_items": [{"code": "1301", "is_provisional": True, "rank_delta": 0}],
+        },
+    )
+
+    res = client.get(
+        "/api/rankings/session",
+        params={"tf": "D", "which": "latest", "dir": "up", "mode": "trade", "risk_mode": "balanced", "limit": 10},
+    )
+    assert res.status_code == 200
+    payload = res.json()
+    assert payload["confirmed_snapshot_as_of"] == "2026-04-20"
+    assert payload["provisional_snapshot_as_of"] == "2026-04-21"
+    assert payload["provisional_source"] == "yahoo_intraday_unconfirmed_source"
+    assert payload["is_provisional"] is True
+    assert [item["code"] for item in payload["confirmed_actionable_buy_candidates"]] == ["1301"]
+    assert [item["code"] for item in payload["provisional_actionable_buy_candidates"]] == ["1301"]

@@ -302,6 +302,31 @@ function Sync-ReleasePackageToDesktop {
     }
 }
 
+function Copy-MeeMeeSafeArtifacts {
+    param([string]$ReleasePackageRoot, [string]$RepoRoot)
+
+    $sourceDir = Join-Path $RepoRoot "artifacts\research_inventory"
+    $destinationDir = Join-Path $ReleasePackageRoot "_internal\artifacts\research_inventory"
+    $safeArtifacts = @(
+        "chart_gallery_authoritative_adoption.json",
+        "chart_data_provenance_contract.json",
+        "chart_gallery_authoritative_overwrite_contract.json"
+    )
+
+    if (-not (Test-Path $sourceDir)) {
+        throw "Missing research inventory source directory: $sourceDir"
+    }
+
+    New-Item -ItemType Directory -Force $destinationDir | Out-Null
+    foreach ($artifactName in $safeArtifacts) {
+        $sourcePath = Join-Path $sourceDir $artifactName
+        if (-not (Test-Path $sourcePath)) {
+            throw "Missing MeeMee-safe artifact: $sourcePath"
+        }
+        Copy-Item -Path $sourcePath -Destination (Join-Path $destinationDir $artifactName) -Force
+    }
+}
+
 function Invoke-SmokeRun {
     param([string]$ExePath)
 
@@ -562,6 +587,8 @@ print(json.dumps(missing))
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to copy ML seed artifacts."
     }
+
+    Copy-MeeMeeSafeArtifacts -ReleasePackageRoot $releasePackage -RepoRoot $repoRoot
 
     $exportVbsSrc = Join-Path $repoRoot "tools\export_pan.vbs"
     if (Test-Path $exportVbsSrc) {

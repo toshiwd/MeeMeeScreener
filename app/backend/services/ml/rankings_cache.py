@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections import OrderedDict
+from collections import Counter, OrderedDict
 from datetime import datetime, timedelta, timezone
 import json
 import math
@@ -43,6 +43,9 @@ RankResultCacheKey = tuple[
     str,
     bool,
     bool,
+    int,
+    bool,
+    str,
 ]
 RefreshSignature = tuple[Any, ...]
 
@@ -70,6 +73,10 @@ _ASOF_BASE_CACHE_MAX = max(8, int(os.getenv("MEEMEE_RANK_ASOF_BASE_CACHE_MAX", "
 _TRACE_CACHE_LOCK = Lock()
 _TRACE_CACHE: OrderedDict[tuple[Any, ...], dict[str, Any]] = OrderedDict()
 _TRACE_CACHE_MAX = 16
+_CURRENT_RANKINGS_MAX_AGE_DAYS = max(
+    1,
+    int(os.getenv("MEEMEE_RANK_CURRENT_CANDIDATE_MAX_AGE_DAYS", "5")),
+)
 
 
 def _log_rankings_timing(tag: str, payload: dict[str, Any]) -> None:
@@ -119,6 +126,117 @@ def _merge_analysis_provisional_rows(
     except Exception as exc:
         logger.debug("rankings provisional merge skipped: %s", exc)
     return daily_map
+
+
+def _load_analysis_provisional_overlay(
+    codes: list[str],
+) -> tuple[dict[str, tuple[int, float, float, float, float, float]], dict[str, Any]]:
+    from ..data.yahoo_provisional import get_provisional_daily_rows_from_spark, normalize_date_key
+
+    now_jst = datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=9)))
+    today_key = int(now_jst.strftime("%Y%m%d"))
+    provisional_map: dict[str, tuple[int, float, float, float, float, float]] = {}
+    meta: dict[str, Any] = {
+        "is_provisional": False,
+        "provisional_source": None,
+        "provisional_snapshot_as_of": None,
+        "provisional_freshness_state": "unavailable",
+        "provisional_fetched_at": now_jst.isoformat(),
+        "provisional_rows_total": 0,
+        "provisional_rows_covered": 0,
+        "provisional_rows_missing": len(codes),
+        "provisional_requested_symbols": len(codes),
+        "provisional_covered_symbols": 0,
+        "provisional_complete_ohlcv_symbols": 0,
+        "provisional_same_day_symbols": 0,
+        "provisional_missing_symbols": len(codes),
+        "provisional_missing_reason_summary": {},
+        "provisional_coverage_ratio": 0.0,
+        "provisional_min_coverage_ratio": _PROVISIONAL_MIN_COVERAGE_RATIO,
+        "provisional_same_day_ratio": 0.0,
+        "provisional_min_same_day_ratio": _PROVISIONAL_MIN_SAME_DAY_RATIO,
+        "provisional_covered_codes": [],
+        "provisional_allow_partial": _PROVISIONAL_ALLOW_PARTIAL,
+        "provisional_render_mode": "strict" if not _PROVISIONAL_ALLOW_PARTIAL else "practical_partial",
+    }
+    if not codes:
+        return provisional_map, meta
+
+    try:
+        provisional_map = get_provisional_daily_rows_from_spark(codes, prefer_chart_ohlc=True)
+    except Exception as exc:
+        logger.debug("rankings provisional overlay fetch failed: %s", exc)
+        return {}, meta
+
+    covered = 0
+    complete_ohlcv = 0
+    same_day = 0
+    latest_ts: int | None = None
+    for row in provisional_map.values():
+        if not row:
+            continue
+        covered += 1
+        if len(row) >= 6 and all(part is not None for part in row[:6]):
+            complete_ohlcv += 1
+        ts = normalize_date_key(row[0])
+        if ts is None:
+            continue
+        latest_ts = ts if latest_ts is None else max(latest_ts, ts)
+        if ts == today_key:
+            same_day += 1
+
+    missing = max(0, len(codes) - covered)
+    coverage_ratio = (covered / float(len(codes))) if codes else 0.0
+    same_day_ratio = (same_day / float(covered)) if covered else 0.0
+    missing_codes = [code for code in codes if code not in provisional_map]
+    missing_reason_summary = Counter()
+    from ..data.yahoo_provisional import code_to_yahoo_symbol
+
+    for code in missing_codes:
+        symbol = code_to_yahoo_symbol(code)
+        if symbol is None:
+            missing_reason_summary["symbol_mapping_failed"] += 1
+        else:
+            missing_reason_summary["fetch_none"] += 1
+
+    same_day_ok = covered > 0 and same_day_ratio >= _PROVISIONAL_MIN_SAME_DAY_RATIO
+    meets_coverage = coverage_ratio >= _PROVISIONAL_MIN_COVERAGE_RATIO
+    freshness_state = "unavailable"
+    is_provisional = False
+    if covered > 0:
+        if not same_day_ok:
+            freshness_state = "stale"
+        elif meets_coverage and missing == 0:
+            freshness_state = "fresh"
+            is_provisional = True
+        elif meets_coverage and _PROVISIONAL_ALLOW_PARTIAL:
+            freshness_state = "partial"
+            is_provisional = True
+        else:
+            freshness_state = "incomplete"
+    meta.update(
+        {
+            "provisional_rows_total": len(codes),
+            "provisional_rows_covered": covered,
+            "provisional_rows_missing": missing,
+            "provisional_requested_symbols": len(codes),
+            "provisional_covered_symbols": covered,
+            "provisional_complete_ohlcv_symbols": complete_ohlcv,
+            "provisional_same_day_symbols": same_day,
+            "provisional_missing_symbols": missing,
+            "provisional_missing_reason_summary": dict(missing_reason_summary),
+            "provisional_coverage_ratio": round(coverage_ratio, 6),
+            "provisional_same_day_ratio": round(same_day_ratio, 6),
+            "provisional_snapshot_as_of": _ymd_int_to_iso_date(latest_ts),
+            "provisional_freshness_state": freshness_state,
+            "provisional_source": "yahoo_intraday_unconfirmed_source" if covered > 0 else None,
+            "is_provisional": is_provisional,
+            "provisional_covered_codes": list(provisional_map.keys()) if provisional_map else [],
+        }
+    )
+    if not meta["is_provisional"]:
+        return {}, meta
+    return provisional_map, meta
 
 _DAILY_LIMIT = 1260
 _MONTHLY_LIMIT = 60
@@ -419,11 +537,45 @@ def _is_edinet_bonus_enabled() -> bool:
     }
 
 
-def _current_result_cache_variant() -> tuple[str | None, str, bool, bool]:
+def _current_jst_ymd_int() -> int:
+    return int((datetime.now(timezone.utc) + timedelta(hours=9)).strftime("%Y%m%d"))
+
+
+def _current_live_bucket() -> str:
+    return datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=9))).strftime("%Y%m%d%H%M")
+
+
+def _env_float(name: str, default: float, minimum: float, maximum: float | None = None) -> float:
+    raw = os.getenv(name)
+    try:
+        value = float(raw) if raw is not None else float(default)
+    except (TypeError, ValueError):
+        value = float(default)
+    value = max(minimum, value)
+    if maximum is not None:
+        value = min(maximum, value)
+    return value
+
+
+_PROVISIONAL_MIN_COVERAGE_RATIO = _env_float("MEEMEE_YF_PROVISIONAL_MIN_COVERAGE_RATIO", 0.95, 0.0, 1.0)
+_PROVISIONAL_MIN_SAME_DAY_RATIO = _env_float("MEEMEE_YF_PROVISIONAL_MIN_SAME_DAY_RATIO", 0.95, 0.0, 1.0)
+_PROVISIONAL_ALLOW_PARTIAL = os.getenv("MEEMEE_YF_PROVISIONAL_ALLOW_PARTIAL", "1").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _current_result_cache_variant(*, include_provisional: bool = False) -> tuple[str | None, str, bool, bool, int, bool, str]:
     with _LOCK:
         last_updated = _LAST_UPDATED.isoformat() if _LAST_UPDATED is not None else None
     db_path = str(os.getenv("STOCKS_DB_PATH", "") or "")
-    return last_updated, db_path, is_legacy_analysis_disabled(), _is_edinet_bonus_enabled()
+    provisional_bucket = _current_live_bucket() if include_provisional else ""
+    return (
+        last_updated,
+        db_path,
+        is_legacy_analysis_disabled(),
+        _is_edinet_bonus_enabled(),
+        _current_jst_ymd_int(),
+        bool(include_provisional),
+        provisional_bucket,
+    )
 
 
 def _apply_edinet_defaults(item: dict, *, flag_applied: bool) -> dict:
@@ -538,7 +690,18 @@ def _resolve_refresh_signature() -> tuple[RefreshSignature, float | None, int | 
 
 
 def _cache_needs_refresh() -> bool:
-    return (not _CACHE) or _LAST_UPDATED is None
+    if (not _CACHE) or _LAST_UPDATED is None:
+        return True
+    current_db_mtime = _db_mtime()
+    if current_db_mtime != _LAST_DB_MTIME:
+        return True
+    try:
+        current_refresh_signature, _, _ = _resolve_refresh_signature()
+    except Exception as exc:
+        if is_transient_duckdb_error(exc):
+            return False
+        raise
+    return current_refresh_signature != _LAST_REFRESH_SIGNATURE
 
 
 def _store_built_cache(
@@ -594,7 +757,7 @@ def _refresh_cache_singleflight(*, force: bool) -> None:
         _REFRESH_IN_PROGRESS = True
         _REFRESH_LAST_ERROR = None
     try:
-        cache, latest_pan_daily_asof_int, refresh_signature, refresh_db_mtime = _build_cache()
+        cache, latest_pan_daily_asof_int, refresh_signature, refresh_db_mtime, _ = _build_cache()
         refreshed_at = datetime.now(timezone.utc)
         _store_built_cache(
             cache,
@@ -3142,6 +3305,32 @@ def _freshness_days_from_asof(as_of_value: Any, *, now_ymd: int | None = None) -
     return max(0, int((today.date() - base.date()).days))
 
 
+def _ymd_int_to_iso_date(value: int | None) -> str | None:
+    if value is None:
+        return None
+    try:
+        return datetime.strptime(str(int(value)), "%Y%m%d").date().isoformat()
+    except Exception:
+        return None
+
+
+def _build_rankings_freshness_meta(*, latest_daily_asof_int: int | None) -> dict[str, Any]:
+    current_ymd = _current_jst_ymd_int()
+    freshness_days = _freshness_days_from_asof(latest_daily_asof_int, now_ymd=current_ymd)
+    current_candidate_available = bool(
+        freshness_days is not None and freshness_days < _CURRENT_RANKINGS_MAX_AGE_DAYS
+    )
+    freshness_state = "fresh" if current_candidate_available else "stale"
+    return {
+        "freshness_state": freshness_state,
+        "freshness_days": freshness_days,
+        "snapshot_as_of": _ymd_int_to_iso_date(latest_daily_asof_int),
+        "current_candidate_available": current_candidate_available,
+        "stale": not current_candidate_available,
+        "freshness_threshold_days": _CURRENT_RANKINGS_MAX_AGE_DAYS,
+    }
+
+
 def _attach_quality_flags(
     items: list[dict],
     *,
@@ -3359,7 +3548,16 @@ def _fetch_names(conn: duckdb.DuckDBPyConnection) -> dict[str, str]:
     return {row[0]: repair_cp932_mojibake(str(row[1] or row[0])) for row in rows}
 
 
-def _build_cache() -> tuple[dict[RankBaseCacheKey, list[dict]], int | None, RefreshSignature, float | None]:
+def _build_cache(
+    *,
+    include_provisional: bool = False,
+) -> tuple[
+    dict[RankBaseCacheKey, list[dict]],
+    int | None,
+    RefreshSignature,
+    float | None,
+    dict[str, Any] | None,
+]:
     with get_conn() as conn:
         latest_pan_daily_asof_int = _resolve_latest_pan_daily_asof_int(conn)
         codes = [
@@ -3378,9 +3576,22 @@ def _build_cache() -> tuple[dict[RankBaseCacheKey, list[dict]], int | None, Refr
         monthly_rows = _fetch_monthly_rows(conn)
 
     daily_map: dict[str, list[tuple]] = {}
+    from ..data.yahoo_provisional import merge_daily_rows_with_provisional
     for row in daily_rows:
         daily_map.setdefault(row[0], []).append(row[1:])
-    daily_map = _merge_analysis_provisional_rows(daily_map, codes)
+    provisional_meta: dict[str, Any] | None = None
+    if include_provisional:
+        provisional_map, provisional_meta = _load_analysis_provisional_overlay(codes)
+        if provisional_meta.get("is_provisional"):
+            for code, provisional_row in provisional_map.items():
+                if not provisional_row:
+                    continue
+                daily_map[code] = merge_daily_rows_with_provisional(
+                    daily_map.get(code, []),
+                    provisional_row,
+                )
+    else:
+        daily_map = _merge_analysis_provisional_rows(daily_map, codes)
     market_breadth_state = _calc_market_breadth_state(daily_map)
 
     monthly_map: dict[str, list[tuple]] = {}
@@ -3555,7 +3766,7 @@ def _build_cache() -> tuple[dict[RankBaseCacheKey, list[dict]], int | None, Refr
     refresh_signature = _build_refresh_signature(
         latest_pan_daily_asof_int=latest_pan_daily_asof_int,
     )
-    return cache, latest_pan_daily_asof_int, refresh_signature, db_mtime
+    return cache, latest_pan_daily_asof_int, refresh_signature, db_mtime, provisional_meta
 
 
 def _build_cache_asof(conn: duckdb.DuckDBPyConnection, as_of_int: int) -> dict[RankBaseCacheKey, list[dict]]:
@@ -5243,6 +5454,79 @@ def _trade_priority_sort_key(item: dict[str, Any]) -> tuple[Any, ...]:
     )
 
 
+def _sanitize_rank_items_for_json(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [_sanitize_rank_item_for_json(item) for item in items]
+
+
+def _mark_provisional_items_by_snapshot(
+    items: list[dict[str, Any]],
+    *,
+    provisional_snapshot_as_of: str | None,
+    provisional_covered_codes: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    if not provisional_snapshot_as_of and not provisional_covered_codes:
+        return [dict(item) for item in items]
+    marked: list[dict[str, Any]] = []
+    for item in items:
+        clone = dict(item)
+        code = str(clone.get("code") or "").strip()
+        if provisional_covered_codes is not None:
+            clone["is_provisional"] = code in provisional_covered_codes
+        else:
+            item_asof = str(clone.get("asOf") or clone.get("snapshot_as_of") or "").strip()
+            clone["is_provisional"] = item_asof == provisional_snapshot_as_of
+        marked.append(clone)
+    return marked
+
+
+def _is_trade_buy_candidate(item: dict[str, Any]) -> bool:
+    return _is_strict_trade_rank_item(item, direction="up")
+
+
+def _is_trade_short_candidate(item: dict[str, Any]) -> bool:
+    return _is_strict_trade_rank_item(item, direction="down")
+
+
+def _is_trade_caution_candidate(item: dict[str, Any]) -> bool:
+    setup_type = str(item.get("setupType") or "").strip().lower()
+    if setup_type in {"watch", "reject"}:
+        return True
+    if bool(item.get("entryQualifiedByFallback")):
+        return True
+    if str(item.get("entryQualifiedFallbackStage") or "").strip():
+        return True
+    return item.get("entryQualified") is not True
+
+
+def _build_trade_candidate_buckets(items: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    buy_scored = _copy_rank_items(items)
+    short_scored = _copy_rank_items(items)
+    _apply_trade_priority_scores(buy_scored, direction="up")
+    _apply_trade_priority_scores(short_scored, direction="down")
+
+    actionable_buy_candidates = [dict(item) for item in buy_scored if _is_trade_buy_candidate(item)]
+    actionable_short_candidates = [dict(item) for item in short_scored if _is_trade_short_candidate(item)]
+    buy_codes = {str(item.get("code") or "").strip() for item in actionable_buy_candidates}
+    short_codes = {str(item.get("code") or "").strip() for item in actionable_short_candidates}
+    caution_watch_candidates = [
+        dict(item)
+        for item in buy_scored
+        if _is_trade_caution_candidate(item)
+        and str(item.get("code") or "").strip() not in buy_codes
+        and str(item.get("code") or "").strip() not in short_codes
+    ]
+
+    actionable_buy_candidates.sort(key=_trade_priority_sort_key)
+    actionable_short_candidates.sort(key=_trade_priority_sort_key)
+    caution_watch_candidates.sort(key=_trade_priority_sort_key)
+
+    return {
+        "actionable_buy_candidates": actionable_buy_candidates,
+        "actionable_short_candidates": actionable_short_candidates,
+        "caution_watch_candidates": caution_watch_candidates,
+    }
+
+
 def _candidate_source_for_mode(*, effective_mode: RankMode, legacy_analysis_disabled: bool) -> str:
     if effective_mode == "trade" and legacy_analysis_disabled:
         return "current_features"
@@ -5306,15 +5590,25 @@ def _build_trade_summary_payload(
     down_payload: dict[str, Any],
     top_n: int = 5,
 ) -> dict[str, Any]:
-    up_items = list(up_payload.get("items") or [])
-    down_items = list(down_payload.get("items") or [])
-    buy_summary = _summarize_trade_items(up_items, direction="up", top_n=top_n)
-    sell_summary = _summarize_trade_items(down_items, direction="down", top_n=top_n)
+    buy_items = list(up_payload.get("actionable_buy_candidates") or up_payload.get("items") or [])
+    short_items = list(down_payload.get("actionable_short_candidates") or down_payload.get("items") or [])
+    caution_items = list(
+        up_payload.get("caution_watch_candidates")
+        or down_payload.get("caution_watch_candidates")
+        or []
+    )
+    buy_summary = _summarize_trade_items(buy_items, direction="up", top_n=top_n)
+    short_summary = _summarize_trade_items(short_items, direction="down", top_n=top_n)
+    caution_summary = {
+        "count": len(caution_items),
+        "top_n": int(top_n),
+        "top_codes": [str(item.get("code") or "") for item in caution_items[: max(1, int(top_n))] if str(item.get("code") or "")],
+    }
     buy_score = float(buy_summary.get("avg_trade_priority_score") or 0.0)
-    sell_score = float(sell_summary.get("avg_trade_priority_score") or 0.0)
+    sell_score = float(short_summary.get("avg_trade_priority_score") or 0.0)
     diff_score = float(buy_score - sell_score)
     dominant_direction: Literal["up", "down", "wait"]
-    if buy_summary["count"] == 0 and sell_summary["count"] == 0:
+    if buy_summary["count"] == 0 and short_summary["count"] == 0:
         dominant_direction = "wait"
     elif abs(diff_score) < 0.03:
         dominant_direction = "wait"
@@ -5324,8 +5618,11 @@ def _build_trade_summary_payload(
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "dominant_direction": dominant_direction,
         "difference_score": diff_score,
+        "actionable_buy": buy_summary,
+        "actionable_short": short_summary,
+        "caution_watch": caution_summary,
         "buy": buy_summary,
-        "sell": sell_summary,
+        "sell": short_summary,
     }
 
 
@@ -6448,12 +6745,20 @@ def _copy_rank_items(items: list[dict]) -> list[dict]:
     return [dict(item) for item in items]
 
 
-def _load_live_cache_items(cache_key: RankBaseCacheKey) -> tuple[list[dict], datetime | None]:
+def _load_live_cache_items(
+    cache_key: RankBaseCacheKey,
+    *,
+    include_provisional: bool = False,
+) -> tuple[list[dict], datetime | None, dict[str, Any] | None]:
+    if include_provisional:
+        cache, _, _, _, provisional_meta = _build_cache(include_provisional=True)
+        items = cache.get(cache_key) or []
+        return list(items), datetime.now(timezone.utc), provisional_meta
     with _LOCK:
         items = _CACHE.get(cache_key)
         last_updated = _LAST_UPDATED
     if items is not None:
-        return items, last_updated
+        return items, last_updated, None
     try:
         refresh_cache()
     except Exception as exc:
@@ -6461,7 +6766,7 @@ def _load_live_cache_items(cache_key: RankBaseCacheKey) -> tuple[list[dict], dat
             raise
         logger.warning("rankings refresh fallback to stale cache due to lock: %s", exc)
     with _LOCK:
-        return list(_CACHE.get(cache_key, []) or []), _LAST_UPDATED
+        return list(_CACHE.get(cache_key, []) or []), _LAST_UPDATED, None
 
 
 def _build_rankings_response(
@@ -6473,13 +6778,14 @@ def _build_rankings_response(
     mode: RankMode,
     risk_mode: RankRiskMode,
     cache_generation: int,
+    include_provisional: bool = False,
 ) -> dict[str, Any]:
     build_started_at = time.perf_counter()
     phase_timings: dict[str, float] = {}
     effective_mode = _resolve_effective_rank_mode(mode)
     cache_key: RankBaseCacheKey = (tf, which, direction)
     phase_started_at = time.perf_counter()
-    items, last_updated = _load_live_cache_items(cache_key)
+    items, last_updated, provisional_meta = _load_live_cache_items(cache_key, include_provisional=include_provisional)
     phase_timings["load_live_cache_items_ms"] = round((time.perf_counter() - phase_started_at) * 1000.0, 3)
     phase_started_at = time.perf_counter()
     source_items = _copy_rank_items(items)
@@ -6564,7 +6870,9 @@ def _build_rankings_response(
     phase_timings["swing_fields_ms"] = round((time.perf_counter() - phase_started_at) * 1000.0, 3)
     phase_started_at = time.perf_counter()
     trade_priority_ms = 0.0
+    trade_candidate_buckets: dict[str, list[dict[str, Any]]] | None = None
     if effective_mode == "trade":
+        trade_candidate_buckets = _build_trade_candidate_buckets(out_items)
         scored_items = _copy_rank_items(out_items)
         _apply_trade_priority_scores(scored_items, direction=direction)
         out_items = _filter_strict_trade_rank_items(scored_items, direction=direction)
@@ -6583,8 +6891,78 @@ def _build_rankings_response(
     phase_timings["trade_priority_ms"] = trade_priority_ms
     phase_started_at = time.perf_counter()
     out_items = [_sanitize_rank_item_for_json(item) for item in out_items]
+    if trade_candidate_buckets is not None:
+        trade_candidate_buckets = {
+            "actionable_buy_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("actionable_buy_candidates") or []),
+            "actionable_short_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("actionable_short_candidates") or []),
+            "caution_watch_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("caution_watch_candidates") or []),
+        }
     phase_timings["sanitize_ms"] = round((time.perf_counter() - phase_started_at) * 1000.0, 3)
     total_ms = round((time.perf_counter() - build_started_at) * 1000.0, 3)
+    with _LOCK:
+        latest_daily_asof_int = _LAST_CACHE_DAILY_ASOF_INT
+    freshness_meta = _build_rankings_freshness_meta(latest_daily_asof_int=latest_daily_asof_int)
+    if include_provisional:
+        provisional_meta = provisional_meta or {}
+        provisional_freshness_state = str(provisional_meta.get("provisional_freshness_state") or "unavailable")
+        is_provisional = bool(provisional_meta.get("is_provisional"))
+        provisional_snapshot_as_of = provisional_meta.get("provisional_snapshot_as_of")
+        provisional_source = provisional_meta.get("provisional_source")
+        provisional_fetched_at = provisional_meta.get("provisional_fetched_at")
+        provisional_requested_symbols = int(provisional_meta.get("provisional_requested_symbols") or 0)
+        provisional_covered_symbols = int(provisional_meta.get("provisional_covered_symbols") or 0)
+        provisional_complete_ohlcv_symbols = int(provisional_meta.get("provisional_complete_ohlcv_symbols") or 0)
+        provisional_same_day_symbols = int(provisional_meta.get("provisional_same_day_symbols") or 0)
+        provisional_missing_symbols = int(provisional_meta.get("provisional_missing_symbols") or 0)
+        provisional_missing_reason_summary = dict(provisional_meta.get("provisional_missing_reason_summary") or {})
+        provisional_coverage_ratio = float(provisional_meta.get("provisional_coverage_ratio") or 0.0)
+        provisional_same_day_ratio = float(provisional_meta.get("provisional_same_day_ratio") or 0.0)
+        provisional_min_coverage_ratio = float(provisional_meta.get("provisional_min_coverage_ratio") or _PROVISIONAL_MIN_COVERAGE_RATIO)
+        provisional_min_same_day_ratio = float(provisional_meta.get("provisional_min_same_day_ratio") or _PROVISIONAL_MIN_SAME_DAY_RATIO)
+        provisional_allow_partial = bool(provisional_meta.get("provisional_allow_partial"))
+        provisional_render_mode = str(provisional_meta.get("provisional_render_mode") or "strict")
+        provisional_covered_codes = {str(code).strip() for code in provisional_meta.get("provisional_covered_codes") or [] if str(code).strip()}
+        out_items = _mark_provisional_items_by_snapshot(
+            out_items,
+            provisional_snapshot_as_of=provisional_snapshot_as_of,
+            provisional_covered_codes=provisional_covered_codes,
+        )
+        if trade_candidate_buckets is not None:
+            trade_candidate_buckets = {
+                "actionable_buy_candidates": _mark_provisional_items_by_snapshot(
+                    trade_candidate_buckets.get("actionable_buy_candidates") or [],
+                    provisional_snapshot_as_of=provisional_snapshot_as_of,
+                    provisional_covered_codes=provisional_covered_codes,
+                ),
+                "actionable_short_candidates": _mark_provisional_items_by_snapshot(
+                    trade_candidate_buckets.get("actionable_short_candidates") or [],
+                    provisional_snapshot_as_of=provisional_snapshot_as_of,
+                    provisional_covered_codes=provisional_covered_codes,
+                ),
+                "caution_watch_candidates": _mark_provisional_items_by_snapshot(
+                    trade_candidate_buckets.get("caution_watch_candidates") or [],
+                    provisional_snapshot_as_of=provisional_snapshot_as_of,
+                    provisional_covered_codes=provisional_covered_codes,
+                ),
+            }
+    else:
+        provisional_freshness_state = "unavailable"
+        is_provisional = False
+        provisional_snapshot_as_of = None
+        provisional_source = None
+        provisional_fetched_at = None
+        provisional_requested_symbols = 0
+        provisional_covered_symbols = 0
+        provisional_complete_ohlcv_symbols = 0
+        provisional_same_day_symbols = 0
+        provisional_missing_symbols = 0
+        provisional_missing_reason_summary = {}
+        provisional_coverage_ratio = 0.0
+        provisional_same_day_ratio = 0.0
+        provisional_min_coverage_ratio = _PROVISIONAL_MIN_COVERAGE_RATIO
+        provisional_min_same_day_ratio = _PROVISIONAL_MIN_SAME_DAY_RATIO
+        provisional_allow_partial = _PROVISIONAL_ALLOW_PARTIAL
+        provisional_render_mode = "strict" if not _PROVISIONAL_ALLOW_PARTIAL else "practical_partial"
 
     try:
         top_items = out_items[:10] if out_items else []
@@ -6652,7 +7030,30 @@ def _build_rankings_response(
         "model_version": model_version,
         "cache_generation": cache_generation,
         "last_updated": last_updated.isoformat() if last_updated else None,
+        **freshness_meta,
         "items": out_items,
+        **(trade_candidate_buckets or {}),
+        "confirmed_snapshot_as_of": freshness_meta.get("snapshot_as_of") if not include_provisional else None,
+        "confirmed_actionable_buy_candidates": trade_candidate_buckets.get("actionable_buy_candidates") if trade_candidate_buckets and not include_provisional else [],
+        "confirmed_actionable_short_candidates": trade_candidate_buckets.get("actionable_short_candidates") if trade_candidate_buckets and not include_provisional else [],
+        "confirmed_caution_watch_candidates": trade_candidate_buckets.get("caution_watch_candidates") if trade_candidate_buckets and not include_provisional else [],
+        "provisional_snapshot_as_of": provisional_snapshot_as_of,
+        "provisional_source": provisional_source,
+        "provisional_freshness_state": provisional_freshness_state,
+        "is_provisional": is_provisional,
+        "provisional_fetched_at": provisional_fetched_at,
+        "provisional_requested_symbols": provisional_requested_symbols,
+        "provisional_covered_symbols": provisional_covered_symbols,
+        "provisional_complete_ohlcv_symbols": provisional_complete_ohlcv_symbols,
+        "provisional_same_day_symbols": provisional_same_day_symbols,
+        "provisional_missing_symbols": provisional_missing_symbols,
+        "provisional_missing_reason_summary": provisional_missing_reason_summary,
+        "provisional_coverage_ratio": provisional_coverage_ratio,
+        "provisional_same_day_ratio": provisional_same_day_ratio,
+        "provisional_min_coverage_ratio": provisional_min_coverage_ratio,
+        "provisional_min_same_day_ratio": provisional_min_same_day_ratio,
+        "provisional_allow_partial": provisional_allow_partial,
+        "provisional_render_mode": provisional_render_mode,
     }
 
 
@@ -6664,8 +7065,17 @@ def _get_cached_rankings_response(
     *,
     mode: RankMode,
     risk_mode: RankRiskMode,
+    include_provisional: bool = False,
 ) -> dict[str, Any]:
-    last_updated_key, db_path_key, legacy_disabled_key, edinet_flag_key = _current_result_cache_variant()
+    (
+        last_updated_key,
+        db_path_key,
+        legacy_disabled_key,
+        edinet_flag_key,
+        current_ymd_key,
+        provisional_key,
+        provisional_bucket_key,
+    ) = _current_result_cache_variant(include_provisional=include_provisional)
     result_key: RankResultCacheKey = (
         tf,
         which,
@@ -6677,6 +7087,9 @@ def _get_cached_rankings_response(
         db_path_key,
         legacy_disabled_key,
         edinet_flag_key,
+        current_ymd_key,
+        provisional_key,
+        provisional_bucket_key,
     )
     base_cache_key: RankBaseCacheKey = (tf, which, direction)
     cold_started_at = time.perf_counter()
@@ -6714,6 +7127,7 @@ def _get_cached_rankings_response(
                 mode=mode,
                 risk_mode=risk_mode,
                 cache_generation=build_generation,
+                include_provisional=include_provisional,
             )
         except Exception as exc:
             build_ms = round((time.perf_counter() - build_started_at) * 1000.0, 3)
@@ -6786,6 +7200,7 @@ def get_rankings(
     *,
     mode: RankMode = "hybrid",
     risk_mode: RankRiskMode = "balanced",
+    include_provisional: bool = False,
 ) -> dict:
     limit = max(1, min(int(limit or 50), 200))
     effective_mode = _resolve_effective_rank_mode(mode)
@@ -6796,6 +7211,7 @@ def get_rankings(
         limit,
         mode=effective_mode,
         risk_mode=risk_mode,
+        include_provisional=include_provisional,
     )
 
 
@@ -7168,11 +7584,12 @@ def get_trade_direction_summary(
     *,
     risk_mode: RankRiskMode = "balanced",
     top_n: int = 5,
+    include_provisional: bool = False,
 ) -> dict[str, Any]:
     limit = max(1, min(int(limit or 50), 200))
     top_n = max(1, min(int(top_n or 5), 20))
-    up_payload = get_rankings(tf, which, "up", limit, mode="trade", risk_mode=risk_mode)
-    down_payload = get_rankings(tf, which, "down", limit, mode="trade", risk_mode=risk_mode)
+    up_payload = get_rankings(tf, which, "up", limit, mode="trade", risk_mode=risk_mode, include_provisional=include_provisional)
+    down_payload = get_rankings(tf, which, "down", limit, mode="trade", risk_mode=risk_mode, include_provisional=include_provisional)
     summary = _build_trade_summary_payload(up_payload=up_payload, down_payload=down_payload, top_n=top_n)
     summary["tf"] = tf
     summary["which"] = which
@@ -7182,7 +7599,140 @@ def get_trade_direction_summary(
     summary["legacy_analysis_disabled"] = bool(
         up_payload.get("legacy_analysis_disabled") or down_payload.get("legacy_analysis_disabled")
     )
+    freshness_state = "fresh" if up_payload.get("freshness_state") == "fresh" and down_payload.get("freshness_state") == "fresh" else "stale"
+    freshness_days = [
+        value
+        for value in (
+            up_payload.get("freshness_days"),
+            down_payload.get("freshness_days"),
+        )
+        if isinstance(value, int)
+    ]
+    summary["freshness_state"] = freshness_state
+    summary["freshness_days"] = max(freshness_days) if freshness_days else None
+    summary["snapshot_as_of"] = max(
+        [value for value in (up_payload.get("snapshot_as_of"), down_payload.get("snapshot_as_of")) if isinstance(value, str) and value],
+        default=None,
+    )
+    summary["current_candidate_available"] = freshness_state == "fresh"
+    summary["stale"] = freshness_state != "fresh"
     return summary
+
+
+def _attach_rank_deltas(
+    confirmed_items: list[dict[str, Any]],
+    provisional_items: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    confirmed_rank_by_code = {str(item.get("code") or ""): index + 1 for index, item in enumerate(confirmed_items) if str(item.get("code") or "")}
+    provisional_ranked: list[dict[str, Any]] = []
+    for index, item in enumerate(provisional_items):
+        code = str(item.get("code") or "").strip()
+        clone = dict(item)
+        clone["is_provisional"] = bool(item.get("is_provisional"))
+        clone["confirmedRank"] = confirmed_rank_by_code.get(code)
+        clone["provisionalRank"] = index + 1
+        clone["confirmed_rank"] = confirmed_rank_by_code.get(code)
+        clone["provisional_rank"] = index + 1
+        confirmed_rank = confirmed_rank_by_code.get(code)
+        rank_delta = (confirmed_rank - (index + 1)) if confirmed_rank is not None else None
+        clone["rankDelta"] = rank_delta
+        clone["rank_delta"] = rank_delta
+        provisional_ranked.append(clone)
+    return provisional_ranked
+
+
+def get_rankings_session_bundle(
+    tf: RankTimeframe,
+    which: RankWhich,
+    direction: RankDir,
+    limit: int,
+    *,
+    mode: RankMode = "trade",
+    risk_mode: RankRiskMode = "balanced",
+) -> dict[str, Any]:
+    confirmed = get_rankings(
+        tf,
+        which,
+        direction,
+        limit,
+        mode=mode,
+        risk_mode=risk_mode,
+        include_provisional=False,
+    )
+    provisional = get_rankings(
+        tf,
+        which,
+        direction,
+        limit,
+        mode=mode,
+        risk_mode=risk_mode,
+        include_provisional=True,
+    )
+    confirmed_items = list(confirmed.get("items") or [])
+    provisional_available = bool(provisional.get("is_provisional"))
+    provisional_items = _attach_rank_deltas(confirmed_items, list(provisional.get("items") or [])) if provisional_available else []
+    confirmed_summary = get_trade_direction_summary(
+        tf,
+        which,
+        limit,
+        risk_mode=risk_mode,
+        top_n=5,
+        include_provisional=False,
+    )
+    provisional_summary = (
+        get_trade_direction_summary(
+            tf,
+            which,
+            limit,
+            risk_mode=risk_mode,
+            top_n=5,
+            include_provisional=True,
+        )
+        if provisional_available
+        else {
+            "dominant_direction": "wait",
+            "difference_score": 0.0,
+            "actionable_buy": {"count": 0, "avg_trade_priority_score": None, "avg_profit_expectancy": None, "avg_hit_score": None},
+            "actionable_short": {"count": 0, "avg_trade_priority_score": None, "avg_profit_expectancy": None, "avg_hit_score": None},
+            "caution_watch": {"count": 0, "top_n": 5, "top_codes": []},
+        }
+    )
+    return {
+        "tf": tf,
+        "which": which,
+        "dir": direction,
+        "mode": mode,
+        "risk_mode": risk_mode,
+        "limit": limit,
+        "confirmed_snapshot_as_of": confirmed.get("snapshot_as_of"),
+        "provisional_snapshot_as_of": provisional.get("provisional_snapshot_as_of") or provisional.get("snapshot_as_of") if provisional_available else None,
+        "provisional_source": provisional.get("provisional_source") if provisional_available else None,
+        "provisional_freshness_state": provisional.get("provisional_freshness_state") if provisional_available else (provisional.get("provisional_freshness_state") or "unavailable"),
+        "is_provisional": provisional_available,
+        "provisional_fetched_at": provisional.get("provisional_fetched_at") if provisional_available else None,
+        "provisional_requested_symbols": provisional.get("provisional_requested_symbols") if provisional_available else 0,
+        "provisional_covered_symbols": provisional.get("provisional_covered_symbols") if provisional_available else 0,
+        "provisional_complete_ohlcv_symbols": provisional.get("provisional_complete_ohlcv_symbols") if provisional_available else 0,
+        "provisional_same_day_symbols": provisional.get("provisional_same_day_symbols") if provisional_available else 0,
+        "provisional_missing_symbols": provisional.get("provisional_missing_symbols") if provisional_available else 0,
+        "provisional_missing_reason_summary": provisional.get("provisional_missing_reason_summary") if provisional_available else {},
+        "provisional_coverage_ratio": provisional.get("provisional_coverage_ratio") if provisional_available else 0.0,
+        "provisional_same_day_ratio": provisional.get("provisional_same_day_ratio") if provisional_available else 0.0,
+        "provisional_min_coverage_ratio": provisional.get("provisional_min_coverage_ratio") if provisional_available else _PROVISIONAL_MIN_COVERAGE_RATIO,
+        "provisional_min_same_day_ratio": provisional.get("provisional_min_same_day_ratio") if provisional_available else _PROVISIONAL_MIN_SAME_DAY_RATIO,
+        "provisional_allow_partial": provisional.get("provisional_allow_partial") if provisional_available else _PROVISIONAL_ALLOW_PARTIAL,
+        "provisional_render_mode": provisional.get("provisional_render_mode") if provisional_available else ("strict" if not _PROVISIONAL_ALLOW_PARTIAL else "practical_partial"),
+        "confirmed_actionable_buy_candidates": list(confirmed.get("actionable_buy_candidates") or []),
+        "confirmed_actionable_short_candidates": list(confirmed.get("actionable_short_candidates") or []),
+        "confirmed_caution_watch_candidates": list(confirmed.get("caution_watch_candidates") or []),
+        "provisional_actionable_buy_candidates": list(provisional.get("actionable_buy_candidates") or []) if provisional_available else [],
+        "provisional_actionable_short_candidates": list(provisional.get("actionable_short_candidates") or []) if provisional_available else [],
+        "provisional_caution_watch_candidates": list(provisional.get("caution_watch_candidates") or []) if provisional_available else [],
+        "confirmed_trade_summary": confirmed_summary,
+        "provisional_trade_summary": provisional_summary,
+        "confirmed_items": confirmed_items,
+        "provisional_items": provisional_items,
+    }
 
 
 def get_trade_code_qualification_summary(

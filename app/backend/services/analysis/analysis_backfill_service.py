@@ -273,19 +273,46 @@ def _query_existing_ml_dates(
 ) -> set[int]:
     if not target_dates:
         return set()
-    if not active_model_version:
-        return _query_existing_dates(conn, table_name="ml_pred_20d", target_dates=target_dates)
     placeholders = ", ".join("?" for _ in target_dates)
-    rows = conn.execute(
+    daily_rows = conn.execute(
         f"""
-        SELECT DISTINCT {_normalized_date_sql('dt')} AS dt_key
-        FROM ml_pred_20d
-        WHERE {_normalized_date_sql('dt')} IN ({placeholders})
-          AND model_version = ?
+        SELECT {_normalized_date_sql('date')} AS dt_key, COUNT(DISTINCT code) AS code_count
+        FROM daily_bars
+        WHERE {_normalized_date_sql('date')} IN ({placeholders})
+        GROUP BY 1
         """,
-        [int(value) for value in target_dates] + [str(active_model_version)],
+        [int(value) for value in target_dates],
     ).fetchall()
-    return {int(row[0]) for row in rows if row and row[0] is not None}
+    feature_rows_sql = f"""
+        SELECT {_normalized_date_sql('dt')} AS dt_key, COUNT(DISTINCT code) AS code_count
+        FROM ml_feature_daily
+        WHERE {_normalized_date_sql('dt')} IN ({placeholders})
+    """
+    feature_params: list[object] = [int(value) for value in target_dates]
+    feature_version_row = conn.execute("SELECT MAX(feature_version) FROM ml_feature_daily").fetchone()
+    feature_version = int(feature_version_row[0]) if feature_version_row and feature_version_row[0] is not None else None
+    if feature_version is not None:
+        feature_rows_sql += " AND feature_version = ?"
+        feature_params.append(feature_version)
+    feature_rows_sql += " GROUP BY 1"
+    feature_rows = conn.execute(
+        f"""
+        {feature_rows_sql}
+        """,
+        feature_params,
+    ).fetchall()
+    daily_counts = {int(row[0]): int(row[1]) for row in daily_rows if row and row[0] is not None}
+    feature_counts = {int(row[0]): int(row[1]) for row in feature_rows if row and row[0] is not None}
+    existing_dates: set[int] = set()
+    for dt_key in target_dates:
+        expected = int(daily_counts.get(int(dt_key), 0))
+        if expected <= 0:
+            continue
+        actual = int(feature_counts.get(int(dt_key), 0))
+        minimum_expected = max(10, int(expected * 0.8))
+        if actual >= minimum_expected:
+            existing_dates.add(int(dt_key))
+    return existing_dates
 
 
 def _query_existing_sell_dates(

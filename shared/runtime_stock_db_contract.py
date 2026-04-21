@@ -35,6 +35,16 @@ class RuntimeStockDBSelection(TypedDict):
     market_regime_daily_rows: int | None
 
 
+class RuntimeStockDBCandidate(TypedDict):
+    resolution_source: str
+    runtime_db_path: str
+    validated: bool
+    db_exists: bool
+    daily_bars_rows: int
+    market_regime_daily_rows: int
+    latest_available_global_date: int | None
+
+
 class RuntimeStockDBFreshness(TypedDict):
     runtime_db_path: str
     resolution_source: str
@@ -209,9 +219,45 @@ def _inspect_contract_tables(db_path: Path) -> tuple[bool, int, int, bool]:
         conn.close()
 
 
+def _inspect_runtime_stock_db_candidate(source: str, db_path: Path) -> RuntimeStockDBCandidate | None:
+    if not db_path.exists():
+        return None
+    try:
+        conn = duckdb.connect(str(db_path), read_only=True)
+    except Exception:
+        return RuntimeStockDBCandidate(
+            resolution_source=source,
+            runtime_db_path=str(db_path),
+            validated=False,
+            db_exists=True,
+            daily_bars_rows=0,
+            market_regime_daily_rows=0,
+            latest_available_global_date=None,
+        )
+    try:
+        table_names = _table_names(conn)
+        daily_exists = "daily_bars" in table_names
+        regime_exists = "market_regime_daily" in table_names
+        daily_rows = _table_count(conn, "daily_bars") if daily_exists else 0
+        regime_rows = _table_count(conn, "market_regime_daily") if regime_exists else 0
+        latest_global_date = _latest_ymd_from_daily_bars(conn) if daily_exists else None
+        return RuntimeStockDBCandidate(
+            resolution_source=source,
+            runtime_db_path=str(db_path),
+            validated=bool(daily_exists and regime_exists and daily_rows > 0 and regime_rows > 0 and latest_global_date is not None),
+            db_exists=True,
+            daily_bars_rows=daily_rows,
+            market_regime_daily_rows=regime_rows,
+            latest_available_global_date=latest_global_date,
+        )
+    finally:
+        conn.close()
+
+
 @lru_cache(maxsize=1)
 def resolve_runtime_stock_db_selection() -> RuntimeStockDBSelection:
     candidates = _candidate_paths()
+    local_candidates: list[RuntimeStockDBCandidate] = []
     for source, candidate_path, explicit in candidates:
         normalized = _normalize_path(candidate_path)
         if normalized is None:
@@ -228,17 +274,28 @@ def resolve_runtime_stock_db_selection() -> RuntimeStockDBSelection:
                 daily_bars_rows=daily_rows if valid else None,
                 market_regime_daily_rows=regime_rows if valid else None,
             )
-        valid, daily_rows, regime_rows, db_exists = _inspect_contract_tables(path)
-        if valid:
-            return RuntimeStockDBSelection(
-                runtime_db_path=str(path),
-                resolution_source=source,
-                resolution_reason="validated_runtime_fallback",
-                validated=True,
-                db_exists=db_exists,
-                daily_bars_rows=daily_rows,
-                market_regime_daily_rows=regime_rows,
-            )
+        candidate = _inspect_runtime_stock_db_candidate(source, path)
+        if candidate and candidate["validated"]:
+            local_candidates.append(candidate)
+
+    if local_candidates:
+        source_priority = {source: index for index, (source, _, explicit) in enumerate(candidates) if not explicit}
+        chosen = sorted(
+            local_candidates,
+            key=lambda item: (
+                -(int(item["latest_available_global_date"]) if item["latest_available_global_date"] is not None else -1),
+                source_priority.get(item["resolution_source"], 999),
+            ),
+        )[0]
+        return RuntimeStockDBSelection(
+            runtime_db_path=str(chosen["runtime_db_path"]),
+            resolution_source=str(chosen["resolution_source"]),
+            resolution_reason="freshest_local_snapshot",
+            validated=True,
+            db_exists=bool(chosen["db_exists"]),
+            daily_bars_rows=int(chosen["daily_bars_rows"]),
+            market_regime_daily_rows=int(chosen["market_regime_daily_rows"]),
+        )
 
     fallback = Path(_normalize_path(tradex_db_path(RUNTIME_STOCK_DB_FILENAME)) or tradex_db_path(RUNTIME_STOCK_DB_FILENAME))
     return RuntimeStockDBSelection(

@@ -98,7 +98,7 @@ describe("loadTradexBootstrapFromLegacySources", () => {
     });
 
     tradexFetchJsonWithRetry.mockImplementation(async (url: string) => {
-      if (url === "/system/runtime-selection") {
+      if (url === "/system/runtime-selection?surface=tradex") {
         return {
           selected_logic_id: "family_a",
           selected_logic_version: "v1",
@@ -106,17 +106,17 @@ describe("loadTradexBootstrapFromLegacySources", () => {
           source_of_truth: "external_analysis"
         };
       }
-      if (url === "/system/publish/state") {
+      if (url === "/system/publish/state?surface=tradex") {
         return {
           champion_logic_key: "family_a:v1",
           default_logic_pointer: "family_a:v1",
           source_of_truth: "external_analysis"
         };
       }
-      if (url === "/system/publish/queue") {
+      if (url === "/system/publish/queue?surface=tradex") {
         return {};
       }
-      if (url === "/system/publish/candidates") {
+      if (url === "/system/publish/candidates?surface=tradex") {
         return {
           items: []
         };
@@ -132,10 +132,10 @@ describe("loadTradexBootstrapFromLegacySources", () => {
     expect(tradexFetchJson).toHaveBeenCalledWith(tradexResearchRoute(TRADEX_RESEARCH_ENDPOINTS.replayProgress));
     expect(tradexFetchJson).toHaveBeenCalledWith(tradexResearchRoute(TRADEX_RESEARCH_ENDPOINTS.stateEvalActionQueue));
     expect(tradexFetchJson).toHaveBeenCalledWith(tradexResearchRoute(TRADEX_RESEARCH_ENDPOINTS.forecastSurfaceProjection));
-    expect(tradexFetchJsonWithRetry).toHaveBeenCalledWith("/system/runtime-selection");
-    expect(tradexFetchJsonWithRetry).toHaveBeenCalledWith("/system/publish/state");
-    expect(tradexFetchJsonWithRetry).toHaveBeenCalledWith("/system/publish/queue");
-    expect(tradexFetchJsonWithRetry).toHaveBeenCalledWith("/system/publish/candidates");
+    expect(tradexFetchJsonWithRetry).toHaveBeenCalledWith("/system/runtime-selection?surface=tradex");
+    expect(tradexFetchJsonWithRetry).toHaveBeenCalledWith("/system/publish/state?surface=tradex");
+    expect(tradexFetchJsonWithRetry).toHaveBeenCalledWith("/system/publish/queue?surface=tradex");
+    expect(tradexFetchJsonWithRetry).toHaveBeenCalledWith("/system/publish/candidates?surface=tradex");
     expect(payload.baseline.publish_id).toBe("pub_2026-03-12_01");
     expect(payload.summary.attention_count).toBe(0);
     expect(payload.summary.publish_id).toBe("pub_2026-03-12_01");

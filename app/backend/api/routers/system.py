@@ -44,6 +44,15 @@ from app.backend.services.runtime_selection_service import (
     set_selected_logic_override,
     validate_selected_logic_override,
 )
+from app.backend.services.meemee_artifact_boundary import (
+    list_meemee_safe_artifacts,
+    classify_meemee_artifact,
+    load_meemee_artifact_json,
+    to_meemee_candidate_view,
+    to_meemee_publish_queue_view,
+    to_meemee_publish_state_view,
+    to_meemee_runtime_selection_view,
+)
 from app.backend.infra.files.config_repo import LOGIC_SELECTION_SCHEMA_VERSION
 
 router = APIRouter(prefix="/api/system", tags=["system"])
@@ -161,6 +170,10 @@ def _get_cached_snapshot(request: Request, attr_name: str) -> dict | None:
 def _set_cached_snapshot(request: Request, attr_name: str, snapshot: dict | None) -> None:
     if isinstance(snapshot, dict):
         setattr(request.app.state, attr_name, snapshot)
+
+
+def _is_tradex_full_surface(surface: str | None) -> bool:
+    return str(surface or "").strip().lower() == "tradex"
 
 
 def _build_runtime_selection_snapshot_cached(
@@ -298,9 +311,12 @@ def set_data_dir(payload: DataDirPayload):
 @router.get("/runtime-selection", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
 def get_runtime_selection(
     request: Request,
+    surface: str | None = None,
     config: ConfigRepository = Depends(get_config_repo),
 ):
     snapshot = _build_runtime_selection_snapshot_cached(request=request, config=config)
+    if not _is_tradex_full_surface(surface):
+        snapshot = to_meemee_runtime_selection_view(snapshot)
     return _with_operator_mutation_observability(snapshot)
 
 
@@ -377,20 +393,57 @@ def clear_runtime_selection_override(
     }
 
 
+@router.get("/meemee/artifacts", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
+def list_meemee_artifacts():
+    items = list_meemee_safe_artifacts()
+    return {
+        "ok": True,
+        "items": items,
+        "count": len(items),
+    }
+
+
+@router.get("/meemee/artifacts/{artifact_name}", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
+def get_meemee_artifact(
+    artifact_name: str,
+):
+    classification = classify_meemee_artifact(artifact_name)
+    try:
+        artifact = load_meemee_artifact_json(artifact_name)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail={"ok": False, "reason": "meemee_artifact_forbidden", "artifact_name": artifact_name}) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail={"ok": False, "reason": "meemee_artifact_not_found", "artifact_name": artifact_name}) from exc
+    return {
+        "ok": True,
+        "artifact_name": artifact_name,
+        "bucket": classification.bucket.value,
+        "allowed": classification.allowed,
+        "artifact": artifact,
+    }
+
+
 @router.get("/publish/state", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
 def get_publish_state(
     request: Request,
+    surface: str | None = None,
     config: ConfigRepository = Depends(get_config_repo),
 ):
-    return _with_operator_mutation_observability(_build_publish_promotion_snapshot_cached(request=request, config=config))
+    snapshot = _build_publish_promotion_snapshot_cached(request=request, config=config)
+    if not _is_tradex_full_surface(surface):
+        snapshot = to_meemee_publish_state_view(snapshot)
+    return _with_operator_mutation_observability(snapshot)
 
 
 @router.get("/publish/queue", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
 def get_publish_queue(
     request: Request,
+    surface: str | None = None,
     config: ConfigRepository = Depends(get_config_repo),
 ):
     snapshot = _build_publish_promotion_snapshot_cached(request=request, config=config)
+    if not _is_tradex_full_surface(surface):
+        return to_meemee_publish_queue_view(snapshot)
     return {
         "ok": True,
         "champion": snapshot.get("champion"),
@@ -408,10 +461,14 @@ def get_publish_queue(
 
 @router.get("/publish/candidates", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
 def get_publish_candidates(
+    request: Request,
+    surface: str | None = None,
     config: ConfigRepository = Depends(get_config_repo),
 ):
     result_db_path = os.getenv("MEEMEE_RESULT_DB_PATH")
     candidates = list_publish_candidate_bundles(db_path=result_db_path)
+    if not _is_tradex_full_surface(surface):
+        candidates = [to_meemee_candidate_view(candidate) for candidate in candidates]
     return {
         "ok": True,
         "items": candidates,
@@ -422,12 +479,16 @@ def get_publish_candidates(
 @router.get("/publish/candidates/{logic_key}", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
 def get_publish_candidate(
     logic_key: str,
+    request: Request,
+    surface: str | None = None,
     config: ConfigRepository = Depends(get_config_repo),
 ):
     result_db_path = os.getenv("MEEMEE_RESULT_DB_PATH")
     candidate = load_publish_candidate_bundle(db_path=result_db_path, logic_key=str(logic_key).strip())
     if not candidate:
         raise HTTPException(status_code=404, detail={"ok": False, "reason": "candidate_bundle_not_found", "logic_key": logic_key})
+    if not _is_tradex_full_surface(surface):
+        candidate = to_meemee_candidate_view(candidate)
     return {
         "ok": True,
         "candidate": candidate,

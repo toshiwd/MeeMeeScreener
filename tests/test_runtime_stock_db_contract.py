@@ -87,6 +87,37 @@ def test_runtime_stock_db_selection_prefers_meemee_data_dir(monkeypatch: pytest.
     assert selection["validated"] is True
 
 
+def test_runtime_stock_db_selection_prefers_freshest_local_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    meemee_data_dir = tmp_path / "custom-meemee-data"
+    stale_db = _build_contract_db(meemee_data_dir / "stocks.duckdb", latest_ymd=20260319)
+    localappdata = tmp_path / "localappdata"
+    dev_db = _build_contract_db(localappdata / "MeeMeeScreener-dev" / "data" / "stocks.duckdb", latest_ymd=20260403)
+    fresh_db = _build_contract_db(localappdata / "MeeMeeScreener" / "data" / "stocks.duckdb", latest_ymd=20260420)
+    monkeypatch.delenv("STOCKS_DB_PATH", raising=False)
+    monkeypatch.delenv("TRADEX_LIVE_STOCKS_DB_PATH", raising=False)
+    monkeypatch.setenv("MEEMEE_DATA_DIR", str(meemee_data_dir))
+    monkeypatch.setenv("LOCALAPPDATA", str(localappdata))
+    resolve_runtime_stock_db_selection.cache_clear()
+
+    selection = resolve_runtime_stock_db_selection()
+    resolved = resolve_runtime_stock_db_path()
+    freshness = inspect_runtime_stock_db(runtime_db_path=resolved)
+
+    assert stale_db.exists()
+    assert dev_db.exists()
+    assert fresh_db.exists()
+    assert selection["runtime_db_path"] == str(fresh_db)
+    assert selection["resolution_source"] == "LOCALAPPDATA_LEGACY"
+    assert selection["resolution_reason"] == "freshest_local_snapshot"
+    assert resolved == fresh_db
+    assert freshness["latest_available_global_date"] == 20260420
+    assert freshness["source_freshness_status"] == "exact"
+    assert freshness["freshness_blocked"] is False
+
+
 def test_runtime_stock_db_freshness_marks_lagged_source(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     base_dir = tmp_path / "meemee-data"
     db_path = _build_contract_db(base_dir / "stocks.duckdb", latest_ymd=20260403)
@@ -109,4 +140,3 @@ def test_runtime_stock_db_freshness_marks_lagged_source(monkeypatch: pytest.Monk
     assert freshness["date_match_status"] == "lagged_provisional"
     assert freshness["source_freshness_status"] == "lagged"
     assert freshness["freshness_blocked"] is True
-

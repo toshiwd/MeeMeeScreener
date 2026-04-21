@@ -4,21 +4,21 @@ This contract fixes the shared stock database source used by MeeMee and TRADEX.
 
 ## Authoritative runtime path
 
-- MeeMee desktop launch resolves `STOCKS_DB_PATH` to `%LOCALAPPDATA%\MeeMeeScreener-dev\data\stocks.duckdb`.
-- TRADEX runtime now resolves to the same validated local appdata store when no explicit override is present.
-- Verified current runtime selection:
-  - MeeMee runtime DB path: `C:\Users\enish\AppData\Local\MeeMeeScreener-dev\data\stocks.duckdb`
-  - TRADEX runtime DB path: `C:\Users\enish\AppData\Local\MeeMeeScreener-dev\data\stocks.duckdb`
-  - alignment status: `confirmed_aligned`
+- MeeMee and TRADEX runtime now resolve the stock DB to the freshest valid local snapshot among the allowed local appdata candidates when no explicit override is present.
+- Explicit overrides still win:
+  - `STOCKS_DB_PATH`
+  - `TRADEX_LIVE_STOCKS_DB_PATH`
+- The selected local snapshot must be the newest valid local `stocks.duckdb`, not the first valid one encountered.
 
 ## Resolution order
 
 1. `STOCKS_DB_PATH`
 2. `TRADEX_LIVE_STOCKS_DB_PATH`
-3. `MEEMEE_DATA_DIR\stocks.duckdb`
-4. `%LOCALAPPDATA%\MeeMeeScreener-dev\data\stocks.duckdb`
-5. `%LOCALAPPDATA%\MeeMeeScreener\data\stocks.duckdb`
-6. `G:\Tradex\db\stocks.duckdb`
+3. Freshest valid local snapshot among:
+   - `MEEMEE_DATA_DIR\stocks.duckdb`
+   - `%LOCALAPPDATA%\MeeMeeScreener-dev\data\stocks.duckdb`
+   - `%LOCALAPPDATA%\MeeMeeScreener\data\stocks.duckdb`
+4. `G:\Tradex\db\stocks.duckdb`
 
 ## Allowed fallback paths
 
@@ -56,8 +56,4 @@ This contract fixes the shared stock database source used by MeeMee and TRADEX.
 
 ## Verified evidence-bearing run
 
-- Exact path used in the evidence-bearing run: `C:\Users\enish\AppData\Local\MeeMeeScreener-dev\data\stocks.duckdb`
-- Verified latest global source date: `2026-04-03`
-- Verified symbol `2531` latest source date: `2026-04-03`
-- Requested chart date used for the report check: `2026-04-16`
-- Result: `lagged_provisional` / `lagged`, not current-date exact
+- Update this section only after the fresh-path regression is re-run on a real machine.

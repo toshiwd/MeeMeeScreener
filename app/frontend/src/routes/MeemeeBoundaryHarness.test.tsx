@@ -321,6 +321,38 @@ describe("MeeMee boundary harness", () => {
       if (url === "/rankings") {
         return Promise.resolve({
           data: {
+            freshness_state: "stale",
+            freshness_days: 33,
+            snapshot_as_of: "2026-03-19",
+            current_candidate_available: false,
+            stale: true,
+            actionable_buy_candidates: [
+              {
+                code: "1301",
+                name: "MeeMee Electric",
+                asOf: "2026-03-19",
+                score: 0.91,
+                changePct: 0.03,
+                changeAbs: 30,
+                setupType: "breakout",
+                reason: "confirmed momentum",
+                is_favorite: false,
+              },
+            ],
+            actionable_short_candidates: [],
+            caution_watch_candidates: [
+              {
+                code: "7203",
+                name: "Toyota",
+                asOf: "2026-03-19",
+                score: 0.77,
+                changePct: -0.01,
+                changeAbs: -25,
+                setupType: "watch",
+                reason: "confirmed caution",
+                is_favorite: false,
+              },
+            ],
             items: [
               {
                 code: "1301",
@@ -333,17 +365,6 @@ describe("MeeMee boundary harness", () => {
                 reason: "confirmed momentum",
                 is_favorite: false,
               },
-              {
-                code: "7203",
-                name: "Toyota",
-                asOf: "2026-03-19",
-                score: 0.77,
-                changePct: -0.01,
-                changeAbs: -25,
-                setupType: "pullback",
-                reason: "confirmed mean reversion",
-                is_favorite: false,
-              },
             ],
           },
         });
@@ -353,8 +374,141 @@ describe("MeeMee boundary harness", () => {
           data: {
             dominant_direction: "up",
             difference_score: 0.2,
+            actionable_buy: { count: 1, avg_trade_priority_score: 0.9, avg_profit_expectancy: 0.1, avg_hit_score: 0.2 },
+            actionable_short: { count: 0, avg_trade_priority_score: null, avg_profit_expectancy: null, avg_hit_score: null },
+            caution_watch: { count: 1, top_n: 5, top_codes: ["7203"] },
             buy: { count: 1, avg_trade_priority_score: 0.9, avg_profit_expectancy: 0.1, avg_hit_score: 0.2 },
             sell: { count: 0, avg_trade_priority_score: null, avg_profit_expectancy: null, avg_hit_score: null },
+          },
+        });
+      }
+      if (url === "/rankings/session") {
+        return Promise.resolve({
+          data: {
+            confirmed_snapshot_as_of: "2026-03-19",
+            provisional_snapshot_as_of: "2026-04-21",
+            provisional_source: "yahoo_intraday_unconfirmed_source",
+            provisional_freshness_state: "partial",
+            provisional_fetched_at: "2026-04-21T12:34:56+09:00",
+            is_provisional: true,
+            provisional_requested_symbols: 2,
+            provisional_covered_symbols: 1,
+            provisional_complete_ohlcv_symbols: 1,
+            provisional_same_day_symbols: 1,
+            provisional_missing_symbols: 1,
+            provisional_missing_reason_summary: { fetch_none: 1 },
+            provisional_coverage_ratio: 0.5,
+            provisional_same_day_ratio: 0.5,
+            provisional_min_coverage_ratio: 0.95,
+            provisional_min_same_day_ratio: 0.95,
+            provisional_allow_partial: true,
+            provisional_render_mode: "practical_partial",
+            confirmed_actionable_buy_candidates: [
+              {
+                code: "1301",
+                name: "MeeMee Electric",
+                asOf: "2026-03-19",
+                score: 0.91,
+                changePct: 0.03,
+                changeAbs: 30,
+                setupType: "breakout",
+                reason: "confirmed momentum",
+                is_favorite: false,
+              },
+            ],
+            confirmed_actionable_short_candidates: [],
+            confirmed_caution_watch_candidates: [
+              {
+                code: "7203",
+                name: "Toyota",
+                asOf: "2026-03-19",
+                score: 0.77,
+                changePct: -0.01,
+                changeAbs: -25,
+                setupType: "watch",
+                reason: "confirmed caution",
+                is_favorite: false,
+              },
+            ],
+            provisional_actionable_buy_candidates: [
+              {
+                code: "1301",
+                name: "MeeMee Electric",
+                asOf: "2026-04-21",
+                score: 0.95,
+                changePct: 0.04,
+                changeAbs: 40,
+                setupType: "breakout",
+                reason: "provisional momentum",
+                is_favorite: false,
+                is_provisional: true,
+                confirmed_rank: 1,
+                provisional_rank: 1,
+                rank_delta: 0,
+              },
+            ],
+            provisional_actionable_short_candidates: [],
+            provisional_caution_watch_candidates: [
+              {
+                code: "7203",
+                name: "Toyota",
+                asOf: "2026-04-21",
+                score: 0.77,
+                changePct: -0.01,
+                changeAbs: -25,
+                setupType: "watch",
+                reason: "provisional caution",
+                is_favorite: false,
+                is_provisional: true,
+                confirmed_rank: null,
+                provisional_rank: 1,
+                rank_delta: null,
+              },
+            ],
+            confirmed_trade_summary: {
+              dominant_direction: "up",
+              difference_score: 0.2,
+              actionable_buy: { count: 1, avg_trade_priority_score: 0.9, avg_profit_expectancy: 0.1, avg_hit_score: 0.2 },
+              actionable_short: { count: 0, avg_trade_priority_score: null, avg_profit_expectancy: null, avg_hit_score: null },
+              caution_watch: { count: 1, top_n: 5, top_codes: ["7203"] },
+            },
+            provisional_trade_summary: {
+              dominant_direction: "up",
+              difference_score: 0.15,
+              actionable_buy: { count: 1, avg_trade_priority_score: 0.95, avg_profit_expectancy: 0.12, avg_hit_score: 0.25 },
+              actionable_short: { count: 0, avg_trade_priority_score: null, avg_profit_expectancy: null, avg_hit_score: null },
+              caution_watch: { count: 1, top_n: 5, top_codes: ["7203"] },
+            },
+            confirmed_items: [
+              {
+                code: "1301",
+                name: "MeeMee Electric",
+                asOf: "2026-03-19",
+                score: 0.91,
+                changePct: 0.03,
+                changeAbs: 30,
+                setupType: "breakout",
+                reason: "confirmed momentum",
+                is_favorite: false,
+              },
+            ],
+            provisional_items: [
+              {
+                code: "1301",
+                name: "MeeMee Electric",
+                asOf: "2026-04-21",
+                score: 0.95,
+                changePct: 0.04,
+                changeAbs: 40,
+                setupType: "breakout",
+                reason: "provisional momentum",
+                is_favorite: false,
+                is_provisional: true,
+                confirmed_rank: 1,
+                provisional_rank: 1,
+                rank_delta: 0,
+              },
+            ],
           },
         });
       }
@@ -395,9 +549,17 @@ describe("MeeMee boundary harness", () => {
 
     expect(render.container.textContent).toContain("1301");
     expect(render.container.textContent).toContain("MeeMee Electric");
-    expect(render.container.textContent).toContain("7203");
+    expect(render.container.textContent).toContain("注意/監視 1件");
+    expect(render.container.textContent).toContain("短期売り 0件");
     expect(render.container.textContent).toContain("R2 shadow: ON");
     expect(render.container.textContent).toContain("boundary_local_rerank");
+    expect(render.container.textContent).toContain("暫定 / provisional");
+    expect(render.container.textContent).toContain("Yahoo更新");
+    expect(render.container.textContent).toContain("暫定候補 1件");
+    expect(render.container.textContent).toContain("暫定状態 partial");
+    expect(render.container.textContent).toContain("暫定カバレッジ 1/2");
+    expect(render.container.textContent).toContain("未取得 1");
+    expect(render.container.textContent).toContain("同日 1/1");
     expect(render.container.querySelectorAll("[data-testid='chart-card']")).toHaveLength(2);
 
     render.cleanup();
