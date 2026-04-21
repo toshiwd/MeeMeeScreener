@@ -6,15 +6,10 @@ import pandas as pd
 import numpy as np
 import itertools
 
-try:
-    from app.core.config import config
-    DB_PATH = str(config.DB_PATH)
-except ImportError:
-    try:
-        from app.backend.config import config
-        DB_PATH = str(config.DB_PATH)
-    except Exception:
-        DB_PATH = "c:/work/meemee-screener/db/screener.duckdb"
+from app.backend.analysis._db_path import resolve_analysis_db_path
+
+
+DB_PATH = resolve_analysis_db_path()
 
 def compute_rsi(series, period=14):
     delta = series.diff()

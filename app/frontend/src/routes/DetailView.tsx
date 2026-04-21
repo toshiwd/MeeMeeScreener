@@ -179,7 +179,8 @@ import { formatDateTimeLabel } from "../utils/dateLabels";
 
 const DETAIL_DAILY_ROW_RATIO = 0.72;
 const DETAIL_DEFAULT_WEEKLY_RATIO = 0.64;
-const DETAIL_TAB_CHUNK_PRELOAD_DELAY_MS = 1200;
+const DETAIL_TAB_CHUNK_PRELOAD_TIMEOUT_MS = 4000;
+const COMPARE_DETAIL_PREFETCH_TIMEFRAMES: Timeframe[] = ["daily", "monthly"];
 
 type DetailFrameOverwriteObservability = {
   cacheSource: "memory" | "indexeddb" | null;
@@ -249,7 +250,6 @@ let detailTabChunksPreloadPromise: Promise<unknown> | null = null;
 const preloadDetailTabChunks = () => {
   if (!detailTabChunksPreloadPromise) {
     detailTabChunksPreloadPromise = Promise.allSettled([
-      loadSimilarSearchPanel(),
       loadDetailJudgementPanel(),
       loadDetailFinancialPanel(),
       loadTradexAnalysisMount(),
@@ -750,7 +750,7 @@ export default function DetailView() {
             monthlyLimit: DEFAULT_LIMITS.monthly,
             asof: compareAsOf,
           });
-    setCompareChartPendingSwap(!hasCompleteDetailChartPrefetch(seed));
+    setCompareChartPendingSwap(!hasCompleteDetailChartPrefetch(seed, COMPARE_DETAIL_PREFETCH_TIMEFRAMES));
     resetCompareChartState(seed);
   }, [compareAsOf, compareCode, resetCompareChartState]);
 
@@ -2362,10 +2362,33 @@ export default function DetailView() {
 
   useEffect(() => {
     if (!backendReady || dailyFetch.status !== "success" || mainChartPendingSwap) return;
-    const timerId = window.setTimeout(() => {
+    let cancelled = false;
+    const runPreload = () => {
+      if (cancelled) return;
       void preloadDetailTabChunks();
-    }, DETAIL_TAB_CHUNK_PRELOAD_DELAY_MS);
+    };
+    const idleWindow = window as typeof window & {
+      requestIdleCallback?: (
+        callback: (deadline: { didTimeout: boolean; timeRemaining: () => number }) => void,
+        options?: { timeout: number }
+      ) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    if (typeof idleWindow.requestIdleCallback === "function") {
+      const idleId = idleWindow.requestIdleCallback(
+        () => {
+          runPreload();
+        },
+        { timeout: DETAIL_TAB_CHUNK_PRELOAD_TIMEOUT_MS }
+      );
+      return () => {
+        cancelled = true;
+        idleWindow.cancelIdleCallback?.(idleId);
+      };
+    }
+    const timerId = window.setTimeout(runPreload, DETAIL_TAB_CHUNK_PRELOAD_TIMEOUT_MS);
     return () => {
+      cancelled = true;
       window.clearTimeout(timerId);
     };
   }, [backendReady, dailyFetch.status, mainChartPendingSwap]);
@@ -2381,7 +2404,7 @@ export default function DetailView() {
       asof: compareAsOf,
     };
     const applyCompareFrames = (frames: ChartPrefetchFrames) => {
-      if (!hasCompleteDetailChartPrefetch(frames)) return false;
+      if (!hasCompleteDetailChartPrefetch(frames, COMPARE_DETAIL_PREFETCH_TIMEFRAMES)) return false;
       setCompareDailyLoading(false);
       setCompareLoading(false);
       setCompareChartPendingSwap(false);
@@ -2406,7 +2429,10 @@ export default function DetailView() {
     }
     const runCompareNetworkRefresh = async () => {
       try {
-        const frames = await prefetchDetailChartFrames(requestParams, { signal: controller.signal });
+        const frames = await prefetchDetailChartFrames(requestParams, {
+          signal: controller.signal,
+          timeframes: COMPARE_DETAIL_PREFETCH_TIMEFRAMES,
+        });
         if (!active) return;
         const applied = applyCompareFrames(frames);
         if (!applied) {
@@ -2429,7 +2455,7 @@ export default function DetailView() {
     void (async () => {
       let cachedApplied = hasSeed;
       try {
-        const cached = await loadDetailChartPrefetch(requestParams);
+        const cached = await loadDetailChartPrefetch(requestParams, COMPARE_DETAIL_PREFETCH_TIMEFRAMES);
         if (active) {
           cachedApplied = applyCompareFrames(cached) || cachedApplied;
         }

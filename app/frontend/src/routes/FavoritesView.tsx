@@ -18,6 +18,7 @@ import {
   ConsultationTimeframe
 } from "../utils/consultation";
 import { useConsultScreenshot } from "../hooks/useConsultScreenshot";
+import { resolveListThumbnailMaSettings } from "../storeHelpers";
 import { buildTradexListSummaryKey } from "./list/tradexSummary";
 import { TradexListSummaryMount } from "./list/TradexListSummaryMount";
 import { useVisibleCodesPrefetch } from "./list/useVisibleCodesPrefetch";
@@ -609,6 +610,10 @@ export default function FavoritesView() {
       : null;
 
   const isSingleDensity = columns === 1 && rows === 1;
+  const resolvedMaSettings = useMemo(
+    () => resolveListThumbnailMaSettings(listTimeframe, maSettings),
+    [listTimeframe, maSettings]
+  );
   const selectedChips = useMemo(() => {
     const limit = 6;
     const visible = consultTargets.slice(0, limit);
@@ -637,7 +642,7 @@ export default function FavoritesView() {
               name={resolveName(item)}
               payload={payload}
               status={status}
-              maSettings={maSettings}
+              maSettings={resolvedMaSettings}
               rangeBars={listRangeBars}
               eventEarningsDate={ticker?.eventEarningsDate ?? null}
               eventRightsDate={ticker?.eventRightsDate ?? null}
@@ -672,7 +677,7 @@ export default function FavoritesView() {
       densityKey,
       handleOpenDetail,
       listRangeBars,
-      maSettings,
+      resolvedMaSettings,
       resolveName,
       signalMap,
       tickerMap,

@@ -5,6 +5,7 @@ import { IconHeart, IconHeartFilled } from "@tabler/icons-react";
 import { api } from "../api";
 import { useBackendReadyState } from "../backendReady";
 import { Ticker, useStore } from "../store";
+import { resolveListThumbnailMaSettings } from "../storeHelpers";
 import { formatEventBadgeDate, parseEventDateMs } from "../utils/events";
 import { formatCompactDateLabel } from "../utils/dateLabels";
 import ThumbnailCanvas from "./ThumbnailCanvas";
@@ -68,8 +69,15 @@ const StockTile = memo(function StockTile({
       ? map.weekly ?? []
       : map.monthly ?? [];
   });
+  const resolvedMaSettings = resolveListThumbnailMaSettings(timeframe, maSettings);
   const showBoxes = useStore((state) => state.settings.showBoxes);
-  const cacheKey = buildThumbnailCacheKey(ticker.code, timeframe, showBoxes, maSettings, theme ?? "dark");
+  const cacheKey = buildThumbnailCacheKey(
+    ticker.code,
+    timeframe,
+    showBoxes,
+    resolvedMaSettings,
+    theme ?? "dark"
+  );
   const cachedThumb = getThumbnailCache(cacheKey);
   const earningsLabel = formatEventBadgeDate(ticker.eventEarningsDate);
   const rightsLabel = formatEventBadgeDate(ticker.eventRightsDate);
@@ -257,7 +265,7 @@ const StockTile = memo(function StockTile({
             payload={barsPayload}
             boxes={boxes}
             showBoxes={showBoxes}
-            maSettings={maSettings}
+            maSettings={resolvedMaSettings}
             cacheKey={cacheKey}
             maxBars={maxBars}
             showAxes

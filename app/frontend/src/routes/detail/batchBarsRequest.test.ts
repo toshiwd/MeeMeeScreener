@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildDetailBatchBarsRequestPayload,
   buildDetailPrefetchBatchBarsRequestPayload,
+  buildScopedDetailBatchBarsRequestPayload,
   buildSingleBatchBarsRequestPayload
 } from "./batchBarsRequest";
 
@@ -61,6 +62,34 @@ describe("buildDetailBatchBarsRequestPayload", () => {
         daily: 240,
         weekly: 120,
         monthly: 120,
+      },
+      includeProvisional: true,
+      includeBoxes: true,
+      asof: "2026-03-19",
+    });
+  });
+});
+
+describe("buildScopedDetailBatchBarsRequestPayload", () => {
+  it("builds a partial daily/monthly payload for compare charts", () => {
+    expect(
+      buildScopedDetailBatchBarsRequestPayload({
+        code: "7203",
+        dailyLimit: 240,
+        weeklyLimit: 120,
+        monthlyLimit: 90,
+        timeframes: ["daily", "monthly"],
+        includeBoxes: true,
+        asof: "2026-03-19",
+      })
+    ).toEqual({
+      codes: ["7203"],
+      timeframes: ["daily", "monthly"],
+      limit: 240,
+      timeframeLimits: {
+        daily: 240,
+        weekly: 120,
+        monthly: 90,
       },
       includeProvisional: true,
       includeBoxes: true,

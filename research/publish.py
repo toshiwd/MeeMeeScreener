@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+import os
 
 import pandas as pd
 
@@ -29,6 +30,13 @@ DEFAULT_QUALITY_GATE: dict[str, float | int] = {
     "max_test_risk_mae_p90": 0.1200,
     "min_test_months": 6,
 }
+
+
+def _repo_published_root_allowed() -> bool:
+    explicit = str(os.getenv("MEEMEE_ALLOW_REPO_PUBLISHED_ROOT") or "").strip().lower()
+    if explicit in {"1", "true", "yes", "on"}:
+        return True
+    return bool(os.getenv("PYTEST_CURRENT_TEST"))
 
 
 def _as_float(v: Any, default: float = 0.0) -> float:
@@ -215,8 +223,13 @@ def run_publish(
     if not run_dir.exists():
         raise FileNotFoundError(f"run not found: {run_id}")
     repo_published_root = (paths.repo_root / "published").resolve()
-    if (not legacy_publish) and paths.published_root.resolve() == repo_published_root:
-        raise RuntimeError("publish gate failed: repo published/ requires --legacy-publish")
+    if paths.published_root.resolve() == repo_published_root:
+        if not legacy_publish:
+            raise RuntimeError("publish gate failed: repo published/ requires --legacy-publish")
+        if not _repo_published_root_allowed():
+            raise RuntimeError(
+                "publish gate failed: repo published/ is test-only; set MEEMEE_ALLOW_REPO_PUBLISHED_ROOT=1 only for isolated runs"
+            )
 
     manifest = read_json(run_dir / "manifest.json")
     created_at = now_utc_iso()

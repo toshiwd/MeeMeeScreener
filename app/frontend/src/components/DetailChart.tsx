@@ -330,6 +330,8 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
   const lastAppliedVolumeRef = useRef<VolumePoint[] | null>(null);
   const lastAppliedShowVolumeRef = useRef<boolean | null>(null);
   const lastAppliedMaDataRef = useRef<Array<{ time: number; value: number }[] | undefined>>([]);
+  const lastAppliedScaleModeRef = useRef<boolean | null>(null);
+  const lastAppliedLineOptionsRef = useRef<Array<{ color: string; visible: boolean; lineWidth: number }>>([]);
 
   const readChartColors = () => {
     const styles = getComputedStyle(document.documentElement);
@@ -1554,6 +1556,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
         chart.removeSeries(current[index]);
       }
       current.length = nextLines.length;
+      lastAppliedLineOptionsRef.current.length = nextLines.length;
     }
     if (current.length < nextLines.length) {
       for (let index = current.length; index < nextLines.length; index += 1) {
@@ -1579,7 +1582,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     const nextCandles = next.candles;
     const nextVolumeData = next.showVolume ? buildVolumeSeriesData(next.candles, next.volume) : [];
     const nextMaData = next.maLines.map((line) => line.chartData ?? line.data);
-    if (chart) {
+    if (chart && lastAppliedScaleModeRef.current !== next.showVolume) {
       chart.applyOptions({
         rightPriceScale: {
           scaleMargins: { top: 0.08, bottom: next.showVolume ? 0.25 : 0.12 }
@@ -1588,8 +1591,9 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
       chart.priceScale("volume").applyOptions({
         scaleMargins: { top: next.showVolume ? 0.82 : 1, bottom: 0 }
       });
-      syncLineSeries(next.maLines);
+      lastAppliedScaleModeRef.current = next.showVolume;
     }
+    syncLineSeries(next.maLines);
     if (candleSeriesRef.current) {
       if (prevCandles !== nextCandles) {
         candleSeriesRef.current.setData(nextCandles);
@@ -1603,17 +1607,31 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
       ) {
         volumeSeriesRef.current.setData(nextVolumeData);
       }
-      volumeSeriesRef.current.applyOptions({ visible: next.showVolume });
+      if (prevShowVolume !== next.showVolume) {
+        volumeSeriesRef.current.applyOptions({ visible: next.showVolume });
+      }
     }
     next.maLines.forEach((line, index) => {
       const series = lineSeriesRef.current[index];
       if (!series) return;
-      series.applyOptions({
+      const nextLineOptions = {
         color: line.color,
         visible: line.visible,
-        lineWidth: line.lineWidth,
-        crosshairMarkerVisible: false
-      });
+        lineWidth: line.lineWidth
+      };
+      const prevLineOptions = lastAppliedLineOptionsRef.current[index];
+      if (
+        !prevLineOptions ||
+        prevLineOptions.color !== nextLineOptions.color ||
+        prevLineOptions.visible !== nextLineOptions.visible ||
+        prevLineOptions.lineWidth !== nextLineOptions.lineWidth
+      ) {
+        series.applyOptions({
+          ...nextLineOptions,
+          crosshairMarkerVisible: false
+        });
+        lastAppliedLineOptionsRef.current[index] = nextLineOptions;
+      }
       if (prevMaData[index] !== nextMaData[index]) {
         series.setData(nextMaData[index] ?? []);
       }

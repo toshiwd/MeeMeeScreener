@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable, Sequence
 
 
@@ -36,11 +36,45 @@ def _to_month_start(value: Any) -> datetime | None:
     return None
 
 
+def _to_week_start(value: Any) -> datetime | None:
+    try:
+        raw = int(value)
+    except (TypeError, ValueError):
+        return None
+
+    if raw >= 1_000_000_000_000:
+        dt = datetime.fromtimestamp(raw / 1000, tz=timezone.utc)
+    elif raw >= 1_000_000_000:
+        dt = datetime.fromtimestamp(raw, tz=timezone.utc)
+    else:
+        text = str(abs(raw))
+        if len(text) == 8:
+            try:
+                dt = datetime(int(text[:4]), int(text[4:6]), int(text[6:8]), tzinfo=timezone.utc)
+            except ValueError:
+                return None
+        elif len(text) == 6:
+            try:
+                dt = datetime(int(text[:4]), int(text[4:6]), 1, tzinfo=timezone.utc)
+            except ValueError:
+                return None
+        else:
+            return None
+    return dt.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=dt.weekday())
+
+
 def _month_bucket(value: Any) -> int | None:
     dt = _to_month_start(value)
     if dt is None:
         return None
     return dt.year * 100 + dt.month
+
+
+def _week_bucket(value: Any) -> int | None:
+    dt = _to_week_start(value)
+    if dt is None:
+        return None
+    return int(dt.timestamp())
 
 
 def _month_row_key(*, daily_value: Any, reference_value: Any | None) -> int:
@@ -139,4 +173,54 @@ def merge_monthly_rows_with_daily(
     return base_monthly
 
 
-__all__ = ["merge_monthly_rows_with_daily"]
+def merge_weekly_rows_with_daily(
+    weekly_rows: Iterable[Sequence[Any]],
+    daily_rows: Iterable[Sequence[Any]],
+) -> list[tuple]:
+    base_weekly = [tuple(row) for row in weekly_rows if row]
+    normalized_daily = [
+        normalized
+        for normalized in (_normalize_daily_row(row) for row in daily_rows)
+        if normalized is not None
+    ]
+    if not normalized_daily:
+        return base_weekly
+
+    target_week = _week_bucket(normalized_daily[-1][0])
+    if target_week is None:
+        return base_weekly
+
+    week_daily = [row for row in normalized_daily if _week_bucket(row[0]) == target_week]
+    if not week_daily:
+        return base_weekly
+
+    existing_index: int | None = None
+    for idx in range(len(base_weekly) - 1, -1, -1):
+        row = base_weekly[idx]
+        if _week_bucket(row[0]) == target_week:
+            existing_index = idx
+            break
+
+    week_start = _to_week_start(week_daily[0][0])
+    if week_start is None:
+        return base_weekly
+
+    merged_row = (
+        int(week_start.timestamp()),
+        week_daily[0][1],
+        max(row[2] for row in week_daily),
+        min(row[3] for row in week_daily),
+        week_daily[-1][4],
+        sum(row[5] for row in week_daily),
+    )
+
+    if existing_index is None:
+        base_weekly.append(merged_row)
+    else:
+        base_weekly[existing_index] = merged_row
+
+    base_weekly.sort(key=lambda row: _week_bucket(row[0]) if _week_bucket(row[0]) is not None else int(row[0]))
+    return base_weekly
+
+
+__all__ = ["merge_monthly_rows_with_daily", "merge_weekly_rows_with_daily"]
