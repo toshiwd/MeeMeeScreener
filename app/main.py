@@ -240,6 +240,7 @@ from app.backend.api.routers import (
     tradex,
     toredex,
 )
+from shared.runtime_stock_db_contract import resolve_runtime_stock_db_path
 from app.backend.services.operator_mutation_lock import (
     get_operator_mutation_observability,
     get_operator_mutation_state,
@@ -378,6 +379,7 @@ async def lifespan(app: FastAPI):
         from app.backend.core.config import config
         data_dir = str(config.DATA_DIR)
         os.environ.setdefault("MEEMEE_DATA_DIR", data_dir)
+    os.environ.setdefault("STOCKS_DB_PATH", str(resolve_runtime_stock_db_path()))
     os.makedirs(data_dir, exist_ok=True)
     if not os.getenv("MEEMEE_RESOLVED_PATHS_LOGGED"):
         if not _LOGGED_RESOLVED_PATHS:

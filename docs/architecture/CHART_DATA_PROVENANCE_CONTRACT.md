@@ -15,6 +15,10 @@ This contract separates confirmed historical candles from provisional current-da
 - If a requested judgment date exceeds confirmed coverage, the analysis path must fail closed.
 - Cached frames must expose cache source, cache timestamp, upstream source class, and cache freshness.
 
+## MeeMee Runtime Access
+- MeeMee resolves only the allowlisted chart provenance / overwrite artifacts through `app/backend/services/meemee_artifact_boundary.py` and `GET /api/system/meemee/artifacts/{artifact_name}`.
+- Any artifact not on the allowlist is denied by default, including TRADEX-only and blocked / hold research artifacts.
+
 ## Required Payload Fields
 - `chart_source_provider`
 - `chart_source_type`

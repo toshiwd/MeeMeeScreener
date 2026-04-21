@@ -40,6 +40,10 @@ def _write_artifact(path: Path, content: str) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _tradex_surface(path: str) -> str:
+    return f"{path}{'&' if '?' in path else '?'}surface=tradex"
+
+
 def _seed_publish_state(tmp_path: Path) -> tuple[Path, Path, str, str]:
     data_dir = tmp_path / "data"
     data_dir.mkdir()
@@ -306,7 +310,7 @@ def test_publish_promotion_updates_champion_and_runtime_selection(monkeypatch, t
         assert approve_payload["ok"] is True
         assert approve_payload["bundle"]["status"] == "approved"
 
-        before = client.get("/api/system/runtime-selection")
+        before = client.get(_tradex_surface("/api/system/runtime-selection"))
         assert before.status_code == 200
         before_payload = before.json()
         assert before_payload["source_of_truth"] == "external_analysis"
@@ -325,11 +329,11 @@ def test_publish_promotion_updates_champion_and_runtime_selection(monkeypatch, t
         assert payload["champion"]["logic_key"] == challenger_key
         assert payload["validation"]["gate_pass"] is True
 
-        candidate_after_promote = client.get(f"/api/system/publish/candidates/{challenger_key}")
+        candidate_after_promote = client.get(_tradex_surface(f"/api/system/publish/candidates/{challenger_key}"))
         assert candidate_after_promote.status_code == 200
         assert candidate_after_promote.json()["candidate"]["status"] == "promoted"
 
-        after = client.get("/api/system/runtime-selection")
+        after = client.get(_tradex_surface("/api/system/runtime-selection"))
         assert after.status_code == 200
         after_payload = after.json()
         assert after_payload["source_of_truth"] == "external_analysis"
@@ -367,11 +371,11 @@ def test_publish_demotion_retires_non_champion(monkeypatch, tmp_path) -> None:
         assert payload["ok"] is True
         assert payload["action"] == "demote"
 
-        candidate_after_demote = client.get(f"/api/system/publish/candidates/{challenger_key}")
+        candidate_after_demote = client.get(_tradex_surface(f"/api/system/publish/candidates/{challenger_key}"))
         assert candidate_after_demote.status_code == 200
         assert candidate_after_demote.json()["candidate"]["status"] == "retired"
 
-        state = client.get("/api/system/publish/state")
+        state = client.get(_tradex_surface("/api/system/publish/state"))
         assert state.status_code == 200
         state_payload = state.json()
         assert state_payload["source_of_truth"] == "external_analysis"
@@ -408,7 +412,7 @@ def test_publish_rollback_restores_previous_champion(monkeypatch, tmp_path) -> N
         assert rollback_payload["ok"] is True
         assert rollback_payload["action"] == "rollback"
 
-        state = client.get("/api/system/runtime-selection")
+        state = client.get(_tradex_surface("/api/system/runtime-selection"))
         assert state.status_code == 200
         payload = state.json()
         assert payload["source_of_truth"] == "external_analysis"
@@ -461,17 +465,58 @@ def test_publish_and_runtime_reads_use_cached_snapshots_during_operator_mutation
             lambda **_kwargs: (_ for _ in ()).throw(AssertionError("runtime snapshot should use cache")),
         )
 
-        publish_state = client.get("/api/system/publish/state")
+        publish_state = client.get(_tradex_surface("/api/system/publish/state"))
         assert publish_state.status_code == 200
         publish_payload = publish_state.json()
         assert publish_payload["champion_logic_key"] == champion_key
         assert "operator_mutation_observability" in publish_payload
 
-        runtime_state = client.get("/api/system/runtime-selection")
+        runtime_state = client.get(_tradex_surface("/api/system/runtime-selection"))
         assert runtime_state.status_code == 200
         runtime_payload = runtime_state.json()
         assert runtime_payload["selected_logic_key"] == champion_key
         assert "operator_mutation_observability" in runtime_payload
+
+
+def test_meemee_safe_surface_hides_publish_and_research_internals(monkeypatch, tmp_path) -> None:
+    data_dir, result_db, ops_db, champion_key, challenger_key = _seed_publish_state(tmp_path)
+    main_module = _load_app(monkeypatch, data_dir, result_db, ops_db)
+
+    with TestClient(main_module.create_app()) as client:
+        runtime_state = client.get("/api/system/runtime-selection")
+        assert runtime_state.status_code == 200
+        runtime_payload = runtime_state.json()
+        assert runtime_payload["selected_logic_key"] == champion_key
+        assert "publish_registry_state" not in runtime_payload
+        assert "publish_registry" not in runtime_payload
+
+        publish_state = client.get("/api/system/publish/state")
+        assert publish_state.status_code == 200
+        publish_payload = publish_state.json()
+        assert publish_payload["champion_logic_key"] == champion_key
+        assert "champion" not in publish_payload
+        assert "challengers" not in publish_payload
+
+        candidate_list = client.get("/api/system/publish/candidates")
+        assert candidate_list.status_code == 200
+        list_payload = candidate_list.json()
+        assert list_payload["ok"] is True
+        assert list_payload["items"]
+        assert all(item["surface_bucket"] == "MeeMee-safe" for item in list_payload["items"])
+        assert all("validation_summary" not in item for item in list_payload["items"])
+        assert all("published_logic_manifest" not in item for item in list_payload["items"])
+        assert all("published_logic_artifact" not in item for item in list_payload["items"])
+        assert all("published_ranking_snapshot" not in item for item in list_payload["items"])
+
+        candidate_detail = client.get(f"/api/system/publish/candidates/{challenger_key}")
+        assert candidate_detail.status_code == 200
+        detail_payload = candidate_detail.json()
+        assert detail_payload["ok"] is True
+        assert detail_payload["candidate"]["logic_key"] == challenger_key
+        assert detail_payload["candidate"]["surface_bucket"] == "MeeMee-safe"
+        assert "validation_summary" not in detail_payload["candidate"]
+        assert "published_logic_artifact" not in detail_payload["candidate"]
+        assert "published_ranking_snapshot" not in detail_payload["candidate"]
 
 
 def test_runtime_selection_uses_local_mirror_when_external_registry_unavailable(monkeypatch, tmp_path) -> None:
@@ -493,7 +538,7 @@ def test_runtime_selection_uses_local_mirror_when_external_registry_unavailable(
     )
 
     with TestClient(main_module.create_app()) as client:
-        response = client.get("/api/system/runtime-selection")
+        response = client.get(_tradex_surface("/api/system/runtime-selection"))
         assert response.status_code == 200
         payload = response.json()
         assert payload["source_of_truth"] == "local_mirror"
@@ -514,13 +559,13 @@ def test_publish_mirror_normalize_repairs_legacy_mirror_from_external(monkeypatc
 
     main_module = _load_app(monkeypatch, data_dir, result_db, ops_db)
     with TestClient(main_module.create_app()) as client:
-        list_response = client.get("/api/system/publish/candidates")
+        list_response = client.get(_tradex_surface("/api/system/publish/candidates"))
         assert list_response.status_code == 200
         list_payload = list_response.json()
         assert list_payload["ok"] is True
         assert list_payload["count"] >= 1
 
-        candidate_response = client.get(f"/api/system/publish/candidates/{challenger_key}")
+        candidate_response = client.get(_tradex_surface(f"/api/system/publish/candidates/{challenger_key}"))
         assert candidate_response.status_code == 200
         candidate_payload = candidate_response.json()
         assert candidate_payload["ok"] is True
@@ -706,7 +751,7 @@ def test_publish_candidate_maintenance_dry_run_tracks_state_without_mutation(mon
     assert json.loads(row[0]) == {}
 
     with TestClient(main_module.create_app()) as client:
-        state_response = client.get("/api/system/publish/state")
+        state_response = client.get(_tradex_surface("/api/system/publish/state"))
         assert state_response.status_code == 200
         state_payload = state_response.json()
         assert "candidate_backfill_last_run" in state_payload
@@ -731,7 +776,7 @@ def test_publish_candidate_non_promotable_legacy_count_is_observable(monkeypatch
     assert result["failed"] >= 1
 
     with TestClient(main_module.create_app()) as client:
-        state_response = client.get("/api/system/publish/state")
+        state_response = client.get(_tradex_surface("/api/system/publish/state"))
         assert state_response.status_code == 200
         state_payload = state_response.json()
         assert state_payload["non_promotable_legacy_count"] >= 1
@@ -983,7 +1028,7 @@ def test_publish_queue_supports_multiple_challengers(monkeypatch, tmp_path) -> N
         )
         assert enqueue_second.status_code == 200
 
-        queue_response = client.get("/api/system/publish/queue")
+        queue_response = client.get(_tradex_surface("/api/system/publish/queue"))
         assert queue_response.status_code == 200
         queue_payload = queue_response.json()
         assert queue_payload["bootstrap_rule"] == "explicit_champion_flag"

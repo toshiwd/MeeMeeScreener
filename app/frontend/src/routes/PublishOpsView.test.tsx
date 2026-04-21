@@ -34,7 +34,13 @@ describe("operator console hardening", () => {
     expect(render.html()).toContain("operator_mutation_busy_count");
     expect(render.html()).toContain("Candidate bundles");
     expect(render.html()).toContain("Selected candidate detail");
+    expect(render.html()).toContain("MeeMee-safe runtime surface only");
+    expect(render.html()).toContain("Raw registry JSON and comparison artifacts are withheld from MeeMee");
     expect(render.html()).not.toContain("<pre>");
+    expect(render.html()).not.toContain("published_logic_manifest");
+    expect(render.html()).not.toContain("validation_summary");
+    expect(render.html()).not.toContain("published_ranking_snapshot");
+    expect(render.html()).not.toContain("publish_registry_state");
   });
 
   it("does not expose the ops nav item in MeeMee TopNav", async () => {

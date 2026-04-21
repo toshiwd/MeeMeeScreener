@@ -105,3 +105,27 @@ def test_inspect_analysis_backfill_coverage_uses_explicit_legacy_schema(monkeypa
 
     assert called["schema"] == 1
     assert result["covered"] is True
+
+
+def test_query_existing_ml_dates_marks_sparse_ml_feature_dates_missing() -> None:
+    class _SparseCoverageConn:
+        def execute(self, query: str, params=None):
+            sql = " ".join(str(query).split())
+            args = list(params or [])
+            if "SELECT CASE WHEN date >= 1000000000 THEN" in sql and "FROM daily_bars" in sql:
+                assert args == [20250331]
+                return _FakeRows([(20250331, 30)])
+            if "SELECT CASE WHEN dt >= 1000000000 THEN" in sql and "FROM ml_feature_daily" in sql:
+                assert args == [20250331, 7]
+                return _FakeRows([(20250331, 4)])
+            if "SELECT MAX(feature_version) FROM ml_feature_daily" in sql:
+                return _FakeRows([(7,)])
+            raise AssertionError(f"Unexpected query: {sql} params={args}")
+
+    existing = analysis_backfill_service._query_existing_ml_dates(
+        _SparseCoverageConn(),
+        target_dates=[20250331],
+        active_model_version="ignored",
+    )
+
+    assert existing == set()

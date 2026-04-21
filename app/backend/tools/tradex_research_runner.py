@@ -4829,7 +4829,16 @@ def _build_run_manifest(
     session_scope_id: str,
     ret20_source_mode: str,
 ) -> dict[str, Any]:
-    fallback_status = TRADEX_FALLBACK_STATUS_RESEARCH if _text(runtime_meta.get("eval_window_mode"), fallback="standard") != "standard" or ret20_source_mode != tradex.TRADEX_RET20_SOURCE_MODE_PRECOMPUTED else TRADEX_FALLBACK_STATUS_AUTHORITATIVE
+    eval_window_mode = _text(runtime_meta.get("eval_window_mode"), fallback="standard")
+    meaningful_topk_branching_possible = bool(runtime_meta.get("meaningful_topk_branching_possible", True))
+    topk_branching_block_reason = _text(runtime_meta.get("topk_branching_block_reason"))
+    fallback_status = (
+        TRADEX_FALLBACK_STATUS_RESEARCH
+        if eval_window_mode != "standard"
+        or ret20_source_mode != tradex.TRADEX_RET20_SOURCE_MODE_PRECOMPUTED
+        or not meaningful_topk_branching_possible
+        else TRADEX_FALLBACK_STATUS_AUTHORITATIVE
+    )
     artifact_detail_level = (
         TRADEX_ARTIFACT_DETAIL_LEVEL_RESEARCH_FALLBACK if fallback_status == TRADEX_FALLBACK_STATUS_RESEARCH else TRADEX_ARTIFACT_DETAIL_LEVEL_AUTHORITATIVE
     )
@@ -4838,7 +4847,7 @@ def _build_run_manifest(
         "random_seed": int(random_seed),
         "max_candidates_per_family": DEFAULT_MAX_CANDIDATES_PER_FAMILY,
         "ret20_source_mode": ret20_source_mode,
-        "eval_window_mode": _text(runtime_meta.get("eval_window_mode"), fallback="unknown"),
+        "eval_window_mode": eval_window_mode,
         "eval_window_mode_reason": _text(runtime_meta.get("eval_window_mode_reason"), fallback="unknown"),
         "cost_model": dict(TRADEX_DEFAULT_COST_MODEL),
     }
@@ -4867,9 +4876,11 @@ def _build_run_manifest(
     )
     manifest["session_scope_id"] = session_scope_id
     manifest["ret20_source_mode"] = ret20_source_mode
-    manifest["fallback_reasons"] = [
-        _text(runtime_meta.get("eval_window_mode_reason"), fallback="unknown")
-    ] if fallback_status == TRADEX_FALLBACK_STATUS_RESEARCH else []
+    manifest["fallback_reasons"] = []
+    if fallback_status == TRADEX_FALLBACK_STATUS_RESEARCH:
+        manifest["fallback_reasons"].append(_text(runtime_meta.get("eval_window_mode_reason"), fallback="unknown"))
+        if not meaningful_topk_branching_possible and topk_branching_block_reason:
+            manifest["fallback_reasons"].append(f"topk_branching:{topk_branching_block_reason}")
     return manifest
 
 

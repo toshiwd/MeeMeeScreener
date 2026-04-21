@@ -70,3 +70,6 @@
 - Codex may autonomously maintain repo hygiene and safe cleanup of reproducible temp/cache/output residue.
 - Destructive deletion and storage-boundary changes require explicit approval.
 - Run `tools/check_repo_hygiene.ps1` before heavy Codex or VS Code work.
+
+## Runtime State Checks
+- For stock selection or ranking work, query `get_runtime_stock_db_status` and `get_rankings_freshness` before using any candidate snapshot.

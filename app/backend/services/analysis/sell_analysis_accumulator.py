@@ -408,7 +408,15 @@ def _upsert_snapshot_for_dates(conn: duckdb.DuckDBPyConnection, target_dates: li
         )
         conn.execute(
             """
-            INSERT OR REPLACE INTO sell_analysis_daily (
+            DELETE FROM sell_analysis_daily
+            WHERE dt IN (
+                SELECT dt FROM _tmp_sell_target_dates
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO sell_analysis_daily (
                 dt,
                 code,
                 close,

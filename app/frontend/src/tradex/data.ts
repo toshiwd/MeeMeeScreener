@@ -150,6 +150,8 @@ type CandidateCatalogResponse = {
   count?: number;
 };
 
+const tradexSurfaceUrl = (url: string) => (url.includes("?") ? `${url}&surface=tradex` : `${url}?surface=tradex`);
+
 const text = (value: unknown, fallback = "") => {
   const result = typeof value === "string" ? value.trim() : String(value ?? "").trim();
   return result || fallback;
@@ -382,12 +384,12 @@ const loadTradexBootstrapFromBackend = async (): Promise<TradexBootstrapData> =>
 export const loadTradexBootstrapFromLegacySources = async (): Promise<TradexBootstrapData> => {
   const [analysisStatus, runtimeSelection, publishState, publishQueue, replayProgress, actionQueue, candidateCatalog, forecastSurfaceProjection] = await Promise.all([
     tradexFetchJson<AnalysisBridgeStatus>("/analysis-bridge/status"),
-    tradexFetchJsonWithRetry<RuntimeSelectionSnapshot>("/system/runtime-selection"),
-    tradexFetchJsonWithRetry<PublishStateSnapshot>("/system/publish/state"),
-    tradexFetchJsonWithRetry<Record<string, unknown>>("/system/publish/queue"),
+    tradexFetchJsonWithRetry<RuntimeSelectionSnapshot>(tradexSurfaceUrl("/system/runtime-selection")),
+    tradexFetchJsonWithRetry<PublishStateSnapshot>(tradexSurfaceUrl("/system/publish/state")),
+    tradexFetchJsonWithRetry<Record<string, unknown>>(tradexSurfaceUrl("/system/publish/queue")),
     tradexFetchJson<ReplayProgressResponse>(tradexResearchRoute(TRADEX_RESEARCH_ENDPOINTS.replayProgress)),
     tradexFetchJson<ActionQueueResponse>(tradexResearchRoute(TRADEX_RESEARCH_ENDPOINTS.stateEvalActionQueue)),
-    tradexFetchJsonWithRetry<CandidateCatalogResponse>("/system/publish/candidates"),
+    tradexFetchJsonWithRetry<CandidateCatalogResponse>(tradexSurfaceUrl("/system/publish/candidates")),
     tradexFetchJson<ForecastSurfaceProjectionEnvelope>(tradexResearchRoute(TRADEX_RESEARCH_ENDPOINTS.forecastSurfaceProjection))
   ]);
   const baseline = buildBaseline(analysisStatus, runtimeSelection, publishState);

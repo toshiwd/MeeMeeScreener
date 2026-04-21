@@ -3876,7 +3876,7 @@ def _build_run_result(family: dict[str, Any], run: dict[str, Any]) -> dict[str, 
             for point in removed_points[:100]:
                 detail = _candidate_scope_gap_detail(
                     code=normalized_code,
-                    candidate_date=_text(point.get("dt")) if isinstance(point, dict) else None,
+                    candidate_date=_format_ymd_int(point.get("dt")) if isinstance(point, dict) else None,
                     trade_sequence=trade_sequence,
                     scope_session_id=_text(family.get("session_scope_id"), fallback=_text(family.get("input_dataset_version"), fallback="unknown")),
                     scope_filter_applied_stage=scope_filter_applied_stage,

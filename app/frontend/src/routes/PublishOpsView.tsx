@@ -60,10 +60,13 @@ type CandidateBundle = {
   validation_state?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
-  published_logic_manifest?: AnyRecord | null;
-  validation_summary?: AnyRecord | null;
-  published_logic_artifact?: AnyRecord | null;
-  published_ranking_snapshot?: AnyRecord | null;
+  source_publish_id?: string | null;
+  readiness_pass?: boolean;
+  sample_count?: number | null;
+  expectancy_delta?: number | null;
+  has_snapshot?: boolean;
+  surface_bucket?: string | null;
+  surface_reason?: string | null;
 };
 
 type CandidateRow = {
@@ -235,7 +238,6 @@ function StatusItem({ label, value }: { label: string; value: unknown }) {
 }
 
 function toCandidateRow(bundle: CandidateBundle): CandidateRow {
-  const summary = obj(bundle.validation_summary);
   return {
     candidateId: text(bundle.candidate_id),
     logicKey: text(bundle.logic_key),
@@ -243,10 +245,10 @@ function toCandidateRow(bundle: CandidateBundle): CandidateRow {
     validationState: text(bundle.validation_state),
     createdAt: text(bundle.created_at),
     updatedAt: text(bundle.updated_at),
-    readinessPass: Boolean(summary?.readiness_pass),
-    sampleCount: parseNum(summary?.sample_count),
-    expectancyDelta: parseNum(summary?.expectancy_delta),
-    hasSnapshot: Boolean(bundle.published_ranking_snapshot),
+    readinessPass: Boolean(bundle.readiness_pass),
+    sampleCount: parseNum(bundle.sample_count),
+    expectancyDelta: parseNum(bundle.expectancy_delta),
+    hasSnapshot: Boolean(bundle.has_snapshot),
   };
 }
 
@@ -562,9 +564,9 @@ export default function PublishOpsView() {
               <span className="ops-chip is-active">{text(runtimeSelection?.logic_key)}</span>
             </div>
           </div>
-          <JsonBlock title="selected_logic_override" value={runtimeSelection?.selected_logic_override} />
-          <JsonBlock title="last_known_good" value={runtimeSelection?.last_known_good} />
-          <JsonBlock title="operator_mutation_observability" value={runtimeSelection?.operator_mutation_observability ?? publishState?.operator_mutation_observability} />
+          <div className="ops-alert">
+            MeeMee-safe runtime surface only. Raw publish registry internals stay behind the TRADEX boundary.
+          </div>
         </article>
 
         <article className="ops-card">
@@ -608,6 +610,9 @@ export default function PublishOpsView() {
             <button type="button" className="ops-button" disabled={busyAction !== null || (!publishState?.previous_stable_champion_logic_key && championKey === "N/A")} onClick={() => void registryAction("rollback") }>
               Rollback
             </button>
+          </div>
+          <div className="ops-alert">
+            Raw registry JSON and comparison artifacts are withheld from MeeMee.
           </div>
         </article>
 
@@ -789,7 +794,7 @@ export default function PublishOpsView() {
           <div className="ops-card-head">
             <div>
               <div className="ops-card-title">Selected candidate detail</div>
-              <div className="ops-card-caption">manifest / validation_summary / ranking snapshot</div>
+              <div className="ops-card-caption">MeeMee-safe candidate summary only</div>
             </div>
             <span className={`ops-badge ${selectedLogicKey ? "is-ok" : "is-neutral"}`}>{selectedLogicKey ?? "unselected"}</span>
           </div>
@@ -807,15 +812,17 @@ export default function PublishOpsView() {
                 <StatusItem label="logic_key" value={candidateDetail.logic_key} />
                 <StatusItem label="status" value={candidateDetail.status} />
                 <StatusItem label="validation_state" value={candidateDetail.validation_state} />
+                <StatusItem label="source_publish_id" value={candidateDetail.source_publish_id} />
               </div>
               <div className="ops-chip-row">
                 <div className="ops-chip-group">
-                  <span className="ops-chip-label">ranking snapshot</span>
-                  <span className={`ops-chip ${candidateDetail.published_ranking_snapshot ? "is-ok" : "is-muted"}`}>
-                    {candidateDetail.published_ranking_snapshot ? "present" : "absent"}
+                  <span className="ops-chip-label">mee mee boundary</span>
+                  <span className={`ops-chip ${candidateDetail.surface_bucket === "MeeMee-safe" ? "is-ok" : "is-muted"}`}>
+                    {candidateDetail.surface_bucket ?? "MeeMee-safe"}
                   </span>
                 </div>
               </div>
+              <div className="ops-alert">{candidateDetail.surface_reason ?? "MeeMee-safe candidate summary only."}</div>
               <div className="ops-detail-actions">
                 <button type="button" className="ops-button" disabled={busyAction !== null} onClick={() => void candidateAction("promote", candidateDetail.logic_key)}>
                   Promote
@@ -827,10 +834,6 @@ export default function PublishOpsView() {
                   Reject
                 </button>
               </div>
-              <JsonBlock title="published_logic_manifest" value={candidateDetail.published_logic_manifest} />
-              <JsonBlock title="validation_summary" value={candidateDetail.validation_summary} />
-              <JsonBlock title="published_logic_artifact" value={candidateDetail.published_logic_artifact} />
-              <JsonBlock title="published_ranking_snapshot" value={candidateDetail.published_ranking_snapshot} />
             </>
           ) : (
             <div className="ops-alert is-error">Failed to load candidate detail.</div>
@@ -853,9 +856,7 @@ export default function PublishOpsView() {
             <StatusItem label="non_promotable_legacy_count" value={nonPromotableCount} />
             <StatusItem label="maintenance_degraded" value={maintenanceDegraded} />
           </div>
-          <JsonBlock title="maintenance_state" value={maintenanceState} />
-          <JsonBlock title="publish_registry_state" value={publishState} />
-          <JsonBlock title="runtime_selection_snapshot" value={runtimeSelection} />
+          <div className="ops-alert">MeeMee shows the mirror state only; raw registry snapshots stay behind the boundary.</div>
         </article>
       </section>
 

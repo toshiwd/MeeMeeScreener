@@ -906,6 +906,28 @@ def test_tradex_topk_branching_contract_state_blocks_when_universe_too_small() -
     assert state["topk_branching_block_reason"] == "effective_universe_too_small_for_topk"
 
 
+def test_tradex_run_manifest_marks_tiny_topk_boundary_as_research_fallback() -> None:
+    manifest = research_runner._build_run_manifest(
+        session_id="tiny-topk",
+        random_seed=7,
+        universe=["1001", "1002", "1003", "1004"],
+        period_segments=[{"start_date": "2025-01-01", "end_date": "2025-01-31"}],
+        runtime_meta={
+            "eval_window_mode": "standard",
+            "eval_window_mode_reason": "standard_window_available",
+            "meaningful_topk_branching_possible": False,
+            "topk_branching_block_reason": "effective_universe_too_small_for_topk",
+            "confirmed_universe_source": "daily_bars distinct codes",
+        },
+        session_scope_id="rr_confirmed_20260323_fix5",
+        ret20_source_mode=service.TRADEX_RET20_SOURCE_MODE_PRECOMPUTED,
+    )
+
+    assert manifest["fallback_status"] == research_runner.TRADEX_FALLBACK_STATUS_RESEARCH
+    assert manifest["artifact_detail_level"] == research_runner.TRADEX_ARTIFACT_DETAIL_LEVEL_RESEARCH_FALLBACK
+    assert "topk_branching:effective_universe_too_small_for_topk" in manifest["fallback_reasons"]
+
+
 def test_tradex_leaderboard_candidate_reasons_hold_on_insufficient_samples() -> None:
     decision_reasons, comparison, decision = research_runner._leaderboard_candidate_reasons(
         {
@@ -1741,6 +1763,30 @@ def test_tradex_candidate_scope_gap_detail_classifies_type_mismatch() -> None:
     assert detail["key_normalization_mode"] == "code4/date_iso"
     assert detail["mismatch_reason_detail"] == "date_type_mismatch"
     assert detail["candidate_scope_gap_reason"] == "date_type_mismatch"
+
+
+def test_tradex_candidate_scope_gap_detail_canonical_date_does_not_flag_type_mismatch() -> None:
+    trade_sequence = {
+        "dates": ["2025-01-03", "2025-01-04", "2025-01-05"],
+        "closes": [100.0, 101.0, 102.0],
+        "date_index": {"2025-01-03": 0, "2025-01-04": 1, "2025-01-05": 2},
+        "last_date": "2025-01-05",
+    }
+    detail = service._candidate_scope_gap_detail(
+        code="1001",
+        candidate_date="2025-01-03",
+        trade_sequence=trade_sequence,
+        scope_session_id="scope-a",
+        scope_filter_applied_stage="analysis_points_segment_filter_after_scope_points_build",
+        scope_points=[{"dt": 20250103}],
+        code_points=[],
+        selected_segment_ranges=[("2025-01-03", "2025-01-03")],
+    )
+
+    assert detail["candidate_date"] == "2025-01-03"
+    assert detail["candidate_key_before_scope"] == "1001|2025-01-03"
+    assert detail["mismatch_reason_detail"] != "date_type_mismatch"
+    assert detail["candidate_scope_gap_reason"] != "date_type_mismatch"
 
 
 def test_tradex_session_failure_reason_classifier_types_known_errors() -> None:
