@@ -1,0 +1,127 @@
+{
+  "regimes": {
+    "mixed": {
+      "variant_metrics": {
+        "champion_only": {
+          "mean_bad_pick_removal": 0.0,
+          "mean_candidate_pool_bad_pick_removal": 0.0,
+          "mean_candidate_pool_top10_capture": 10.0,
+          "mean_changed_top10_members_count": 0.0,
+          "mean_top10_boundary_outcome_gap": 3.563672664885775e-05,
+          "mean_top10_uplift": 0.0,
+          "month_count": 1.0,
+          "negative_month_share": 0.0,
+          "positive_month_share": 0.0,
+          "sign_stability": 0.0
+        },
+        "lightweight_boundary_challenger": {
+          "mean_bad_pick_removal": 0.0,
+          "mean_candidate_pool_bad_pick_removal": 0.0,
+          "mean_candidate_pool_top10_capture": 10.0,
+          "mean_changed_top10_members_count": 4.0,
+          "mean_top10_boundary_outcome_gap": 1.8077685548290034e-05,
+          "mean_top10_uplift": 0.0,
+          "month_count": 1.0,
+          "negative_month_share": 0.0,
+          "positive_month_share": 0.0,
+          "sign_stability": 0.0
+        },
+        "lightweight_boundary_challenger_strict": {
+          "mean_bad_pick_removal": 0.0,
+          "mean_candidate_pool_bad_pick_removal": 0.0,
+          "mean_candidate_pool_top10_capture": 10.0,
+          "mean_changed_top10_members_count": 4.0,
+          "mean_top10_boundary_outcome_gap": -3.592485515435673e-05,
+          "mean_top10_uplift": 0.0,
+          "month_count": 1.0,
+          "negative_month_share": 0.0,
+          "positive_month_share": 0.0,
+          "sign_stability": 0.0
+        }
+      }
+    },
+    "range": {
+      "variant_metrics": {
+        "champion_only": {
+          "mean_bad_pick_removal": 0.0,
+          "mean_candidate_pool_bad_pick_removal": 0.0,
+          "mean_candidate_pool_top10_capture": 10.0,
+          "mean_changed_top10_members_count": 0.0,
+          "mean_top10_boundary_outcome_gap": -0.0002750480206441974,
+          "mean_top10_uplift": 0.0,
+          "month_count": 15.0,
+          "negative_month_share": 0.0,
+          "positive_month_share": 0.0,
+          "sign_stability": 0.0
+        },
+        "lightweight_boundary_challenger": {
+          "mean_bad_pick_removal": 0.0,
+          "mean_candidate_pool_bad_pick_removal": 0.0,
+          "mean_candidate_pool_top10_capture": 10.0,
+          "mean_changed_top10_members_count": 3.2,
+          "mean_top10_boundary_outcome_gap": 0.00037546971768808536,
+          "mean_top10_uplift": -0.8,
+          "month_count": 15.0,
+          "negative_month_share": 0.4,
+          "positive_month_share": 0.0,
+          "sign_stability": 0.4
+        },
+        "lightweight_boundary_challenger_strict": {
+          "mean_bad_pick_removal": 0.0,
+          "mean_candidate_pool_bad_pick_removal": 0.0,
+          "mean_candidate_pool_top10_capture": 10.0,
+          "mean_changed_top10_members_count": 3.066666666666667,
+          "mean_top10_boundary_outcome_gap": 8.777301736355714e-05,
+          "mean_top10_uplift": -0.8,
+          "month_count": 15.0,
+          "negative_month_share": 0.4,
+          "positive_month_share": 0.0,
+          "sign_stability": 0.4
+        }
+      }
+    }
+  },
+  "schema_version": "tradex_monthly_shape_memory_lightweight_boundary_challenger_v1",
+  "source_artifacts": {
+    "hierarchical_label_allowed_uses": "hierarchical_label_allowed_uses.json",
+    "hierarchical_state_failure_map": "hierarchical_state_failure_map.json",
+    "hierarchical_state_winner_loser_decomposition": "hierarchical_state_winner_loser_decomposition.json",
+    "monthly_labels_hierarchical": "monthly_labels_hierarchical.parquet",
+    "monthly_samples": "monthly_samples.parquet"
+  },
+  "variants": {
+    "champion_only": {
+      "changed_top10_members_count": 0.0,
+      "changed_top5_members_count": 0.0,
+      "demotion_action_rate": 0.2678571428571429,
+      "loser_removal_delta": 0.0,
+      "no_action_rate": 0.0,
+      "oos_top10_uplift": 0.0,
+      "promotion_action_rate": 0.7321428571428571,
+      "top10_boundary_outcome_gap": -0.0002556302239383815,
+      "winner_promotion_delta": 0.0
+    },
+    "lightweight_boundary_challenger": {
+      "changed_top10_members_count": 3.25,
+      "changed_top5_members_count": 0.0,
+      "demotion_action_rate": 0.2678571428571429,
+      "loser_removal_delta": 0.0,
+      "no_action_rate": 0.0,
+      "oos_top10_uplift": -0.75,
+      "promotion_action_rate": 0.7321428571428571,
+      "top10_boundary_outcome_gap": 0.0003531327156793482,
+      "winner_promotion_delta": -0.75
+    },
+    "lightweight_boundary_challenger_strict": {
+      "changed_top10_members_count": 3.125,
+      "changed_top5_members_count": 0.0,
+      "demotion_action_rate": 0.2875,
+      "loser_removal_delta": 0.0,
+      "no_action_rate": 0.0,
+      "oos_top10_uplift": -0.75,
+      "promotion_action_rate": 0.7125,
+      "top10_boundary_outcome_gap": 8.004190033118752e-05,
+      "winner_promotion_delta": -0.75
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "decision": "drop_axis",
+  "instructions": [
+    "Do not continue the regime-gated rerank axis.",
+    "Do not broaden the gate logic to rescue this challenger.",
+    "Do not spend another cycle trying to save this exact axis.",
+    "Do not add image complexity to compensate for the rerank failure."
+  ],
+  "reason": "the regime-gated rerank axis did not deliver stable full-snapshot uplift or boundary improvement.",
+  "schema_version": "tradex_monthly_shape_memory_hierarchical_label_v1",
+  "supporting_metrics": {
+    "boundary_improved": false,
+    "champion_only_oos_top10_uplift": 0.0,
+    "gated_oos_top10_uplift": -0.5555555555555556,
+    "loser_removal_improved": true,
+    "ungated_oos_top10_uplift": -0.5555555555555556,
+    "winner_promotion_improved": false
+  }
+}

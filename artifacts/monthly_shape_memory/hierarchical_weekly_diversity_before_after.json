@@ -1,0 +1,38 @@
+{
+  "after": {
+    "label_count": 8,
+    "label_counts": {
+      "weekly_down_bottom_warning": 5316,
+      "weekly_down_early": 736,
+      "weekly_down_mid": 2916,
+      "weekly_range_late": 3559,
+      "weekly_range_mid": 1102,
+      "weekly_up_early": 1232,
+      "weekly_up_late": 2922,
+      "weekly_up_mid": 6779
+    },
+    "row_count": 24562
+  },
+  "before": {
+    "label_count": 7,
+    "label_counts": {
+      "weekly_down_bottom_warning": 58,
+      "weekly_down_early": 2,
+      "weekly_down_mid": 24,
+      "weekly_range_late": 52,
+      "weekly_range_mid": 32,
+      "weekly_up_early": 1,
+      "weekly_up_mid": 23
+    },
+    "row_count": 192
+  },
+  "repair_summary": {
+    "cause": "weekly_warning_score_overweight_and_non_warning_states_underpowered",
+    "rule_changes": [
+      "raise weekly early/mid/range anchor scores",
+      "lower weekly warning anchor score",
+      "keep the weekly taxonomy unchanged"
+    ]
+  },
+  "schema_version": "tradex_monthly_shape_memory_hierarchical_label_v1"
+}

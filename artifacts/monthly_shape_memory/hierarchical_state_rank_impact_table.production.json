@@ -1,0 +1,1667 @@
+{
+  "coverage_thresholds": {
+    "min_months": 8,
+    "min_regime_stability": 0.67,
+    "min_rows": 20
+  },
+  "schema_version": "tradex_monthly_shape_memory_boundary_winner_promotion_v1",
+  "source_artifacts": {
+    "hierarchical_label_allowed_uses": "hierarchical_label_allowed_uses.json",
+    "hierarchical_state_failure_map": "hierarchical_state_failure_map.json",
+    "hierarchical_state_winner_loser_decomposition": "hierarchical_state_winner_loser_decomposition.json"
+  },
+  "table_rows": [
+    {
+      "action_reason": "similarity_neutral",
+      "boundary_signal": 0.0007482777484823957,
+      "candidate_pool_signal": 0.002228270395550444,
+      "coverage_months": 8,
+      "coverage_regimes": 1,
+      "coverage_rows": 52,
+      "loser_removal_signal": 61.81180011957118,
+      "mean_next_month_return": 0.007656142112119037,
+      "observed_boundary_contribution_sign": "positive",
+      "observed_uplift_contribution_sign": "positive",
+      "recommendation_source": "keep_for_similarity_only",
+      "recommended_rank_action": "neutral",
+      "regime_sign_stability": 1.0,
+      "regime_sign_summary": {
+        "boundary_sign_share": 1.0,
+        "regime_sign_stability": 1.0,
+        "regimes": [
+          {
+            "boundary_sign": "positive",
+            "mean_next_month_return": 0.007656142112119037,
+            "mean_top10_boundary_gap": 0.0032681399242040906,
+            "regime_tag": "range",
+            "row_count": 52,
+            "winner_sign": "positive"
+          }
+        ],
+        "winner_sign_share": 1.0
+      },
+      "state_combination": {
+        "daily_main_state": "daily_down_mid"
+      },
+      "state_family": "daily",
+      "state_key": "daily|daily_main_state=daily_down_mid",
+      "state_key_kind": "daily",
+      "winner_minus_loser_gap": -23.623600239142355,
+      "winner_promotion_signal": 38.188199880428826
+    },
+    {
+      "action_reason": "insufficient_coverage_or_stability",
+      "boundary_signal": 6.649983580007913e-05,
+      "candidate_pool_signal": -0.00014460237886492616,
+      "coverage_months": 15,
+      "coverage_regimes": 2,
+      "coverage_rows": 146,
+      "loser_removal_signal": 57.25549159224413,
+      "mean_next_month_return": 0.005283269337703666,
+      "observed_boundary_contribution_sign": "positive",
+      "observed_uplift_contribution_sign": "negative",
+      "recommendation_source": "keep_for_similarity_only",
+      "recommended_rank_action": "avoid",
+      "regime_sign_stability": 0.5,
+      "regime_sign_summary": {
+        "boundary_sign_share": 0.5,
+        "regime_sign_stability": 0.5,
+        "regimes": [
+          {
+            "boundary_sign": "negative",
+            "mean_next_month_return": -0.003150839512692522,
+            "mean_top10_boundary_gap": 3.450618795680032e-05,
+            "regime_tag": "mixed",
+            "row_count": 9,
+            "winner_sign": "negative"
+          },
+          {
+            "boundary_sign": "positive",
+            "mean_next_month_return": 0.005837334882620204,
+            "mean_top10_boundary_gap": 0.0027540021751136334,
+            "regime_tag": "range",
+            "row_count": 137,
+            "winner_sign": "positive"
+          }
+        ],
+        "winner_sign_share": 0.5
+      },
+      "state_combination": {
+        "monthly_main_state": "monthly_down_bottom_warning"
+      },
+      "state_family": "monthly",
+      "state_key": "monthly|monthly_main_state=monthly_down_bottom_warning",
+      "state_key_kind": "monthly",
+      "winner_minus_loser_gap": -14.510983184488254,
+      "winner_promotion_signal": 42.74450840775587
+    },
+    {
+      "action_reason": "avoid_for_rerank",
+      "boundary_signal": -0.00042137130068718807,
+      "candidate_pool_signal": -0.0011188952170058056,
+      "coverage_months": 16,
+      "coverage_regimes": 2,
+      "coverage_rows": 84,
+      "loser_removal_signal": 49.92413795550912,
+      "mean_next_month_return": 0.004308976499562787,
+      "observed_boundary_contribution_sign": "negative",
+      "observed_uplift_contribution_sign": "negative",
+      "recommendation_source": "avoid_for_rerank",
+      "recommended_rank_action": "avoid",
+      "regime_sign_stability": 1.0,
+      "regime_sign_summary": {
+        "boundary_sign_share": 1.0,
+        "regime_sign_stability": 1.0,
+        "regimes": [
+          {
+            "boundary_sign": "negative",
+            "mean_next_month_return": -0.003072338525929789,
+            "mean_top10_boundary_gap": 0.00011300717471953343,
+            "regime_tag": "mixed",
+            "row_count": 6,
+            "winner_sign": "negative"
+          },
+          {
+            "boundary_sign": "negative",
+            "mean_next_month_return": 0.0048767699630622155,
+            "mean_top10_boundary_gap": 0.0022512203904433512,
+            "regime_tag": "range",
+            "row_count": 78,
+            "winner_sign": "negative"
+          }
+        ],
+        "winner_sign_share": 1.0
+      },
+      "state_combination": {
+        "daily_main_state": "daily_reversal_up_candidate"
+      },
+      "state_family": "daily",
+      "state_key": "daily|daily_main_state=daily_reversal_up_candidate",
+      "state_key_kind": "daily",
+      "winner_minus_loser_gap": 0.1517240889817728,
+      "winner_promotion_signal": 50.07586204449089
+    },
+    {
+      "action_reason": "insufficient_coverage_or_stability",
+      "boundary_signal": -0.0007741424229053416,
+      "candidate_pool_signal": -0.0005676110460765982,
+      "coverage_months": 14,
+      "coverage_regimes": 2,
+      "coverage_rows": 58,
+      "loser_removal_signal": 55.381634757553336,
+      "mean_next_month_return": 0.004860260670491994,
+      "observed_boundary_contribution_sign": "negative",
+      "observed_uplift_contribution_sign": "negative",
+      "recommendation_source": "avoid_for_rerank",
+      "recommended_rank_action": "avoid",
+      "regime_sign_stability": 0.5,
+      "regime_sign_summary": {
+        "boundary_sign_share": 1.0,
+        "regime_sign_stability": 0.5,
+        "regimes": [
+          {
+            "boundary_sign": "negative",
+            "mean_next_month_return": -0.0030810898863520564,
+            "mean_top10_boundary_gap": 0.00010425581429726605,
+            "regime_tag": "mixed",
+            "row_count": 4,
+            "winner_sign": "negative"
+          },
+          {
+            "boundary_sign": "negative",
+            "mean_next_month_return": 0.0054485088598878505,
+            "mean_top10_boundary_gap": 0.0018673096741881375,
+            "regime_tag": "range",
+            "row_count": 54,
+            "winner_sign": "positive"
+          }
+        ],
+        "winner_sign_share": 0.5
+      },
+      "state_combination": {
+        "weekly_main_state": "weekly_down_bottom_warning"
+      },
+      "state_family": "weekly",
+      "state_key": "weekly|weekly_main_state=weekly_down_bottom_warning",
+      "state_key_kind": "weekly",
+      "winner_minus_loser_gap": -10.763269515106671,
+      "winner_promotion_signal": 44.618365242446664
+    },
+    {
+      "action_reason": "insufficient_coverage_or_stability",
+      "boundary_signal": 3.671520011963754e-05,
+      "candidate_pool_signal": -0.001676271800053843,
+      "coverage_months": 12,
+      "coverage_regimes": 2,
+      "coverage_rows": 52,
+      "loser_removal_signal": 49.562572163526546,
+      "mean_next_month_return": 0.0037515999165147495,
+      "observed_boundary_contribution_sign": "positive",
+      "observed_uplift_contribution_sign": "negative",
+      "recommendation_source": "use_for_filter_analysis",
+      "recommended_rank_action": "avoid",
+      "regime_sign_stability": 0.5,
+      "regime_sign_summary": {
+        "boundary_sign_share": 0.5,
+        "regime_sign_stability": 0.5,
+        "regimes": [
+          {
+            "boundary_sign": "negative",
+            "mean_next_month_return": -0.003081425983175956,
+            "mean_top10_boundary_gap": 0.00010391971747336637,
+            "regime_tag": "mixed",
+            "row_count": 3,
+            "winner_sign": "negative"
+          },
+          {
+            "boundary_sign": "positive",
+            "mean_next_month_return": 0.004169948440985609,
+            "mean_top10_boundary_gap": 0.002706740089618963,
+            "regime_tag": "range",
+            "row_count": 49,
+            "winner_sign": "negative"
+          }
+        ],
+        "winner_sign_share": 1.0
+      },
+      "state_combination": {
+        "weekly_main_state": "weekly_range_late"
+      },
+      "state_family": "weekly",
+      "state_key": "weekly|weekly_main_state=weekly_range_late",
+      "state_key_kind": "weekly",
+      "winner_minus_loser_gap": 0.8748556729469072,
+      "winner_promotion_signal": 50.437427836473454
+    },
+    {
+      "action_reason": "insufficient_coverage_or_stability",
+      "boundary_signal": -0.00021106469623503443,
+      "candidate_pool_signal": 0.00045895537639737555,
+      "coverage_months": 14,
+      "coverage_regimes": 2,
+      "coverage_rows": 46,
+      "loser_removal_signal": 47.9434858703064,
+      "mean_next_month_return": 0.005886827092965968,
+      "observed_boundary_contribution_sign": "negative",
+      "observed_uplift_contribution_sign": "positive",
+      "recommendation_source": "use_for_filter_analysis",
+      "recommended_rank_action": "avoid",
+      "regime_sign_stability": 0.5,
+      "regime_sign_summary": {
+        "boundary_sign_share": 1.0,
+        "regime_sign_stability": 0.5,
+        "regimes": [
+          {
+            "boundary_sign": "negative",
+            "mean_next_month_return": -0.0030453654715439926,
+            "mean_top10_boundary_gap": 0.0001399802291053298,
+            "regime_tag": "mixed",
+            "row_count": 3,
+            "winner_sign": "negative"
+          },
+          {
+            "boundary_sign": "negative",
+            "mean_next_month_return": 0.006510003318396896,
+            "mean_top10_boundary_gap": 0.002460110310908614,
+            "regime_tag": "range",
+            "row_count": 43,
+            "winner_sign": "positive"
+          }
+        ],
+        "winner_sign_share": 0.5
+      },
+      "state_combination": {
+        "monthly_main_state": "monthly_up_top_warning"
+      },
+      "state_family": "monthly",
+      "state_key": "monthly|monthly_main_state=monthly_up_top_warning",
+      "state_key_kind": "monthly",
+      "winner_minus_loser_gap": 4.1130282593872,
+      "winner_promotion_signal": 52.056514129693596
+    },
+    {
+      "action_reason": "insufficient_coverage_or_stability",
+      "boundary_signal": 0.0017809756334974882,
+      "candidate_pool_signal": 0.003333357661540787,
+      "coverage_months": 7,
+      "coverage_regimes": 1,
+      "coverage_rows": 32,
+      "loser_removal_signal": 58.748424785911894,
+      "mean_next_month_return": 0.00876122937810938,
+      "observed_boundary_contribution_sign": "positive",
+      "observed_uplift_contribution_sign": "positive",
+      "recommendation_source": "keep_for_similarity_only",
+      "recommended_rank_action": "avoid",
+      "regime_sign_stability": 1.0,
+      "regime_sign_summary": {
+        "boundary_sign_share": 1.0,
+        "regime_sign_stability": 1.0,
+        "regimes": [
+          {
+            "boundary_sign": "positive",
+            "mean_next_month_return": 0.00876122937810938,
+            "mean_top10_boundary_gap": 0.004300837809219183,
+            "regime_tag": "range",
+            "row_count": 32,
+            "winner_sign": "positive"
+          }
+        ],
+        "winner_sign_share": 1.0
+      },
+      "state_combination": {
+        "weekly_main_state": "weekly_range_mid"
+      },
+      "state_family": "weekly",
+      "state_key": "weekly|weekly_main_state=weekly_range_mid",
+      "state_key_kind": "weekly",
+      "winner_minus_loser_gap": -17.496849571823788,
+      "winner_promotion_signal": 41.251575214088106
+    },
+    {
+      "action_reason": "insufficient_coverage_or_stability",
+      "boundary_signal": 0.00012670475560148118,
+      "candidate_pool_signal": 2.519266425331842e-05,
+      "coverage_months": 11,
+      "coverage_regimes": 2,
+      "coverage_rows": 30,
+      "loser_removal_signal": 60.89090673990704,
+      "mean_next_month_return": 0.005453064380821911,
+      "observed_boundary_contribution_sign": "positive",
+      "observed_uplift_contribution_sign": "positive",
+      "recommendation_source": "keep_for_similarity_only",
+      "recommended_rank_action": "avoid",
+      "regime_sign_stability": 0.5,
+      "regime_sign_summary": {
+        "boundary_sign_share": 0.5,
+        "regime_sign_stability": 0.5,
+        "regimes": [
+          {
+            "boundary_sign": "negative",
+            "mean_next_month_return": -0.0031517345534108157,
+            "mean_top10_boundary_gap": 3.361114723850663e-05,
+            "regime_tag": "mixed",
+            "row_count": 3,
+            "winner_sign": "negative"
+          },
+          {
+            "boundary_sign": "positive",
+            "mean_next_month_return": 0.006409153151292214,
+            "mean_top10_boundary_gap": 0.002936895351777028,
+            "regime_tag": "range",
+            "row_count": 27,
+            "winner_sign": "positive"
+          }
+        ],
+        "winner_sign_share": 0.5
+      },
+      "state_combination": {
+        "daily_main_state": "daily_reversal_down_candidate"
+      },
+      "state_family": "daily",
+      "state_key": "daily|daily_main_state=daily_reversal_down_candidate",
+      "state_key_kind": "daily",
+      "winner_minus_loser_gap": -21.781813479814076,
+      "winner_promotion_signal": 39.10909326009296
+    },
+    {
+      "action_reason": "insufficient_coverage_or_stability",
+      "boundary_signal": -0.0001899234086613728,
+      "candidate_pool_signal": -0.0012035123590026916,
+      "coverage_months": 9,
+      "coverage_regimes": 2,
+      "coverage_rows": 25,
+      "loser_removal_signal": 51.09839736629568,
+      "mean_next_month_return": 0.004224359357565901,
+      "observed_boundary_contribution_sign": "negative",
+      "observed_uplift_contribution_sign": "negative",
+      "recommendation_source": "avoid_for_rerank",
+      "recommended_rank_action": "avoid",
+      "regime_sign_stability": 0.5,
+      "regime_sign_summary": {
+        "boundary_sign_share": 0.5,
+        "regime_sign_stability": 0.5,
+        "regimes": [
+          {
+            "boundary_sign": "negative",
+            "mean_next_month_return": -0.0032014724043511653,
+            "mean_top10_boundary_gap": -1.6126703701842732e-05,
+            "regime_tag": "mixed",
+            "row_count": 3,
+            "winner_sign": "negative"
+          },
+          {
+            "boundary_sign": "positive",
+            "mean_next_month_return": 0.005236972779645501,
+            "mean_top10_boundary_gap": 0.0026498567858006176,
+            "regime_tag": "range",
+            "row_count": 22,
+            "winner_sign": "negative"
+          }
+        ],
+        "winner_sign_share": 1.0
+      },
+      "state_combination": {
+        "daily_main_state": "daily_up_mid"
+      },
+      "state_family": "daily",
+      "state_key": "daily|daily_main_state=daily_up_mid",
+      "state_key_kind": "daily",
+      "winner_minus_loser_gap": -2.196794732591357,
+      "winner_promotion_signal": 48.90160263370432
+    },
+    {
+      "action_reason": "insufficient_coverage_or_stability",
+      "boundary_signal": 0.0012616409412373828,
+      "candidate_pool_signal": 0.0022461688095321702,
+      "coverage_months": 6,
+      "coverage_regimes": 1,
+      "coverage_rows": 24,
+      "loser_removal_signal": 63.93953827082501,
+      "mean_next_month_return": 0.007674040526100763,
+      "observed_boundary_contribution_sign": "positive",
+      "observed_uplift_contribution_sign": "positive",
+      "recommendation_source": "keep_for_similarity_only",
+      "recommended_rank_action": "avoid",
+      "regime_sign_stability": 1.0,
+      "regime_sign_summary": {
+        "boundary_sign_share": 1.0,
+        "regime_sign_stability": 1.0,
+        "regimes": [
+          {
+            "boundary_sign": "positive",
+            "mean_next_month_return": 0.007674040526100763,
+            "mean_top10_boundary_gap": 0.0037815031169590777,
+            "regime_tag": "range",
+            "row_count": 24,
+            "winner_sign": "positive"
+          }
+        ],
+        "winner_sign_share": 1.0
+      },
+      "state_combination": {
+        "daily_main_state": "daily_down_mid",
+        "monthly_main_state": "monthly_down_bottom_warning",
+        "weekly_main_state": "weekly_down_mid"
+      },
+      "state_family": "combo",
+      "state_key": "combo|daily_main_state=daily_down_mid|monthly_main_state=monthly_down_bottom_warning|weekly_main_state=weekly_down_mid",
+      "state_key_kind": "combo",
+      "winner_minus_loser_gap": -27.879076541650022,
+      "winner_promotion_signal": 36.06046172917499
+    },
+    {
+      "action_reason": "insufficient_coverage_or_stability",
+      "boundary_signal": 0.0012616409412373828,
+      "candidate_pool_signal": 0.0022461688095321702,
+      "coverage_months": 6,
+      "coverage_regimes": 1,
+      "coverage_rows": 24,
+      "loser_removal_signal": 63.93953827082501,
+      "mean_next_month_return": 0.007674040526100763,
+      "observed_boundary_contribution_sign": "positive",
+      "observed_uplift_contribution_sign": "positive",
+      "recommendation_source": "keep_for_similarity_only",
+      "recommended_rank_action": "avoid",
+      "regime_sign_stability": 1.0,
+      "regime_sign_summary": {
+        "boundary_sign_share": 1.0,
+        "regime_sign_stability": 1.0,
+        "regimes": [
+          {
+            "boundary_sign": "positive",
+            "mean_next_month_return": 0.007674040526100763,
+            "mean_top10_boundary_gap": 0.0037815031169590777,
+            "regime_tag": "range",
+            "row_count": 24,
+            "winner_sign": "positive"
+          }
+        ],
+        "winner_sign_share": 1.0
+      },
+      "state_combination": {
+        "weekly_main_state": "weekly_down_mid"
+      },
+      "state_family": "weekly",
+      "state_key": "weekly|weekly_main_state=weekly_down_mid",
+      "state_key_kind": "weekly",
+      "winner_minus_loser_gap": -27.879076541650022,
+      "winner_promotion_signal": 36.06046172917499
+    },
+    {
+      "action_reason": "insufficient_coverage_or_stability",
+      "boundary_signal": -0.0015551018970553494,
+      "candidate_pool_signal": -0.0021438216599708737,
+      "coverage_months": 6,
+      "coverage_regimes": 2,
+      "coverage_rows": 23,
+      "loser_removal_signal": 51.32082281466478,
+      "mean_next_month_return": 0.003284050056597719,
+      "observed_boundary_contribution_sign": "negative",
+      "observed_uplift_contribution_sign": "negative",
+      "recommendation_source": "avoid_for_rerank",
+      "recommended_rank_action": "avoid",
+      "regime_sign_stability": 1.0,
+      "regime_sign_summary": {
+        "boundary_sign_share": 1.0,
+        "regime_sign_stability": 1.0,
+        "regimes": [
+          {
+            "boundary_sign": "negative",
+            "mean_next_month_return": -0.0031850029067857165,
+            "mean_top10_boundary_gap": 3.427938636058059e-07,
+            "regime_tag": "mixed",
+            "row_count": 5,
+            "winner_sign": "negative"
+          },
+          {
+            "boundary_sign": "negative",
+            "mean_next_month_return": 0.005081009213093118,
+            "mean_top10_boundary_gap": 0.0012326540244448842,
+            "regime_tag": "range",
+            "row_count": 18,
+            "winner_sign": "negative"
+          }
+        ],
+        "winner_sign_share": 1.0
+      },
+      "state_combination": {
+        "weekly_main_state": "weekly_up_mid"
+      },
+      "state_family": "weekly",
+      "state_key": "weekly|weekly_main_state=weekly_up_mid",
+      "state_key_kind": "weekly",
+      "winner_minus_loser_gap": -2.6416456293295596,
+      "winner_promotion_signal": 48.67917718533522
+    },
+    {
+      "action_reason": "insufficient_coverage_or_stability",
+      "boundary_signal": -0.0007707556437199245,
+      "candidate_pool_signal": -0.0018663686658701491,
+      "coverage_months": 9,
+      "coverage_regimes": 2,
+      "coverage_rows": 19,
+      "loser_removal_signal": 48.827778039362634,
+      "mean_next_month_return": 0.0035615030506984434,
+      "observed_boundary_contribution_sign": "negative",
+      "observed_uplift_contribution_sign": "negative",
+      "recommendation_source": "avoid_for_rerank",
+      "recommended_rank_action": "avoid",
+      "regime_sign_stability": 1.0,
+      "regime_sign_summary": {
+        "boundary_sign_share": 1.0,
+        "regime_sign_stability": 1.0,
+        "regimes": [
+          {
+            "boundary_sign": "negative",
+            "mean_next_month_return": -0.0030363260357154087,
+            "mean_top10_boundary_gap": 0.00014901966493391372,
+            "regime_tag": "mixed",
+            "row_count": 2,
+            "winner_sign": "negative"
+          },
+          {
+            "boundary_sign": "negative",
+            "mean_next_month_return": 0.0043377182373353675,
+            "mean_top10_boundary_gap": 0.0019373520457744594,
+            "regime_tag": "range",
+            "row_count": 17,
+            "winner_sign": "negative"
+          }
+        ],
+        "winner_sign_share": 1.0
+      },
+      "state_combination": {
+        "daily_main_state": "daily_reversal_up_candidate",
+        "monthly_main_state": "monthly_up_top_warning",
+        "weekly_main_state": "weekly_down_bottom_warning"
+      },
+      "state_family": "combo",
+      "state_key": "combo|daily_main_state=daily_reversal_up_candidate|monthly_main_state=monthly_up_top_warning|weekly_main_state=weekly_down_bottom_warning",
+      "state_key_kind": "combo",
+      "winner_minus_loser_gap": 2.3444439212747312,
+      "winner_promotion_signal": 51.172221960637366
+    },
+    {
+      "action_reason": "insufficient_coverage_or_stability",
+      "boundary_signal": -0.0010396851979954122,
+      "candidate_pool_signal": 0.00024809343849888,
+      "coverage_months": 9,
+      "coverage_regimes": 2,
+      "coverage_rows": 19,
+      "loser_removal_signal": 54.322232838506714,
+      "mean_next_month_return": 0.005675965155067473,
+      "observed_boundary_contribution_sign": "negative",
+      "observed_uplift_contribution_sign": "positive",
+      "recommendation_source": "keep_for_similarity_only",
+      "recommended_rank_action": "avoid",
+      "regime_sign_stability": 0.5,
+      "regime_sign_summary": {
+        "boundary_sign_share": 1.0,
+        "regime_sign_stability": 0.5,
+        "regimes": [
+          {
+            "boundary_sign": "negative",
+            "mean_next_month_return": -0.0031171011346200483,
+            "mean_top10_boundary_gap": 6.824456602927409e-05,
+            "regime_tag": "mixed",
+            "row_count": 1,
+            "winner_sign": "negative"
+          },
+          {
+            "boundary_sign": "negative",
+            "mean_next_month_return": 0.006164468837827891,
+            "mean_top10_boundary_gap": 0.0015586176672650054,
+            "regime_tag": "range",
+            "row_count": 18,
+            "winner_sign": "positive"
+          }
+        ],
+        "winner_sign_share": 0.5
+      },
+      "state_combination": {
+        "daily_main_state": "daily_reversal_up_candidate",
+        "monthly_main_state": "monthly_down_bottom_warning",
+        "weekly_main_state": "weekly_down_bottom_warning"
+      },
+      "state_family": "combo",
+      "state_key": "combo|daily_main_state=daily_reversal_up_candidate|monthly_main_state=monthly_down_bottom_warning|weekly_main_state=weekly_down_bottom_warning",
+      "state_key_kind": "combo",
+      "winner_minus_loser_gap": -8.644465677013429,
+      "winner_promotion_signal": 45.677767161493286
+    },
+    {
+      "action_reason": "insufficient_coverage_or_stability",
+      "boundary_signal": 0.0005419959717445147,
+      "candidate_pool_signal": -0.0009010890980545184,
+      "coverage_months": 9,
+      "coverage_regimes": 2,
+      "coverage_rows": 18,
+      "loser_removal_signal": 48.99441758436969,
+      "mean_next_month_return": 0.004526782618514074,
+      "observed_boundary_contribution_sign": "positive",
+      "observed_uplift_contribution_sign": "negative",
+      "recommendation_source": "use_for_filter_analysis",
+      "recommended_rank_action": "avoid",
+      "regime_sign_stability": 0.5,
+      "regime_sign_summary": {
+        "boundary_sign_share": 0.5,
+        "regime_sign_stability": 0.5,
+        "regimes": [
+          {
+            "boundary_sign": "negative",
+            "mean_next_month_return": -0.003090416803163354,
+            "mean_top10_boundary_gap": 9.492889748596856e-05,
+            "regime_tag": "mixed",
+            "row_count": 2,
+            "winner_sign": "negative"
+          },
+          {
+            "boundary_sign": "positive",
+            "mean_next_month_return": 0.005478932546223753,
+            "mean_top10_boundary_gap": 0.0034327243037137398,
+            "regime_tag": "range",
+            "row_count": 16,
+            "winner_sign": "positive"
+          }
+        ],
+        "winner_sign_share": 0.5
+      },
+      "state_combination": {
+        "daily_main_state": "daily_reversal_up_candidate",
+        "monthly_main_state": "monthly_down_bottom_warning",
+        "weekly_main_state": "weekly_range_late"
+      },
+      "state_family": "combo",
+      "state_key": "combo|daily_main_state=daily_reversal_up_candidate|monthly_main_state=monthly_down_bottom_warning|weekly_main_state=weekly_range_late",
+      "state_key_kind": "combo",
+      "winner_minus_loser_gap": 2.011164831260622,
+      "winner_promotion_signal": 51.005582415630315
+    },
+    {
+      "action_reason": "insufficient_coverage_or_stability",
+      "boundary_signal": -0.0014403262272119528,
+      "candidate_pool_signal": -0.0022974998430619325,
+      "coverage_months": 6,
+      "coverage_regimes": 2,
+      "coverage_rows": 17,
+      "loser_removal_signal": 49.458992616832646,
+      "mean_next_month_return": 0.00313037187350666,
+      "observed_boundary_contribution_sign": "negative",
+      "observed_uplift_contribution_sign": "negative",
+      "recommendation_source": "avoid_for_rerank",
+      "recommended_rank_action": "avoid",
+      "regime_sign_stability": 1.0,
+      "regime_sign_summary": {
+        "boundary_sign_share": 1.0,
+        "regime_sign_stability": 1.0,
+        "regimes": [
+          {
+            "boundary_sign": "negative",
+            "mean_next_month_return": -0.0032014724043511653,
+            "mean_top10_boundary_gap": -1.6126703701842732e-05,
+            "regime_tag": "mixed",
+            "row_count": 3,
+            "winner_sign": "negative"
+          },
+          {
+            "boundary_sign": "negative",
+            "mean_next_month_return": 0.004487195647333337,
+            "mean_top10_boundary_gap": 0.0013143208025550818,
+            "regime_tag": "range",
+            "row_count": 14,
+            "winner_sign": "negative"
+          }
+        ],
+        "winner_sign_share": 1.0
+      },
+      "state_combination": {
+        "daily_main_state": "daily_up_mid",
+        "monthly_main_state": "monthly_down_bottom_warning",
+        "weekly_main_state": "weekly_up_mid"
+      },
+      "state_family": "combo",
+      "state_key": "combo|daily_main_state=daily_up_mid|monthly_main_state=monthly_down_bottom_warning|weekly_main_state=weekly_up_mid",
+      "state_key_kind": "combo",
+      "winner_minus_loser_gap": 1.0820147663347086,
+      "winner_promotion_signal": 50.541007383167354
+    },
+    {
+      "action_reason": "insufficient_coverage_or_stability",
+      "boundary_signal": 0.00037381949940999085,
+      "candidate_pool_signal": -0.005002805507056322,
+      "coverage_months": 7,
+      "coverage_regimes": 2,
+      "coverage_rows": 14,
+      "loser_removal_signal": 43.28784240885626,
+      "mean_next_month_return": 0.00042506620951227037,
+      "observed_boundary_contribution_sign": "positive",
+      "observed_uplift_contribution_sign": "negative",
+      "recommendation_source": "use_for_filter_analysis",
+      "recommended_rank_action": "avoid",
+      "regime_sign_stability": 0.5,
+      "regime_sign_summary": {
+        "boundary_sign_share": 0.5,
+        "regime_sign_stability": 0.5,
+        "regimes": [
+          {
+            "boundary_sign": "negative",
+            "mean_next_month_return": -0.0030634443432011604,
+            "mean_top10_boundary_gap": 0.000121901357448162,
+            "regime_tag": "mixed",
+            "row_count": 1,
+            "winner_sign": "negative"
+          },
+          {
+            "boundary_sign": "positive",
+            "mean_next_month_return": 0.0006934131751056111,
+            "mean_top10_boundary_gap": 0.0031068955457227263,
+            "regime_tag": "range",
+            "row_count": 13,
+            "winner_sign": "negative"
+          }
+        ],
+        "winner_sign_share": 1.0
+      },
+      "state_combination": {
+        "daily_main_state": "daily_reversal_up_candidate",
+        "monthly_main_state": "monthly_up_top_warning",
+        "weekly_main_state": "weekly_range_late"
+      },
+      "state_family": "combo",
+      "state_key": "combo|daily_main_state=daily_reversal_up_candidate|monthly_main_state=monthly_up_top_warning|weekly_main_state=weekly_range_late",
+      "state_key_kind": "combo",
+      "winner_minus_loser_gap": 13.424315182287486,
+      "winner_promotion_signal": 56.71215759114374
+    },
+    {
+      "action_reason": "insufficient_coverage_or_stability",
+      "boundary_signal": 0.0009724075607346035,
+      "candidate_pool_signal": -0.002222281857420703,
+      "coverage_months": 4,
+      "coverage_regimes": 1,
+      "coverage_rows": 13,
+      "loser_removal_signal": 62.22528052373646,
+      "mean_next_month_return": 0.0032055898591478896,
+      "observed_boundary_contribution_sign": "positive",
+      "observed_uplift_contribution_sign": "negative",
+      "recommendation_source": "keep_for_similarity_only",
+      "recommended_rank_action": "avoid",
+      "regime_sign_stability": 1.0,
+      "regime_sign_summary": {
+        "boundary_sign_share": 1.0,
+        "regime_sign_stability": 1.0,
+        "regimes": [
+          {
+            "boundary_sign": "positive",
+            "mean_next_month_return": 0.0032055898591478896,
+            "mean_top10_boundary_gap": 0.0034922697364562984,
+            "regime_tag": "range",
+            "row_count": 13,
+            "winner_sign": "negative"
+          }
+        ],
+        "winner_sign_share": 1.0
+      },
+      "state_combination": {
+        "daily_main_state": "daily_down_mid",
+        "monthly_main_state": "monthly_down_bottom_warning",
+        "weekly_main_state": "weekly_range_mid"
+      },
+      "state_family": "combo",
+      "state_key": "combo|daily_main_state=daily_down_mid|monthly_main_state=monthly_down_bottom_warning|weekly_main_state=weekly_range_mid",
+      "state_key_kind": "combo",
+      "winner_minus_loser_gap": -24.45056104747293,
+      "winner_promotion_signal": 37.77471947626353
+    },
+    {
+      "action_reason": "insufficient_coverage_or_stability",
+      "boundary_signal": -0.0007979653466395303,
+      "candidate_pool_signal": 0.0007123930743347939,
+      "coverage_months": 5,
+      "coverage_regimes": 1,
+      "coverage_rows": 12,
+      "loser_removal_signal": 53.38756844505053,
+      "mean_next_month_return": 0.0061402647909033865,
+      "observed_boundary_contribution_sign": "negative",
+      "observed_uplift_contribution_sign": "positive",
+      "recommendation_source": "keep_for_similarity_only",
+      "recommended_rank_action": "avoid",
+      "regime_sign_stability": 1.0,
+      "regime_sign_summary": {
+        "boundary_sign_share": 1.0,
+        "regime_sign_stability": 1.0,
+        "regimes": [
+          {
+            "boundary_sign": "negative",
+            "mean_next_month_return": 0.0061402647909033865,
+            "mean_top10_boundary_gap": 0.0017218968290821646,
+            "regime_tag": "range",
+            "row_count": 12,
+            "winner_sign": "positive"
+          }
+        ],
+        "winner_sign_share": 1.0
+      },
+      "state_combination": {
+        "daily_main_state": "daily_reversal_up_candidate",
+        "monthly_main_state": "monthly_down_bottom_warning",
+        "weekly_main_state": "weekly_range_mid"
+      },
+      "state_family": "combo",
+      "state_key": "combo|daily_main_state=daily_reversal_up_candidate|monthly_main_state=monthly_down_bottom_warning|weekly_main_state=weekly_range_mid",
+      "state_key_kind": "combo",
+      "winner_minus_loser_gap": -6.7751368901010665,
+      "winner_promotion_signal": 46.61243155494947
+    },
+    {
+      "action_reason": "insufficient_coverage_or_stability",
+      "boundary_signal": -0.0008044387971898066,
+      "candidate_pool_signal": -0.0020390096411713895,
+      "coverage_months": 7,
+      "coverage_regimes": 2,
+      "coverage_rows": 10,
+      "loser_removal_signal": 65.59983313206405,
+      "mean_next_month_return": 0.003388862075397203,
+      "observed_boundary_contribution_sign": "negative",
+      "observed_uplift_contribution_sign": "negative",
+      "recommendation_source": "avoid_for_rerank",
+      "recommended_rank_action": "avoid",
+      "regime_sign_stability": 1.0,
+      "regime_sign_summary": {
+        "boundary_sign_share": 1.0,
+        "regime_sign_stability": 1.0,
+        "regimes": [
+          {
+            "boundary_sign": "negative",
+            "mean_next_month_return": -0.0031346063393573598,
+            "mean_top10_boundary_gap": 5.073936129196266e-05,
+            "regime_tag": "mixed",
+            "row_count": 1,
+            "winner_sign": "negative"
+          },
+          {
+            "boundary_sign": "negative",
+            "mean_next_month_return": 0.004113691899258821,
+            "mean_top10_boundary_gap": 0.0019003882693363245,
+            "regime_tag": "range",
+            "row_count": 9,
+            "winner_sign": "negative"
+          }
+        ],
+        "winner_sign_share": 1.0
+      },
+      "state_combination": {
+        "daily_main_state": "daily_reversal_down_candidate",
+        "monthly_main_state": "monthly_down_bottom_warning",
+        "weekly_main_state": "weekly_down_bottom_warning"
+      },
+      "state_family": "combo",
+      "state_key": "combo|daily_main_state=daily_reversal_down_candidate|monthly_main_state=monthly_down_bottom_warning|weekly_main_state=weekly_down_bottom_warning",
+      "state_key_kind": "combo",
+      "winner_minus_loser_gap": -31.199666264128105,
+      "winner_promotion_signal": 34.400166867935944
+    },
+    {
+      "action_reason": "insufficient_coverage_or_stability",
+      "boundary_signal": -0.00014117368804908437,
+      "candidate_pool_signal": -0.005275829516564616,
+      "coverage_months": 4,
+      "coverage_regimes": 1,
+      "coverage_rows": 7,
+      "loser_removal_signal": 60.627751639359694,
+      "mean_next_month_return": 0.00015204220000397672,
+      "observed_boundary_contribution_sign": "negative",
+      "observed_uplift_contribution_sign": "negative",
+      "recommendation_source": "avoid_for_rerank",
+      "recommended_rank_action": "avoid",
+      "regime_sign_stability": 1.0,
+      "regime_sign_summary": {
+        "boundary_sign_share": 1.0,
+        "regime_sign_stability": 1.0,
+        "regimes": [
+          {
+            "boundary_sign": "negative",
+            "mean_next_month_return": 0.00015204220000397672,
+            "mean_top10_boundary_gap": 0.0023786884876726105,
+            "regime_tag": "range",
+            "row_count": 7,
+            "winner_sign": "negative"
+          }
+        ],
+        "winner_sign_share": 1.0
+      },
+      "state_combination": {
+        "daily_main_state": "daily_reversal_down_candidate",
+        "monthly_main_state": "monthly_down_bottom_warning",
+        "weekly_main_state": "weekly_range_late"
+      },
+      "state_family": "combo",
+      "state_key": "combo|daily_main_state=daily_reversal_down_candidate|monthly_main_state=monthly_down_bottom_warning|weekly_main_state=weekly_range_late",
+      "state_key_kind": "combo",
+      "winner_minus_loser_gap": -21.255503278719388,
+      "winner_promotion_signal": 39.372248360640306
+    },
+    {
+      "action_reason": "insufficient_coverage_or_stability",
+      "boundary_signal": -0.001837840273143872,
+      "candidate_pool_signal": -0.0028935749033532727,
+      "coverage_months": 4,
+      "coverage_regimes": 1,
+      "coverage_rows": 6,
+      "loser_removal_signal": 61.785268553559774,
+      "mean_next_month_return": 0.00253429681321532,
+      "observed_boundary_contribution_sign": "negative",
+      "observed_uplift_contribution_sign": "negative",
+      "recommendation_source": "avoid_for_rerank",
+      "recommended_rank_action": "avoid",
+      "regime_sign_stability": 1.0,
+      "regime_sign_summary": {
+        "boundary_sign_share": 1.0,
+        "regime_sign_stability": 1.0,
+        "regimes": [
+          {
+            "boundary_sign": "negative",
+            "mean_next_month_return": 0.00253429681321532,
+            "mean_top10_boundary_gap": 0.0006820219025778229,
+            "regime_tag": "range",
+            "row_count": 6,
+            "winner_sign": "negative"
+          }
+        ],
+        "winner_sign_share": 1.0
+      },
+      "state_combination": {
+        "daily_main_state": "daily_down_mid",
+        "monthly_main_state": "monthly_down_bottom_warning",
+        "weekly_main_state": "weekly_down_bottom_warning"
+      },
+      "state_family": "combo",
+      "state_key": "combo|daily_main_state=daily_down_mid|monthly_main_state=monthly_down_bottom_warning|weekly_main_state=weekly_down_bottom_warning",
+      "state_key_kind": "combo",
+      "winner_minus_loser_gap": -23.57053710711955,
+      "winner_promotion_signal": 38.214731446440226
+    },
+    {
+      "action_reason": "insufficient_coverage_or_stability",
+      "boundary_signal": -0.001742697330959782,
+      "candidate_pool_signal": -0.0035399135109219254,
+      "coverage_months": 3,
+      "coverage_regimes": 2,
+      "coverage_rows": 5,
+      "loser_removal_signal": 57.38045171689366,
+      "mean_next_month_return": 0.0018879582056466671,
+      "observed_boundary_contribution_sign": "negative",
+      "observed_uplift_contribution_sign": "negative",
+      "recommendation_source": "avoid_for_rerank",
+      "recommended_rank_action": "avoid",
+      "regime_sign_stability": 1.0,
+      "regime_sign_summary": {
+        "boundary_sign_share": 1.0,
+        "regime_sign_stability": 1.0,
+        "regimes": [
+          {
+            "boundary_sign": "negative",
+            "mean_next_month_return": -0.003160298660437544,
+            "mean_top10_boundary_gap": 2.5047040211778615e-05,
+            "regime_tag": "mixed",
+            "row_count": 2,
+            "winner_sign": "negative"
+          },
+          {
+            "boundary_sign": "negative",
+            "mean_next_month_return": 0.005253462783036141,
+            "mean_top10_boundary_gap": 0.0012785767144620024,
+            "regime_tag": "range",
+            "row_count": 3,
+            "winner_sign": "negative"
+          }
+        ],
+        "winner_sign_share": 1.0
+      },
+      "state_combination": {
+        "daily_main_state": "daily_reversal_down_candidate",
+        "monthly_main_state": "monthly_down_bottom_warning",
+        "weekly_main_state": "weekly_up_mid"
+      },
+      "state_family": "combo",
+      "state_key": "combo|daily_main_state=daily_reversal_down_candidate|monthly_main_state=monthly_down_bottom_warning|weekly_main_state=weekly_up_mid",
+      "state_key_kind": "combo",
+      "winner_minus_loser_gap": -14.76090343378732,
+      "winner_promotion_signal": 42.61954828310634
+    },
+    {
+      "action_reason": "insufficient_coverage_or_stability",
+      "boundary_signal": -0.0014635148485632426,
+      "candidate_pool_signal": 0.001759060801114311,
+      "coverage_months": 4,
+      "coverage_regimes": 1,
+      "coverage_rows": 4,
+      "loser_removal_signal": 48.9452647874795,
+      "mean_next_month_return": 0.0071869325176829035,
+      "observed_boundary_contribution_sign": "negative",
+      "observed_uplift_contribution_sign": "positive",
+      "recommendation_source": "use_for_filter_analysis",
+      "recommended_rank_action": "avoid",
+      "regime_sign_stability": 1.0,
+      "regime_sign_summary": {
+        "boundary_sign_share": 1.0,
+        "regime_sign_stability": 1.0,
+        "regimes": [
+          {
+            "boundary_sign": "negative",
+            "mean_next_month_return": 0.0071869325176829035,
+            "mean_top10_boundary_gap": 0.0010563473271584523,
+            "regime_tag": "range",
+            "row_count": 4,
+            "winner_sign": "positive"
+          }
+        ],
+        "winner_sign_share": 1.0
+      },
+      "state_combination": {
+        "daily_main_state": "daily_reversal_down_candidate",
+        "monthly_main_state": "monthly_up_top_warning",
+        "weekly_main_state": "weekly_range_late"
+      },
+      "state_family": "combo",
+      "state_key": "combo|daily_main_state=daily_reversal_down_candidate|monthly_main_state=monthly_up_top_warning|weekly_main_state=weekly_range_late",
+      "state_key_kind": "combo",
+      "winner_minus_loser_gap": 2.109470425040996,
+      "winner_promotion_signal": 51.0547352125205
+    },
+    {
+      "action_reason": "insufficient_coverage_or_stability",
+      "boundary_signal": -0.0026784248521345105,
+      "candidate_pool_signal": -0.005453503016751358,
+      "coverage_months": 2,
+      "coverage_regimes": 1,
+      "coverage_rows": 4,
+      "loser_removal_signal": 52.623517893999704,
+      "mean_next_month_return": -2.5631300182765715e-05,
+      "observed_boundary_contribution_sign": "negative",
+      "observed_uplift_contribution_sign": "negative",
+      "recommendation_source": "avoid_for_rerank",
+      "recommended_rank_action": "avoid",
+      "regime_sign_stability": 1.0,
+      "regime_sign_summary": {
+        "boundary_sign_share": 1.0,
+        "regime_sign_stability": 1.0,
+        "regimes": [
+          {
+            "boundary_sign": "negative",
+            "mean_next_month_return": -2.5631300182765715e-05,
+            "mean_top10_boundary_gap": -0.00015856267641281563,
+            "regime_tag": "range",
+            "row_count": 4,
+            "winner_sign": "negative"
+          }
+        ],
+        "winner_sign_share": 1.0
+      },
+      "state_combination": {
+        "daily_main_state": "daily_up_mid",
+        "monthly_main_state": "monthly_down_bottom_warning",
+        "weekly_main_state": "weekly_range_late"
+      },
+      "state_family": "combo",
+      "state_key": "combo|daily_main_state=daily_up_mid|monthly_main_state=monthly_down_bottom_warning|weekly_main_state=weekly_range_late",
+      "state_key_kind": "combo",
+      "winner_minus_loser_gap": -5.247035787999408,
+      "winner_promotion_signal": 47.376482106000296
+    },
+    {
+      "action_reason": "insufficient_coverage_or_stability",
+      "boundary_signal": 0.0017489066794840785,
+      "candidate_pool_signal": 0.015602525976091092,
+      "coverage_months": 1,
+      "coverage_regimes": 1,
+      "coverage_rows": 4,
+      "loser_removal_signal": 50.202447960835315,
+      "mean_next_month_return": 0.021030397692659686,
+      "observed_boundary_contribution_sign": "positive",
+      "observed_uplift_contribution_sign": "positive",
+      "recommendation_source": "keep_for_similarity_only",
+      "recommended_rank_action": "avoid",
+      "regime_sign_stability": 1.0,
+      "regime_sign_summary": {
+        "boundary_sign_share": 1.0,
+        "regime_sign_stability": 1.0,
+        "regimes": [
+          {
+            "boundary_sign": "positive",
+            "mean_next_month_return": 0.021030397692659686,
+            "mean_top10_boundary_gap": 0.004268768855205773,
+            "regime_tag": "range",
+            "row_count": 4,
+            "winner_sign": "positive"
+          }
+        ],
+        "winner_sign_share": 1.0
+      },
+      "state_combination": {
+        "daily_main_state": "daily_down_mid",
+        "monthly_main_state": "monthly_up_top_warning",
+        "weekly_main_state": "weekly_range_late"
+      },
+      "state_family": "combo",
+      "state_key": "combo|daily_main_state=daily_down_mid|monthly_main_state=monthly_up_top_warning|weekly_main_state=weekly_range_late",
+      "state_key_kind": "combo",
+      "winner_minus_loser_gap": -0.4048959216706365,
+      "winner_promotion_signal": 49.79755203916468
+    },
+    {
+      "action_reason": "insufficient_coverage_or_stability",
+      "boundary_signal": 0.009908509949722425,
+      "candidate_pool_signal": 0.020348922275681375,
+      "coverage_months": 1,
+      "coverage_regimes": 1,
+      "coverage_rows": 3,
+      "loser_removal_signal": 68.86862500000001,
+      "mean_next_month_return": 0.02577679399224997,
+      "observed_boundary_contribution_sign": "positive",
+      "observed_uplift_contribution_sign": "positive",
+      "recommendation_source": "keep_for_similarity_only",
+      "recommended_rank_action": "avoid",
+      "regime_sign_stability": 1.0,
+      "regime_sign_summary": {
+        "boundary_sign_share": 1.0,
+        "regime_sign_stability": 1.0,
+        "regimes": [
+          {
+            "boundary_sign": "positive",
+            "mean_next_month_return": 0.02577679399224997,
+            "mean_top10_boundary_gap": 0.01242837212544412,
+            "regime_tag": "range",
+            "row_count": 3,
+            "winner_sign": "positive"
+          }
+        ],
+        "winner_sign_share": 1.0
+      },
+      "state_combination": {
+        "daily_main_state": "daily_reversal_down_candidate",
+        "monthly_main_state": "monthly_down_bottom_warning",
+        "weekly_main_state": "weekly_range_mid"
+      },
+      "state_family": "combo",
+      "state_key": "combo|daily_main_state=daily_reversal_down_candidate|monthly_main_state=monthly_down_bottom_warning|weekly_main_state=weekly_range_mid",
+      "state_key_kind": "combo",
+      "winner_minus_loser_gap": -37.73725,
+      "winner_promotion_signal": 31.131375000000002
+    },
+    {
+      "action_reason": "insufficient_coverage_or_stability",
+      "boundary_signal": -0.0032053147942995813,
+      "candidate_pool_signal": 0.0072350975316593695,
+      "coverage_months": 1,
+      "coverage_regimes": 1,
+      "coverage_rows": 2,
+      "loser_removal_signal": 52.598625000000006,
+      "mean_next_month_return": 0.012662969248227962,
+      "observed_boundary_contribution_sign": "negative",
+      "observed_uplift_contribution_sign": "positive",
+      "recommendation_source": "keep_for_similarity_only",
+      "recommended_rank_action": "avoid",
+      "regime_sign_stability": 1.0,
+      "regime_sign_summary": {
+        "boundary_sign_share": 1.0,
+        "regime_sign_stability": 1.0,
+        "regimes": [
+          {
+            "boundary_sign": "negative",
+            "mean_next_month_return": 0.012662969248227962,
+            "mean_top10_boundary_gap": -0.0006854526185778864,
+            "regime_tag": "range",
+            "row_count": 2,
+            "winner_sign": "positive"
+          }
+        ],
+        "winner_sign_share": 1.0
+      },
+      "state_combination": {
+        "daily_main_state": "daily_reversal_up_candidate",
+        "monthly_main_state": "monthly_up_top_warning",
+        "weekly_main_state": "weekly_range_mid"
+      },
+      "state_family": "combo",
+      "state_key": "combo|daily_main_state=daily_reversal_up_candidate|monthly_main_state=monthly_up_top_warning|weekly_main_state=weekly_range_mid",
+      "state_key_kind": "combo",
+      "winner_minus_loser_gap": -5.197250000000011,
+      "winner_promotion_signal": 47.401374999999994
+    },
+    {
+      "action_reason": "insufficient_coverage_or_stability",
+      "boundary_signal": 0.0036476039104361186,
+      "candidate_pool_signal": 0.017501223207043132,
+      "coverage_months": 1,
+      "coverage_regimes": 1,
+      "coverage_rows": 2,
+      "loser_removal_signal": 56.4046279511454,
+      "mean_next_month_return": 0.022929094923611726,
+      "observed_boundary_contribution_sign": "positive",
+      "observed_uplift_contribution_sign": "positive",
+      "recommendation_source": "keep_for_similarity_only",
+      "recommended_rank_action": "avoid",
+      "regime_sign_stability": 1.0,
+      "regime_sign_summary": {
+        "boundary_sign_share": 1.0,
+        "regime_sign_stability": 1.0,
+        "regimes": [
+          {
+            "boundary_sign": "positive",
+            "mean_next_month_return": 0.022929094923611726,
+            "mean_top10_boundary_gap": 0.0061674660861578134,
+            "regime_tag": "range",
+            "row_count": 2,
+            "winner_sign": "positive"
+          }
+        ],
+        "winner_sign_share": 1.0
+      },
+      "state_combination": {
+        "daily_main_state": "daily_down_mid",
+        "monthly_main_state": "monthly_up_top_warning",
+        "weekly_main_state": "weekly_down_bottom_warning"
+      },
+      "state_family": "combo",
+      "state_key": "combo|daily_main_state=daily_down_mid|monthly_main_state=monthly_up_top_warning|weekly_main_state=weekly_down_bottom_warning",
+      "state_key_kind": "combo",
+      "winner_minus_loser_gap": -12.8092559022908,
+      "winner_promotion_signal": 43.5953720488546
+    },
+    {
+      "action_reason": "insufficient_coverage_or_stability",
+      "boundary_signal": 0.015305302940738012,
+      "candidate_pool_signal": 0.025745715266696962,
+      "coverage_months": 1,
+      "coverage_regimes": 1,
+      "coverage_rows": 2,
+      "loser_removal_signal": 59.283500000000004,
+      "mean_next_month_return": 0.031173586983265555,
+      "observed_boundary_contribution_sign": "positive",
+      "observed_uplift_contribution_sign": "positive",
+      "recommendation_source": "keep_for_similarity_only",
+      "recommended_rank_action": "avoid",
+      "regime_sign_stability": 1.0,
+      "regime_sign_summary": {
+        "boundary_sign_share": 1.0,
+        "regime_sign_stability": 1.0,
+        "regimes": [
+          {
+            "boundary_sign": "positive",
+            "mean_next_month_return": 0.031173586983265555,
+            "mean_top10_boundary_gap": 0.017825165116459707,
+            "regime_tag": "range",
+            "row_count": 2,
+            "winner_sign": "positive"
+          }
+        ],
+        "winner_sign_share": 1.0
+      },
+      "state_combination": {
+        "daily_main_state": "daily_up_mid",
+        "monthly_main_state": "monthly_down_bottom_warning",
+        "weekly_main_state": "weekly_range_mid"
+      },
+      "state_family": "combo",
+      "state_key": "combo|daily_main_state=daily_up_mid|monthly_main_state=monthly_down_bottom_warning|weekly_main_state=weekly_range_mid",
+      "state_key_kind": "combo",
+      "winner_minus_loser_gap": -18.567000000000007,
+      "winner_promotion_signal": 40.716499999999996
+    },
+    {
+      "action_reason": "insufficient_coverage_or_stability",
+      "boundary_signal": -0.0023770843411930437,
+      "candidate_pool_signal": 0.011204676776441509,
+      "coverage_months": 1,
+      "coverage_regimes": 1,
+      "coverage_rows": 2,
+      "loser_removal_signal": 64.28006181318682,
+      "mean_next_month_return": 0.016632548493010102,
+      "observed_boundary_contribution_sign": "negative",
+      "observed_uplift_contribution_sign": "positive",
+      "recommendation_source": "keep_for_similarity_only",
+      "recommended_rank_action": "avoid",
+      "regime_sign_stability": 1.0,
+      "regime_sign_summary": {
+        "boundary_sign_share": 1.0,
+        "regime_sign_stability": 1.0,
+        "regimes": [
+          {
+            "boundary_sign": "negative",
+            "mean_next_month_return": 0.016632548493010102,
+            "mean_top10_boundary_gap": 0.00014277783452865123,
+            "regime_tag": "range",
+            "row_count": 2,
+            "winner_sign": "positive"
+          }
+        ],
+        "winner_sign_share": 1.0
+      },
+      "state_combination": {
+        "daily_main_state": "daily_down_mid",
+        "monthly_main_state": "monthly_down_bottom_warning",
+        "weekly_main_state": "weekly_down_early"
+      },
+      "state_family": "combo",
+      "state_key": "combo|daily_main_state=daily_down_mid|monthly_main_state=monthly_down_bottom_warning|weekly_main_state=weekly_down_early",
+      "state_key_kind": "combo",
+      "winner_minus_loser_gap": -28.560123626373638,
+      "winner_promotion_signal": 35.71993818681318
+    },
+    {
+      "action_reason": "insufficient_coverage_or_stability",
+      "boundary_signal": -0.0023770843411930437,
+      "candidate_pool_signal": 0.011204676776441509,
+      "coverage_months": 1,
+      "coverage_regimes": 1,
+      "coverage_rows": 2,
+      "loser_removal_signal": 64.28006181318682,
+      "mean_next_month_return": 0.016632548493010102,
+      "observed_boundary_contribution_sign": "negative",
+      "observed_uplift_contribution_sign": "positive",
+      "recommendation_source": "keep_for_similarity_only",
+      "recommended_rank_action": "avoid",
+      "regime_sign_stability": 1.0,
+      "regime_sign_summary": {
+        "boundary_sign_share": 1.0,
+        "regime_sign_stability": 1.0,
+        "regimes": [
+          {
+            "boundary_sign": "negative",
+            "mean_next_month_return": 0.016632548493010102,
+            "mean_top10_boundary_gap": 0.00014277783452865123,
+            "regime_tag": "range",
+            "row_count": 2,
+            "winner_sign": "positive"
+          }
+        ],
+        "winner_sign_share": 1.0
+      },
+      "state_combination": {
+        "weekly_main_state": "weekly_down_early"
+      },
+      "state_family": "weekly",
+      "state_key": "weekly|weekly_main_state=weekly_down_early",
+      "state_key_kind": "weekly",
+      "winner_minus_loser_gap": -28.560123626373638,
+      "winner_promotion_signal": 35.71993818681318
+    },
+    {
+      "action_reason": "insufficient_coverage_or_stability",
+      "boundary_signal": -0.003758020424669047,
+      "candidate_pool_signal": -0.01358937769638761,
+      "coverage_months": 1,
+      "coverage_regimes": 1,
+      "coverage_rows": 1,
+      "loser_removal_signal": 51.875994047619045,
+      "mean_next_month_return": -0.008161505979819017,
+      "observed_boundary_contribution_sign": "negative",
+      "observed_uplift_contribution_sign": "negative",
+      "recommendation_source": "avoid_for_rerank",
+      "recommended_rank_action": "avoid",
+      "regime_sign_stability": 1.0,
+      "regime_sign_summary": {
+        "boundary_sign_share": 1.0,
+        "regime_sign_stability": 1.0,
+        "regimes": [
+          {
+            "boundary_sign": "negative",
+            "mean_next_month_return": -0.008161505979819017,
+            "mean_top10_boundary_gap": -0.001238158248947352,
+            "regime_tag": "range",
+            "row_count": 1,
+            "winner_sign": "negative"
+          }
+        ],
+        "winner_sign_share": 1.0
+      },
+      "state_combination": {
+        "daily_main_state": "daily_up_mid",
+        "monthly_main_state": "monthly_down_bottom_warning",
+        "weekly_main_state": "weekly_up_early"
+      },
+      "state_family": "combo",
+      "state_key": "combo|daily_main_state=daily_up_mid|monthly_main_state=monthly_down_bottom_warning|weekly_main_state=weekly_up_early",
+      "state_key_kind": "combo",
+      "winner_minus_loser_gap": -3.75198809523809,
+      "winner_promotion_signal": 48.124005952380955
+    },
+    {
+      "action_reason": "insufficient_coverage_or_stability",
+      "boundary_signal": -0.003758020424669047,
+      "candidate_pool_signal": -0.01358937769638761,
+      "coverage_months": 1,
+      "coverage_regimes": 1,
+      "coverage_rows": 1,
+      "loser_removal_signal": 51.875994047619045,
+      "mean_next_month_return": -0.008161505979819017,
+      "observed_boundary_contribution_sign": "negative",
+      "observed_uplift_contribution_sign": "negative",
+      "recommendation_source": "avoid_for_rerank",
+      "recommended_rank_action": "avoid",
+      "regime_sign_stability": 1.0,
+      "regime_sign_summary": {
+        "boundary_sign_share": 1.0,
+        "regime_sign_stability": 1.0,
+        "regimes": [
+          {
+            "boundary_sign": "negative",
+            "mean_next_month_return": -0.008161505979819017,
+            "mean_top10_boundary_gap": -0.001238158248947352,
+            "regime_tag": "range",
+            "row_count": 1,
+            "winner_sign": "negative"
+          }
+        ],
+        "winner_sign_share": 1.0
+      },
+      "state_combination": {
+        "weekly_main_state": "weekly_up_early"
+      },
+      "state_family": "weekly",
+      "state_key": "weekly|weekly_main_state=weekly_up_early",
+      "state_key_kind": "weekly",
+      "winner_minus_loser_gap": -3.75198809523809,
+      "winner_promotion_signal": 48.124005952380955
+    },
+    {
+      "action_reason": "insufficient_coverage_or_stability",
+      "boundary_signal": -0.002568311114870932,
+      "candidate_pool_signal": 0.007449166707332385,
+      "coverage_months": 1,
+      "coverage_regimes": 1,
+      "coverage_rows": 1,
+      "loser_removal_signal": 52.673791666666666,
+      "mean_next_month_return": 0.012877038423900977,
+      "observed_boundary_contribution_sign": "negative",
+      "observed_uplift_contribution_sign": "positive",
+      "recommendation_source": "keep_for_similarity_only",
+      "recommended_rank_action": "avoid",
+      "regime_sign_stability": 1.0,
+      "regime_sign_summary": {
+        "boundary_sign_share": 1.0,
+        "regime_sign_stability": 1.0,
+        "regimes": [
+          {
+            "boundary_sign": "negative",
+            "mean_next_month_return": 0.012877038423900977,
+            "mean_top10_boundary_gap": -4.844893914923709e-05,
+            "regime_tag": "range",
+            "row_count": 1,
+            "winner_sign": "positive"
+          }
+        ],
+        "winner_sign_share": 1.0
+      },
+      "state_combination": {
+        "daily_main_state": "daily_up_top_warning",
+        "monthly_main_state": "monthly_down_bottom_warning",
+        "weekly_main_state": "weekly_up_mid"
+      },
+      "state_family": "combo",
+      "state_key": "combo|daily_main_state=daily_up_top_warning|monthly_main_state=monthly_down_bottom_warning|weekly_main_state=weekly_up_mid",
+      "state_key_kind": "combo",
+      "winner_minus_loser_gap": -5.347583333333333,
+      "winner_promotion_signal": 47.326208333333334
+    },
+    {
+      "action_reason": "insufficient_coverage_or_stability",
+      "boundary_signal": -0.002568311114870932,
+      "candidate_pool_signal": 0.007449166707332385,
+      "coverage_months": 1,
+      "coverage_regimes": 1,
+      "coverage_rows": 1,
+      "loser_removal_signal": 52.673791666666666,
+      "mean_next_month_return": 0.012877038423900977,
+      "observed_boundary_contribution_sign": "negative",
+      "observed_uplift_contribution_sign": "positive",
+      "recommendation_source": "keep_for_similarity_only",
+      "recommended_rank_action": "avoid",
+      "regime_sign_stability": 1.0,
+      "regime_sign_summary": {
+        "boundary_sign_share": 1.0,
+        "regime_sign_stability": 1.0,
+        "regimes": [
+          {
+            "boundary_sign": "negative",
+            "mean_next_month_return": 0.012877038423900977,
+            "mean_top10_boundary_gap": -4.844893914923709e-05,
+            "regime_tag": "range",
+            "row_count": 1,
+            "winner_sign": "positive"
+          }
+        ],
+        "winner_sign_share": 1.0
+      },
+      "state_combination": {
+        "daily_main_state": "daily_up_top_warning"
+      },
+      "state_family": "daily",
+      "state_key": "daily|daily_main_state=daily_up_top_warning",
+      "state_key_kind": "daily",
+      "winner_minus_loser_gap": -5.347583333333333,
+      "winner_promotion_signal": 47.326208333333334
+    },
+    {
+      "action_reason": "insufficient_coverage_or_stability",
+      "boundary_signal": 0.0035985745977999456,
+      "candidate_pool_signal": -0.00711835241301532,
+      "coverage_months": 1,
+      "coverage_regimes": 1,
+      "coverage_rows": 1,
+      "loser_removal_signal": 55.71999404761905,
+      "mean_next_month_return": -0.0016904806964467278,
+      "observed_boundary_contribution_sign": "positive",
+      "observed_uplift_contribution_sign": "negative",
+      "recommendation_source": "keep_for_similarity_only",
+      "recommended_rank_action": "avoid",
+      "regime_sign_stability": 1.0,
+      "regime_sign_summary": {
+        "boundary_sign_share": 1.0,
+        "regime_sign_stability": 1.0,
+        "regimes": [
+          {
+            "boundary_sign": "positive",
+            "mean_next_month_return": -0.0016904806964467278,
+            "mean_top10_boundary_gap": 0.0061184367735216405,
+            "regime_tag": "range",
+            "row_count": 1,
+            "winner_sign": "negative"
+          }
+        ],
+        "winner_sign_share": 1.0
+      },
+      "state_combination": {
+        "daily_main_state": "daily_up_mid",
+        "monthly_main_state": "monthly_down_bottom_warning",
+        "weekly_main_state": "weekly_down_bottom_warning"
+      },
+      "state_family": "combo",
+      "state_key": "combo|daily_main_state=daily_up_mid|monthly_main_state=monthly_down_bottom_warning|weekly_main_state=weekly_down_bottom_warning",
+      "state_key_kind": "combo",
+      "winner_minus_loser_gap": -11.4399880952381,
+      "winner_promotion_signal": 44.280005952380954
+    },
+    {
+      "action_reason": "insufficient_coverage_or_stability",
+      "boundary_signal": -0.0023242373438293012,
+      "candidate_pool_signal": 0.007693240478374015,
+      "coverage_months": 1,
+      "coverage_regimes": 1,
+      "coverage_rows": 1,
+      "loser_removal_signal": 57.04541666666667,
+      "mean_next_month_return": 0.013121112194942608,
+      "observed_boundary_contribution_sign": "negative",
+      "observed_uplift_contribution_sign": "positive",
+      "recommendation_source": "keep_for_similarity_only",
+      "recommended_rank_action": "avoid",
+      "regime_sign_stability": 1.0,
+      "regime_sign_summary": {
+        "boundary_sign_share": 1.0,
+        "regime_sign_stability": 1.0,
+        "regimes": [
+          {
+            "boundary_sign": "negative",
+            "mean_next_month_return": 0.013121112194942608,
+            "mean_top10_boundary_gap": 0.00019562483189239366,
+            "regime_tag": "range",
+            "row_count": 1,
+            "winner_sign": "positive"
+          }
+        ],
+        "winner_sign_share": 1.0
+      },
+      "state_combination": {
+        "daily_main_state": "daily_reversal_down_candidate",
+        "monthly_main_state": "monthly_up_top_warning",
+        "weekly_main_state": "weekly_down_bottom_warning"
+      },
+      "state_family": "combo",
+      "state_key": "combo|daily_main_state=daily_reversal_down_candidate|monthly_main_state=monthly_up_top_warning|weekly_main_state=weekly_down_bottom_warning",
+      "state_key_kind": "combo",
+      "winner_minus_loser_gap": -14.090833333333336,
+      "winner_promotion_signal": 42.95458333333333
+    },
+    {
+      "action_reason": "insufficient_coverage_or_stability",
+      "boundary_signal": -0.002519862175721695,
+      "candidate_pool_signal": -0.011608781164893871,
+      "coverage_months": 1,
+      "coverage_regimes": 1,
+      "coverage_rows": 1,
+      "loser_removal_signal": 57.845258215962446,
+      "mean_next_month_return": -0.006180909448325278,
+      "observed_boundary_contribution_sign": "negative",
+      "observed_uplift_contribution_sign": "negative",
+      "recommendation_source": "avoid_for_rerank",
+      "recommended_rank_action": "avoid",
+      "regime_sign_stability": 1.0,
+      "regime_sign_summary": {
+        "boundary_sign_share": 1.0,
+        "regime_sign_stability": 1.0,
+        "regimes": [
+          {
+            "boundary_sign": "negative",
+            "mean_next_month_return": -0.006180909448325278,
+            "mean_top10_boundary_gap": 0.0,
+            "regime_tag": "range",
+            "row_count": 1,
+            "winner_sign": "negative"
+          }
+        ],
+        "winner_sign_share": 1.0
+      },
+      "state_combination": {
+        "daily_main_state": "daily_down_mid",
+        "monthly_main_state": "monthly_down_bottom_warning",
+        "weekly_main_state": "weekly_range_late"
+      },
+      "state_family": "combo",
+      "state_key": "combo|daily_main_state=daily_down_mid|monthly_main_state=monthly_down_bottom_warning|weekly_main_state=weekly_range_late",
+      "state_key_kind": "combo",
+      "winner_minus_loser_gap": -15.690516431924891,
+      "winner_promotion_signal": 42.154741784037554
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "best_variant": "boundary_bonus_only",
+  "boundary_improved": false,
+  "candidate_rank_window": [
+    6,
+    30
+  ],
+  "churn_acceptable": true,
+  "comparison_contract": {
+    "candidate_pool_k": 30,
+    "candidate_rank_window": [
+      6,
+      30
+    ],
+    "strict_candidate_rank_window": [
+      8,
+      20
+    ],
+    "top5_freeze_enabled": true,
+    "top_k": 10
+  },
+  "decision": "hold_boundary_winner_promotion_challenger",
+  "decision_reason_typed": "partial_improvement_without_stable_boundary_gain",
+  "full_snapshot_oos_top10_uplift": 0.0,
+  "loser_removal_improved": true,
+  "recommended_next_use": "diagnostics/filter-analysis/decomposition only; do not use as rerank challenger",
+  "schema_version": "tradex_monthly_shape_memory_boundary_winner_promotion_v1",
+  "source_artifacts": {
+    "hierarchical_label_allowed_uses": "hierarchical_label_allowed_uses.json",
+    "hierarchical_state_failure_map": "hierarchical_state_failure_map.json",
+    "hierarchical_state_winner_loser_decomposition": "hierarchical_state_winner_loser_decomposition.json"
+  },
+  "top5_freeze_enabled": true,
+  "variants_compared": [
+    "champion_only",
+    "boundary_bonus_only",
+    "boundary_penalty_only",
+    "boundary_bonus_plus_penalty",
+    "boundary_bonus_plus_penalty_strict_window"
+  ],
+  "winner_promotion_improved": false
+}

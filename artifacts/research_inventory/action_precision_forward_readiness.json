@@ -1,0 +1,57 @@
+{
+  "current_validation_month_end": 202602,
+  "current_validation_months": [
+    202509,
+    202510,
+    202511,
+    202512,
+    202601,
+    202602
+  ],
+  "decision": "hold_needs_more_time",
+  "decision_reason": "no_complete_month_available_after_validation",
+  "generated_at": "2026-04-20T11:41:43.830608+00:00",
+  "last_fully_confirmable_month": 202602,
+  "new_complete_unseen_month_exists": false,
+  "new_complete_unseen_months": [],
+  "replay_lookback_start_date": 20160417,
+  "schema_version": "tradex_action_precision_forward_readiness_v1",
+  "snapshot_db_path": "G:\\Tradex\\scratch\\source_snapshots\\action_precision_forward_control_20260420T114112009903Z.duckdb",
+  "snapshot_max_trade_date": 20260417,
+  "snapshot_payload": {
+    "created_at": "2026-04-20T11:41:43.560069+00:00",
+    "feature_frame": {
+      "base_table": "ml_feature_daily",
+      "feature_frame_version": "feature_frame_v1",
+      "ok": true,
+      "row_count": 4026491,
+      "source_presence_flags": {
+        "source_presence_flag_earnings_planned": 1,
+        "source_presence_flag_edinetdb_company_map": 1,
+        "source_presence_flag_edinetdb_financials": 1,
+        "source_presence_flag_edinetdb_official_documents": 1,
+        "source_presence_flag_edinetdb_ratios": 1,
+        "source_presence_flag_edinetdb_text_blocks": 1,
+        "source_presence_flag_ex_rights": 1,
+        "source_presence_flag_feature_frame_daily": 1,
+        "source_presence_flag_feature_snapshot_daily": 1,
+        "source_presence_flag_market_regime_daily": 1,
+        "source_presence_flag_ml_feature_daily": 1,
+        "source_presence_flag_signal_decision_daily": 1,
+        "source_presence_flag_taisyaku_balance_daily": 1,
+        "source_presence_flag_tdnet_disclosures": 0,
+        "source_presence_flag_trade_events": 1
+      }
+    },
+    "label": "action_precision_forward_control",
+    "snapshot_db_path": "G:\\Tradex\\scratch\\source_snapshots\\action_precision_forward_control_20260420T114112009903Z.duckdb",
+    "snapshot_id": "action_precision_forward_control_20260420T114112009903Z",
+    "snapshot_size": 5254164480,
+    "snapshot_wal_path": null,
+    "source_db_path": "C:\\Users\\enish\\AppData\\Local\\MeeMeeScreener\\data\\stocks.duckdb",
+    "source_size": 5857882112,
+    "source_wal_path": null,
+    "wal_copied": false
+  },
+  "source_db_path": "C:\\Users\\enish\\AppData\\Local\\MeeMeeScreener\\data\\stocks.duckdb"
+}

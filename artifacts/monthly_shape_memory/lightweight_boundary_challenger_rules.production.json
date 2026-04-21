@@ -1,0 +1,97 @@
+{
+  "candidate_rank_window": [
+    6,
+    20
+  ],
+  "fallback_behavior": "retain champion_score outside the candidate window or when support fields are unavailable.",
+  "feature_groups": {
+    "breakout_quality": [
+      "breakout_proximity_low",
+      "breakout_proximity_high"
+    ],
+    "recent_relative_strength": [
+      "window_return_1m",
+      "window_return_3m",
+      "window_return_6m"
+    ],
+    "recovery_and_drawdown": [
+      "recovery_6m",
+      "drawdown_6m"
+    ],
+    "volatility_and_update_quality": [
+      "volume_expansion_20_60",
+      "liquidity_score",
+      "regime_volatility_score",
+      "gap_frequency",
+      "wick_body_ratio",
+      "missing_days_ratio"
+    ],
+    "weekly_trend_continuity": [
+      "slope_early",
+      "slope_mid",
+      "slope_late",
+      "dist_ma20",
+      "dist_ma60",
+      "dist_ma120"
+    ]
+  },
+  "primary_delta_scale": 10.0,
+  "primary_weight": 0.1,
+  "schema_version": "tradex_monthly_shape_memory_lightweight_boundary_challenger_v1",
+  "score_formula": "lightweight_candidate_score = champion_score + primary_delta + support_delta; primary_delta = 0.10 * ((lightweight_primary_score - 50.0) / 10.0); support_delta = 0.01 * ((lightweight_support_score - 50.0) / 10.0); top5 freeze is enforced and only champion ranks 6-20 are reselected for the default challenger.",
+  "source_artifacts": {
+    "hierarchical_label_allowed_uses": "hierarchical_label_allowed_uses.json",
+    "hierarchical_state_failure_map": "hierarchical_state_failure_map.json",
+    "hierarchical_state_winner_loser_decomposition": "hierarchical_state_winner_loser_decomposition.json",
+    "monthly_labels_hierarchical": "monthly_labels_hierarchical.parquet",
+    "monthly_samples": "monthly_samples.parquet"
+  },
+  "strict_candidate_rank_window": [
+    8,
+    20
+  ],
+  "support_fields": {
+    "daily_main_state": [
+      "daily_up_early",
+      "daily_up_mid",
+      "daily_up_top_warning",
+      "daily_range_mid",
+      "daily_range_late",
+      "daily_down_early",
+      "daily_down_mid",
+      "daily_down_bottom_warning",
+      "daily_reversal_up_candidate",
+      "daily_reversal_down_candidate"
+    ],
+    "daily_triggers": [
+      "daily_reclaim_ma20_flag",
+      "daily_lose_ma20_flag",
+      "daily_gap_up_flag",
+      "daily_gap_down_flag",
+      "daily_engulfing_bull_flag",
+      "daily_engulfing_bear_flag"
+    ],
+    "monthly_main_state": [
+      "monthly_up_pre",
+      "monthly_up_mid",
+      "monthly_up_top_warning",
+      "monthly_range_pre",
+      "monthly_range_mid",
+      "monthly_range_late",
+      "monthly_down_mid",
+      "monthly_down_bottom_warning"
+    ],
+    "weekly_main_state": [
+      "weekly_up_early",
+      "weekly_up_mid",
+      "weekly_up_late",
+      "weekly_range_mid",
+      "weekly_range_late",
+      "weekly_down_early",
+      "weekly_down_mid",
+      "weekly_down_bottom_warning"
+    ]
+  },
+  "support_weight": 0.01,
+  "top5_freeze_enabled": true
+}

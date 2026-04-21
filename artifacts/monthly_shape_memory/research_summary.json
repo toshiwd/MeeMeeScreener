@@ -1,0 +1,168 @@
+{
+  "artifact_suffix": "",
+  "artifacts": {
+    "authoritative_decision": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\authoritative_decision.json",
+    "authoritative_decision_boundary_winner_promotion": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\authoritative_decision.boundary_winner_promotion.json",
+    "authoritative_decision_boundary_winner_promotion_drop": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\authoritative_decision.boundary_winner_promotion_drop.json",
+    "authoritative_decision_hierarchical_labels_keep_rerank_drop": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\authoritative_decision.hierarchical_labels_keep_rerank_drop.json",
+    "authoritative_decision_hierarchical_regime_gated": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\authoritative_decision.hierarchical_regime_gated.json",
+    "authoritative_decision_lightweight_boundary_challenger": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\authoritative_decision.lightweight_boundary_challenger.json",
+    "boundary_winner_promotion_compare": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\boundary_winner_promotion_compare.json",
+    "boundary_winner_promotion_effect_by_regime": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\boundary_winner_promotion_effect_by_regime.json",
+    "boundary_winner_promotion_rules": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\boundary_winner_promotion_rules.json",
+    "branch_eval": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\branch_eval.json",
+    "hierarchical_label_ablation_compare": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\hierarchical_label_ablation_compare.json",
+    "hierarchical_label_allowed_uses": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\hierarchical_label_allowed_uses.json",
+    "hierarchical_label_dictionary": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\hierarchical_label_dictionary.json",
+    "hierarchical_label_effect_by_regime": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\hierarchical_label_effect_by_regime.json",
+    "hierarchical_label_effect_by_state": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\hierarchical_label_effect_by_state.json",
+    "hierarchical_label_priority": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\hierarchical_label_priority.json",
+    "hierarchical_label_rules": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\hierarchical_label_rules.json",
+    "hierarchical_label_score_summary": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\hierarchical_label_score_summary.json",
+    "hierarchical_label_summary": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\hierarchical_label_summary.json",
+    "hierarchical_regime_gate_compare": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\hierarchical_regime_gate_compare.json",
+    "hierarchical_regime_gate_effect_by_regime": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\hierarchical_regime_gate_effect_by_regime.json",
+    "hierarchical_regime_gate_rules": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\hierarchical_regime_gate_rules.json",
+    "hierarchical_rerank_do_not_continue": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\hierarchical_rerank_do_not_continue.json",
+    "hierarchical_state_failure_map": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\hierarchical_state_failure_map.json",
+    "hierarchical_state_rank_impact_table": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\hierarchical_state_rank_impact_table.json",
+    "hierarchical_state_winner_loser_decomposition": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\hierarchical_state_winner_loser_decomposition.json",
+    "hierarchical_weekly_diversity_before_after": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\hierarchical_weekly_diversity_before_after.json",
+    "lightweight_boundary_challenger_candidates": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\lightweight_boundary_challenger_candidates.parquet",
+    "lightweight_boundary_challenger_compare": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\lightweight_boundary_challenger_compare.json",
+    "lightweight_boundary_challenger_effect_by_regime": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\lightweight_boundary_challenger_effect_by_regime.json",
+    "lightweight_boundary_challenger_rules": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\lightweight_boundary_challenger_rules.json",
+    "monthly_labels": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\monthly_labels.parquet",
+    "monthly_labels_hierarchical": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\monthly_labels_hierarchical.parquet",
+    "monthly_samples": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\monthly_samples.parquet",
+    "monthly_similarity": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\monthly_similarity.parquet",
+    "rerank_compare": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\rerank_compare.json",
+    "research_summary": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\research_summary.json",
+    "split_contract": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory\\split_contract.json"
+  },
+  "comparison_modes": [
+    "expanding",
+    "rolling"
+  ],
+  "coverage_codes": 685,
+  "coverage_months": 36,
+  "coverage_rows": 24562,
+  "end_month": 202601,
+  "failure_mode_typed": "regime_instability",
+  "feature_branch_specs": [
+    {
+      "family": "common_feature",
+      "feature": "window_return_1m"
+    },
+    {
+      "family": "common_feature",
+      "feature": "window_return_3m"
+    },
+    {
+      "family": "common_feature",
+      "feature": "window_return_6m"
+    },
+    {
+      "family": "boundary_feature",
+      "feature": "box_width_6m"
+    },
+    {
+      "family": "boundary_feature",
+      "feature": "breakout_proximity_high"
+    },
+    {
+      "family": "boundary_feature",
+      "feature": "breakout_proximity_low"
+    },
+    {
+      "family": "common_feature",
+      "feature": "dist_ma20"
+    },
+    {
+      "family": "regime_correction",
+      "feature": "dist_ma60"
+    },
+    {
+      "family": "regime_correction",
+      "feature": "dist_ma120"
+    },
+    {
+      "family": "common_feature",
+      "feature": "slope_early"
+    },
+    {
+      "family": "common_feature",
+      "feature": "slope_mid"
+    },
+    {
+      "family": "boundary_feature",
+      "feature": "slope_late"
+    },
+    {
+      "family": "bad_pick_removal",
+      "feature": "curvature"
+    },
+    {
+      "family": "symbol_specific_deviation",
+      "feature": "volume_expansion_20_60"
+    },
+    {
+      "family": "symbol_specific_deviation",
+      "feature": "gap_frequency"
+    },
+    {
+      "family": "bad_pick_removal",
+      "feature": "wick_body_ratio"
+    },
+    {
+      "family": "bad_pick_removal",
+      "feature": "drawdown_6m"
+    },
+    {
+      "family": "boundary_feature",
+      "feature": "recovery_6m"
+    },
+    {
+      "family": "regime_correction",
+      "feature": "volatility_6m"
+    },
+    {
+      "family": "symbol_specific_deviation",
+      "feature": "missing_days_ratio"
+    },
+    {
+      "family": "symbol_specific_deviation",
+      "feature": "liquidity_score"
+    },
+    {
+      "family": "regime_correction",
+      "feature": "regime_trend_score"
+    },
+    {
+      "family": "regime_correction",
+      "feature": "regime_volatility_score"
+    }
+  ],
+  "generated_at": "2026-04-20T06:08:39.310463+00:00",
+  "label_contract": {
+    "bottom10_label": "is_next_bottom10",
+    "cohort_label": "cohort_label",
+    "rank_label": "next_month_rank_pct",
+    "top10_label": "is_next_top10"
+  },
+  "leakage_check_status": "pass",
+  "next_action_typed": "continue_regime_gated_variant",
+  "output_dir": "C:\\work\\meemee-screener\\artifacts\\monthly_shape_memory",
+  "sample_contract": {
+    "analog_k": 8,
+    "candidate_pool_k": 30,
+    "daily_window": "last 6 calendar months of daily bars up to month-end t",
+    "label": "next-month cross-sectional return and rank",
+    "memory_lookback_months": 24,
+    "rolling_window_months": 36,
+    "top_k": 10
+  },
+  "schema_version": "tradex_monthly_shape_memory_v1",
+  "source_db_path": "G:\\Tradex\\scratch\\source_snapshots\\tradex_research_snapshot_full_20230101_20260226.duckdb",
+  "start_month": 202302
+}
