@@ -71,6 +71,16 @@ def test_txt_update_success_records_cache_refresh_stage():
     def _refresh_cache():
         stage_trace.append("cache_refresh")
 
+    def _refresh_tracking():
+        stage_trace.append("tracking_refresh")
+        return {
+            "ok": True,
+            "market_day_window": 60,
+            "from": "2025-11-01",
+            "to": "2026-01-01",
+            "result": {"basis": {"dates_processed": 10}, "ranking": {"appearance_upserted": 20}},
+        }
+
     patches = _build_common_patches()
     patches.extend(
         [
@@ -78,6 +88,7 @@ def test_txt_update_success_records_cache_refresh_stage():
             patch("app.backend.core.txt_update_job._save_update_state"),
             patch("app.backend.jobs.scoring_job.ScoringJob.run", side_effect=_scoring_run),
             patch("app.backend.services.rankings_cache.refresh_cache", side_effect=_refresh_cache),
+            patch("app.backend.services.signal_tracking_service.refresh_daily_tracking_window", side_effect=_refresh_tracking),
         ]
     )
 
@@ -94,15 +105,17 @@ def test_txt_update_success_records_cache_refresh_stage():
         patches[9] as mock_save_state,
         patches[10],
         patches[11],
+        patches[12],
     ):
         txt_update_job.handle_txt_update("job-ok", {"auto_ml_predict": False, "auto_ml_train": False})
 
-    assert stage_trace == ["scoring", "cache_refresh"]
+    assert stage_trace == ["scoring", "cache_refresh", "tracking_refresh"]
     assert mock_save_state.call_count > 0
     saved_state = mock_save_state.call_args[0][0]
     assert saved_state["last_pipeline_status"] == "success"
     assert saved_state["last_pipeline_stage"] == "finalize"
     assert "last_cache_refresh_at" in saved_state
+    assert "last_tracking_refresh_at" in saved_state
     assert "last_txt_update_at" in saved_state
     assert any(call.args[2] == "success" for call in mock_update_db.call_args_list)
 
@@ -194,6 +207,19 @@ def test_txt_update_practical_fast_skips_legacy_followup_after_initial_cache_ref
                 side_effect=lambda: stage_trace.append("cache_refresh"),
             ),
             patch(
+                "app.backend.services.signal_tracking_service.refresh_daily_tracking_window",
+                side_effect=lambda: (
+                    stage_trace.append("tracking_refresh")
+                    or {
+                        "ok": True,
+                        "market_day_window": 60,
+                        "from": "2025-11-01",
+                        "to": "2026-01-01",
+                        "result": {"basis": {"dates_processed": 10}, "ranking": {"appearance_upserted": 20}},
+                    }
+                ),
+            ),
+            patch(
                 "app.backend.core.txt_update_job.job_manager.submit",
                 return_value="followup-1",
             ),
@@ -213,7 +239,8 @@ def test_txt_update_practical_fast_skips_legacy_followup_after_initial_cache_ref
         patches[9] as mock_save_state,
         patches[10],
         patches[11],
-        patches[12] as mock_submit,
+        patches[12],
+        patches[13] as mock_submit,
     ):
         txt_update_job.handle_txt_update(
             "job-fast",
@@ -227,14 +254,68 @@ def test_txt_update_practical_fast_skips_legacy_followup_after_initial_cache_ref
             },
         )
 
-    assert stage_trace == ["cache_refresh"]
+    assert stage_trace == ["cache_refresh", "tracking_refresh"]
     mock_submit.assert_not_called()
     assert mock_save_state.call_count > 0
     saved_state = mock_save_state.call_args[0][0]
     assert saved_state["last_pipeline_status"] == "success"
+    assert "last_tracking_refresh_at" in saved_state
     assert "last_followup_job_id" not in saved_state
     assert "last_followup_source_txt_job_id" not in saved_state
     assert any(call.args[2] == "success" for call in mock_update_db.call_args_list)
+
+
+def test_txt_update_fails_when_tracking_refresh_fails():
+    state_store: dict = {}
+    patches = _build_common_patches()
+    patches.extend(
+        [
+            patch("app.backend.core.txt_update_job._load_update_state", return_value=state_store),
+            patch("app.backend.core.txt_update_job._save_update_state"),
+            patch("app.backend.jobs.scoring_job.ScoringJob.run", return_value=[{"code": "1301"}]),
+            patch("app.backend.services.rankings_cache.refresh_cache"),
+            patch(
+                "app.backend.services.signal_tracking_service.refresh_daily_tracking_window",
+                side_effect=RuntimeError("tracking-broken"),
+            ),
+        ]
+    )
+
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patches[5],
+        patches[6] as mock_update_db,
+        patches[7],
+        patches[8],
+        patches[9] as mock_save_state,
+        patches[10],
+        patches[11],
+        patches[12],
+    ):
+        txt_update_job.handle_txt_update(
+            "job-tracking-fail",
+            {
+                "auto_ml_predict": False,
+                "auto_ml_train": False,
+                "auto_walkforward_run": False,
+                "auto_walkforward_gate": False,
+            },
+        )
+
+    assert mock_save_state.call_count > 0
+    saved_state = mock_save_state.call_args[0][0]
+    assert saved_state["last_pipeline_status"] == "failed"
+    assert saved_state["last_failed_stage"] == "tracking_refresh"
+    assert saved_state["last_error"] == "tracking-broken"
+    assert saved_state["last_error_message"] == "Tracking refresh failed"
+    assert any(
+        call.args[2] == "failed" and call.kwargs.get("error") == "Tracking refresh failed"
+        for call in mock_update_db.call_args_list
+    )
 
 
 def test_txt_update_preserves_pan_lock_reason_in_warning_state():

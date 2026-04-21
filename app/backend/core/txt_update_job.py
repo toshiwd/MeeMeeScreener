@@ -1662,6 +1662,7 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
     SELL_ANALYSIS_PROGRESS = 97
     ANALYSIS_BACKFILL_PROGRESS = 98
     CACHE_REFRESH_PROGRESS = 98
+    TRACKING_REFRESH_PROGRESS = 99
     WALKFORWARD_RUN_PROGRESS = 98
     WALKFORWARD_GATE_PROGRESS = 98
     FINALIZING_PROGRESS = 99
@@ -1991,6 +1992,52 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
             "failed",
             error="Rankings cache refresh failed",
             message=f"Rankings cache refresh failed: {exc}",
+            finished_at=datetime.now(),
+        )
+        return
+
+    try:
+        if _exit_if_canceled(job_id, state, stage="tracking_refresh", message="Canceled before tracking refresh"):
+            return
+        _set_pipeline_stage(state, "tracking_refresh", message="Refreshing signal/ranking tracking...")
+        job_manager._update_db(
+            job_id,
+            "txt_update",
+            "running",
+            message="Refreshing signal/ranking tracking...",
+            progress=TRACKING_REFRESH_PROGRESS,
+        )
+        from app.backend.services import signal_tracking_service
+
+        tracking_result = signal_tracking_service.refresh_daily_tracking_window()
+        state["last_tracking_refresh_at"] = datetime.now().isoformat()
+        state["last_tracking_refresh_result"] = {
+            "market_day_window": tracking_result.get("market_day_window"),
+            "from": tracking_result.get("from"),
+            "to": tracking_result.get("to"),
+            "basis_dates_processed": ((tracking_result.get("result") or {}).get("basis") or {}).get("dates_processed"),
+            "ranking_appearance_upserted": ((tracking_result.get("result") or {}).get("ranking") or {}).get("appearance_upserted"),
+        }
+        ml_note_parts.append(
+            "tracking="
+            f"ok(from={state['last_tracking_refresh_result']['from']},"
+            f"to={state['last_tracking_refresh_result']['to']},"
+            f"appearance={state['last_tracking_refresh_result']['ranking_appearance_upserted']})"
+        )
+    except Exception as exc:
+        logger.exception("Tracking refresh failed: %s", exc)
+        _record_pipeline_failure(
+            state,
+            stage="tracking_refresh",
+            error=str(exc),
+            message="Tracking refresh failed",
+        )
+        job_manager._update_db(
+            job_id,
+            "txt_update",
+            "failed",
+            error="Tracking refresh failed",
+            message=f"Tracking refresh failed: {exc}",
             finished_at=datetime.now(),
         )
         return

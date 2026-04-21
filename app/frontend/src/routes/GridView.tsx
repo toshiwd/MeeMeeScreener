@@ -20,6 +20,7 @@ import Toast from "../components/Toast";
 import TopNav from "../components/TopNav";
 import IconButton from "../components/IconButton";
 import {
+  IconCamera,
   IconMessage,
   IconArrowsSort,
   IconLayoutGrid,
@@ -56,6 +57,7 @@ import {
   type TechnicalFilterState
 } from "../utils/technicalFilter";
 import { formatEventDateYmd, parseEventDateMs } from "../utils/events";
+import { downloadChartScreenshots } from "../utils/chartScreenshot";
 import {
   extractTxtUpdateJobId,
   formatTxtUpdateStatusLabel,
@@ -107,6 +109,9 @@ import {
   resolveGridSignalSortScore,
   toWalkforwardParams
 } from "./grid/gridHelpers";
+import { resolveListThumbnailMaSettings } from "../storeHelpers";
+
+const SCREENSHOT_LIMIT = 10;
 
 export default function GridView() {
   const location = useLocation();
@@ -231,6 +236,7 @@ export default function GridView() {
   const [consultSort, setConsultSort] = useState<ConsultationSort>("score");
   const [consultBusy, setConsultBusy] = useState(false);
   const [consultMeta, setConsultMeta] = useState<{ omitted: number }>({ omitted: 0 });
+  const [screenshotBusy, setScreenshotBusy] = useState(false);
   const [undoInfo, setUndoInfo] = useState<{ code: string; trashToken?: string | null } | null>(
     null
   );
@@ -1974,6 +1980,79 @@ export default function GridView() {
     return { visible, extra };
   }, [keepList]);
 
+  const resolvedGridMaSettings = useMemo(
+    () => resolveListThumbnailMaSettings(gridTimeframe, maSettings),
+    [gridTimeframe, maSettings]
+  );
+
+  const handleCreateScreenshots = useCallback(async () => {
+    if (!keepList.length) {
+      showToast("スクショ対象がありません。");
+      return;
+    }
+    const targets = keepList.slice(0, SCREENSHOT_LIMIT);
+    const omitted = Math.max(0, keepList.length - targets.length);
+    setScreenshotBusy(true);
+    try {
+      try {
+        await ensureBarsForVisible(gridTimeframe, targets, "chart-screenshot");
+      } catch {
+        // Use available cache even if fetch fails.
+      }
+      const itemsForShots = targets.map((code) => ({
+        code,
+        payload: barsCache[gridTimeframe][code] ?? null,
+        boxes: boxesCache[gridTimeframe][code] ?? [],
+        maSettings: resolvedGridMaSettings
+      }));
+      const result = await downloadChartScreenshots(itemsForShots, {
+        rangeBars: listRangeBars,
+        timeframeLabel: gridTimeframe,
+        showBoxes
+      });
+      if (!result.created) {
+        showToast("スクショを作成できませんでした。");
+        return;
+      }
+      const omittedLabel = omitted ? ` (残り${omitted}件は省略)` : "";
+      showToast(
+        `スクショを${result.created}件作成しました。${omittedLabel}`,
+        result.savedDir && window.pywebview?.api?.open_screenshot_dir
+          ? {
+              label: "フォルダ",
+              onClick: () => {
+                void window.pywebview?.api?.open_screenshot_dir?.();
+              }
+            }
+          : null
+      );
+    } finally {
+      setScreenshotBusy(false);
+    }
+  }, [
+    keepList,
+    ensureBarsForVisible,
+    gridTimeframe,
+    barsCache,
+    boxesCache,
+    resolvedGridMaSettings,
+    listRangeBars,
+    showBoxes,
+    showToast
+  ]);
+
+  const gridTopNavActions = (
+    <button
+      type="button"
+      className="help-button"
+      onClick={handleCreateScreenshots}
+      disabled={!keepList.length || screenshotBusy}
+    >
+      <IconCamera size={16} />
+      <span>{screenshotBusy ? "作成中..." : "スクショ"}</span>
+    </button>
+  );
+
   const handleUpdateTxt = useCallback(async () => {
     if (!backendReady) return;
     showToast("日次更新を開始しました。");
@@ -2618,7 +2697,7 @@ export default function GridView() {
         <div className="list-header-row">
           <div className="header-row-top">
             <div className="header-row-left">
-              <TopNav />
+              <TopNav actions={gridTopNavActions} />
             </div>
             <div className="list-header-actions-wrapper">
               <div className="list-header-actions">
@@ -3967,8 +4046,22 @@ export default function GridView() {
               >
                 {consultBusy ? "作成中..." : "相談作成"}
               </button>
+              <button
+                type="button"
+                onClick={handleCreateScreenshots}
+                disabled={!keepList.length || screenshotBusy}
+              >
+                {screenshotBusy ? "作成中..." : "スクショ作成"}
+              </button>
               <button type="button" onClick={handleCopyConsult} disabled={!consultText}>
                 コピー
+              </button>
+              <button
+                type="button"
+                onClick={() => window.pywebview?.api?.open_screenshot_dir?.()}
+                disabled={!window.pywebview?.api?.open_screenshot_dir}
+              >
+                フォルダ
               </button>
               <button type="button" onClick={() => setConsultVisible(false)}>
                 閉じる
@@ -4004,8 +4097,22 @@ export default function GridView() {
                 >
                   {consultBusy ? "作成中..." : "相談作成"}
                 </button>
+                <button
+                  type="button"
+                  onClick={handleCreateScreenshots}
+                  disabled={!keepList.length || screenshotBusy}
+                >
+                  {screenshotBusy ? "作成中..." : "スクショ作成"}
+                </button>
                 <button type="button" onClick={handleCopyConsult} disabled={!consultText}>
                   コピー
+                </button>
+                <button
+                  type="button"
+                  onClick={() => window.pywebview?.api?.open_screenshot_dir?.()}
+                  disabled={!window.pywebview?.api?.open_screenshot_dir}
+                >
+                  フォルダ
                 </button>
                 <button type="button" onClick={() => setConsultVisible(false)}>
                   閉じる

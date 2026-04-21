@@ -2464,6 +2464,50 @@ def refresh_signal_tracking(
     }
 
 
+def refresh_daily_tracking_window(
+    *,
+    market_day_window: int | None = None,
+    db_path: str | None = None,
+) -> dict[str, Any]:
+    requested_window = max(1, int(market_day_window or (WATCH_HORIZON_BARS + COMPLETED_RETENTION_DAYS)))
+    with _open_conn(db_path, read_only=True) as conn:
+        market_dates = _list_market_dates(conn)
+    if not market_dates:
+        return {
+            "ok": True,
+            "skipped": True,
+            "reason": "no_market_dates",
+            "market_day_window": requested_window,
+            "from": None,
+            "to": None,
+            "from_int": None,
+            "to_int": None,
+        }
+    from_index = max(0, len(market_dates) - requested_window)
+    from_int = int(market_dates[from_index])
+    to_int = int(market_dates[-1])
+    result = backfill_signal_tracking(
+        from_ymd=from_int,
+        to_ymd=to_int,
+        logic_version=ACTIVE_LOGIC_VERSION_ALIAS,
+        basis_version=DEFAULT_BASIS_VERSION,
+        reset_scope=False,
+        db_path=db_path,
+    )
+    with _REFRESH_LOCK:
+        _REFRESH_STATE["as_of"] = to_int
+        _REFRESH_STATE["refreshed_at"] = datetime.now(timezone.utc)
+    return {
+        "ok": True,
+        "market_day_window": requested_window,
+        "from": _ymd_to_iso(from_int),
+        "to": _ymd_to_iso(to_int),
+        "from_int": from_int,
+        "to_int": to_int,
+        "result": result,
+    }
+
+
 def ensure_signal_tracking_current(
     *,
     as_of: int | str | None = None,

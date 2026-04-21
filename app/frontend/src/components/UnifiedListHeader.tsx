@@ -40,6 +40,7 @@ type UnifiedListHeaderProps = {
   filterLabel?: string;
   onHelpClick?: () => void;
   helpLabel?: string;
+  topNavActions?: ReactNode;
 };
 
 const LABELS = {
@@ -90,7 +91,8 @@ export default function UnifiedListHeader({
   filterItems,
   filterLabel,
   onHelpClick,
-  helpLabel
+  helpLabel,
+  topNavActions
 }: UnifiedListHeaderProps) {
   const [sortOpen, setSortOpen] = useState(false);
   const [densityOpen, setDensityOpen] = useState(false);
@@ -179,7 +181,7 @@ export default function UnifiedListHeader({
       <div className="list-header-row">
         <div className="dynamic-header-row header-row-top">
           <div className="header-row-left">
-            <TopNav />
+            <TopNav actions={topNavActions} />
             {topRowLeftExtra}
           </div>
 

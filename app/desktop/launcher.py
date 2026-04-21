@@ -33,6 +33,12 @@ MUTEX_NAME = "Global\\MeeMeeScreenerSingleton"
 HEALTH_TIMEOUT_SECONDS = 25
 _LOGGED_RESOLVED_PATHS = False
 _DEV_ENV_KEYS = ("MEEMEE_DEV", "MEEMEE_DEV_MODE")
+_PROCESS_PER_MONITOR_DPI_AWARE = 2
+_PROCESS_SYSTEM_DPI_AWARE = 1
+_PER_MONITOR_AWARE_V2 = ctypes.c_void_p(-4)
+_PER_MONITOR_AWARE = ctypes.c_void_p(-3)
+_S_OK = 0
+_E_ACCESSDENIED = -2147024891
 
 
 def _is_dev_mode() -> bool:
@@ -43,6 +49,50 @@ def _is_dev_mode() -> bool:
 
 def _is_selftest_mode() -> bool:
     return os.getenv("MEEMEE_SELFTEST", "").lower() in ("1", "true", "yes", "on")
+
+
+def _configure_dpi_awareness() -> str:
+    """Opt into crisp per-monitor DPI scaling before any window is created."""
+    user32 = ctypes.windll.user32
+
+    try:
+        set_context = user32.SetProcessDpiAwarenessContext
+        set_context.argtypes = [ctypes.c_void_p]
+        set_context.restype = ctypes.c_bool
+        if set_context(_PER_MONITOR_AWARE_V2):
+            return "per-monitor-v2"
+        if set_context(_PER_MONITOR_AWARE):
+            return "per-monitor"
+    except (AttributeError, OSError):
+        pass
+
+    try:
+        set_awareness = ctypes.windll.shcore.SetProcessDpiAwareness
+        set_awareness.argtypes = [ctypes.c_int]
+        set_awareness.restype = ctypes.c_long
+        result = int(set_awareness(_PROCESS_PER_MONITOR_DPI_AWARE))
+        if result == _S_OK:
+            return "per-monitor"
+        if result == _E_ACCESSDENIED:
+            return "already-configured"
+        result = int(set_awareness(_PROCESS_SYSTEM_DPI_AWARE))
+        if result == _S_OK:
+            return "system"
+        if result == _E_ACCESSDENIED:
+            return "already-configured"
+    except (AttributeError, OSError):
+        pass
+
+    try:
+        set_dpi_aware = user32.SetProcessDPIAware
+        set_dpi_aware.argtypes = []
+        set_dpi_aware.restype = ctypes.c_bool
+        if set_dpi_aware():
+            return "system-legacy"
+    except (AttributeError, OSError):
+        pass
+
+    return "unavailable"
 
 
 def _apply_packaged_backend_defaults(env: dict[str, str]) -> None:
@@ -1580,6 +1630,7 @@ def main() -> None:
     if _is_selftest_mode():
         code = _run_selftest()
         raise SystemExit(code)
+    dpi_awareness = _configure_dpi_awareness()
     mutex = _acquire_mutex()
     if not mutex:
         _message_box("MeeMee Screener is already running.", WINDOW_TITLE)
@@ -1601,6 +1652,7 @@ def main() -> None:
         log_path = _configure_logging(paths["logs_dir"])
         _configure_environment(paths)
         _log_resolved_paths_once(paths)
+        print(f"[launcher] DPI awareness mode: {dpi_awareness}")
 
         # Check for .NET Framework 4.8 before initializing pywebview
         if not _check_dotnet_framework():

@@ -300,6 +300,28 @@ def test_signal_tracking_summary_is_scoped_by_logic_version(monkeypatch) -> None
     assert summary_latest["duplicate_signal_rate"] == 0.0
 
 
+def test_refresh_daily_tracking_window_limits_backfill_to_recent_market_days(monkeypatch) -> None:
+    db_path = _make_temp_db()
+    market_days = _seed_market_data(db_path)
+    captured: dict[str, object] = {}
+
+    def _fake_backfill_signal_tracking(**kwargs):
+        captured.update(kwargs)
+        return {"ok": True, "basis": {"dates_processed": 10}, "ranking": {"appearance_upserted": 20}}
+
+    monkeypatch.setattr(service, "backfill_signal_tracking", _fake_backfill_signal_tracking)
+    result = service.refresh_daily_tracking_window(db_path=db_path, market_day_window=10)
+
+    assert result["ok"] is True
+    assert result["market_day_window"] == 10
+    assert result["from_int"] == market_days[-10]
+    assert result["to_int"] == market_days[-1]
+    assert captured["from_ymd"] == market_days[-10]
+    assert captured["to_ymd"] == market_days[-1]
+    assert captured["logic_version"] == service.ACTIVE_LOGIC_VERSION_ALIAS
+    assert captured["basis_version"] == service.DEFAULT_BASIS_VERSION
+
+
 def test_signal_tracking_validation_returns_decision_and_campaign_levels(monkeypatch) -> None:
     db_path = _make_temp_db()
     market_days = _seed_market_data(db_path)

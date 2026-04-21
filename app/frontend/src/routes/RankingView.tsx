@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { AxiosError } from "axios";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { IconHeart, IconHeartFilled } from "@tabler/icons-react";
+import { IconCamera, IconHeart, IconHeartFilled } from "@tabler/icons-react";
 import { shallow } from "zustand/shallow";
 import { api } from "../api";
 import { useBackendReadyState } from "../backendReady";
@@ -24,7 +24,7 @@ import {
   ConsultationSort,
   ConsultationTimeframe
 } from "../utils/consultation";
-import { useConsultScreenshot } from "../hooks/useConsultScreenshot";
+import { downloadChartScreenshots } from "../utils/chartScreenshot";
 import { openDetailWithPrefetch } from "./detail/openDetailWithPrefetch";
 import { buildTradexListSummaryKey } from "./list/tradexSummary";
 import { TradexListSummaryMount } from "./list/TradexListSummaryMount";
@@ -260,6 +260,7 @@ const RANK_VIEW_STATE_VERSION = 6;
 const RANK_FETCH_CACHE_VERSION = 2;
 const RANK_FETCH_CACHE_PREFIX = "rankingFetchCache";
 const RANK_LIMIT = 50;
+const SCREENSHOT_LIMIT = 10;
 const RANK_FETCH_TIMEOUT_MS = 60000;
 const TIMEFRAME_LABELS: Record<RankTimeframe, string> = {
   D: "日足",
@@ -737,6 +738,7 @@ export default function RankingView() {
   const [consultSort, setConsultSort] = useState<ConsultationSort>("score");
   const [consultBusy, setConsultBusy] = useState(false);
   const [consultMeta, setConsultMeta] = useState<{ omitted: number }>({ omitted: 0 });
+  const [screenshotBusy, setScreenshotBusy] = useState(false);
   const consultBarsCount = 60;
   const consultPaddingClass = consultVisible
     ? consultExpanded
@@ -762,9 +764,6 @@ export default function RankingView() {
     },
     [favoriteCodeSet]
   );
-
-  // Use the screenshot hook
-  const { generateScreenshots, isProcessing: screenshotBusy } = useConsultScreenshot();
 
   useEffect(() => {
     itemsRef.current = items;
@@ -1611,20 +1610,37 @@ export default function RankingView() {
 
   const handleCreateScreenshots = useCallback(async () => {
     if (selectedCodes.length === 0) {
-      setToastMessage("スクリーンショット対象がありません。");
+      setToastAction(null);
+      setToastMessage("スクショ対象がありません。");
       return;
     }
-
-    // Check setting for Consult mode (Use new method)
-    // The user requirement says "Replace" so we just use the new one.
-
-    setToastMessage("スクリーンショットを生成しています…");
-
-    const result = await generateScreenshots(selectedCodes);
-
-    if (result.success) {
-      setToastMessage(`${result.count}件のスクリーンショットを保存しました`);
-      if (result.success && window.pywebview?.api?.open_screenshot_dir) {
+    const targets = selectedCodes.slice(0, SCREENSHOT_LIMIT);
+    const omitted = Math.max(0, selectedCodes.length - targets.length);
+    setScreenshotBusy(true);
+    setToastAction(null);
+    try {
+      try {
+        await ensureBarsForVisible(listTimeframe, targets, "chart-screenshot");
+      } catch {
+        // Use available cache even if fetch fails.
+      }
+      const itemsForShots = targets.map((code) => ({
+        code,
+        payload: barsCache[code] ?? null,
+        boxes: [],
+        maSettings: resolvedMaSettings
+      }));
+      const result = await downloadChartScreenshots(itemsForShots, {
+        rangeBars: listRangeBars,
+        timeframeLabel: listTimeframe
+      });
+      if (!result.created) {
+        setToastMessage("スクショを作成できませんでした。");
+        return;
+      }
+      const omittedLabel = omitted ? ` (残り${omitted}件は省略)` : "";
+      setToastMessage(`スクショを${result.created}件作成しました。${omittedLabel}`);
+      if (result.savedDir && window.pywebview?.api?.open_screenshot_dir) {
         setToastAction({
           label: "フォルダを開く",
           onClick: async () => {
@@ -1632,10 +1648,29 @@ export default function RankingView() {
           }
         });
       }
-    } else {
-      setToastMessage(`保存に失敗: ${result.error || "不明なエラー"}`);
+    } finally {
+      setScreenshotBusy(false);
     }
-  }, [selectedCodes, generateScreenshots]);
+  }, [
+    selectedCodes,
+    ensureBarsForVisible,
+    listTimeframe,
+    barsCache,
+    resolvedMaSettings,
+    listRangeBars
+  ]);
+
+  const rankingTopNavActions = (
+    <button
+      type="button"
+      className="help-button"
+      onClick={handleCreateScreenshots}
+      disabled={!selectedCodes.length || screenshotBusy}
+    >
+      <IconCamera size={16} />
+      <span>{screenshotBusy ? "作成中..." : "スクショ"}</span>
+    </button>
+  );
 
   const handleCopyConsult = useCallback(async () => {
     if (!consultText) {
@@ -1879,6 +1914,7 @@ export default function RankingView() {
         onRowsChange={setRows}
         filterItems={filterItems}
         helpLabel="選択"
+        topNavActions={rankingTopNavActions}
         onHelpClick={() => {
           setConsultVisible(true);
           setConsultExpanded(false);
