@@ -113,6 +113,7 @@ import {
   ANALYSIS_DECISION_WINDOW_BARS,
   buildMonthBoundaries,
   buildYearBoundaries,
+  buildPeriodTerminalDateMap,
   MIN_WEEKLY_RATIO,
   MIN_MONTHLY_RATIO,
   MAX_EVENT_OFFSET_SEC,
@@ -181,6 +182,9 @@ const DETAIL_DAILY_ROW_RATIO = 0.72;
 const DETAIL_DEFAULT_WEEKLY_RATIO = 0.64;
 const DETAIL_TAB_CHUNK_PRELOAD_TIMEOUT_MS = 4000;
 const COMPARE_DETAIL_PREFETCH_TIMEFRAMES: Timeframe[] = ["daily", "monthly"];
+const DETAIL_CHROME_DAILY = { timeframe: "daily" as const };
+const DETAIL_CHROME_WEEKLY = { timeframe: "weekly" as const };
+const DETAIL_CHROME_MONTHLY = { timeframe: "monthly" as const };
 
 type DetailFrameOverwriteObservability = {
   cacheSource: "memory" | "indexeddb" | null;
@@ -588,12 +592,16 @@ export default function DetailView() {
     const dailySeed = seed?.daily ?? null;
     const weeklySeed = seed?.weekly ?? null;
     const monthlySeed = seed?.monthly ?? null;
+    const dailyRows = Array.isArray(dailySeed?.rows) ? dailySeed.rows : [];
+    const weeklyRows = Array.isArray(weeklySeed?.rows) ? weeklySeed.rows : [];
+    const monthlyRows = Array.isArray(monthlySeed?.rows) ? monthlySeed.rows : [];
+    const monthlyBoxes = Array.isArray(monthlySeed?.boxes) ? monthlySeed.boxes : [];
     setDailyLimit(nextDailyLimit);
     setMonthlyLimit(nextMonthlyLimit);
-    setDailyData(dailySeed?.rows ?? []);
-    setWeeklyData(weeklySeed?.rows ?? []);
-    setMonthlyData(monthlySeed?.rows ?? []);
-    setBoxes(monthlySeed?.boxes ?? []);
+    setDailyData(dailyRows);
+    setWeeklyData(weeklyRows);
+    setMonthlyData(monthlyRows);
+    setBoxes(monthlyBoxes);
     setDailyErrors([]);
     setWeeklyErrors([]);
     setMonthlyErrors([]);
@@ -601,23 +609,23 @@ export default function DetailView() {
     setMonthlyBarsMeta(null);
     setDailyFetch({
       status: dailySeed ? "success" : "idle",
-      responseCount: dailySeed?.rows.length ?? 0,
+      responseCount: dailyRows.length,
       errorMessage: null,
     });
     setWeeklyFetch({
       status: weeklySeed ? "success" : "idle",
-      responseCount: weeklySeed?.rows.length ?? 0,
+      responseCount: weeklyRows.length,
       errorMessage: null,
     });
     setMonthlyFetch({
       status: monthlySeed ? "success" : "idle",
-      responseCount: monthlySeed?.rows.length ?? 0,
+      responseCount: monthlyRows.length,
       errorMessage: null,
     });
     setLoadingDaily(false);
     setLoadingMonthly(false);
-    setHasMoreDaily(dailySeed ? dailySeed.rows.length >= nextDailyLimit : false);
-    setHasMoreMonthly(monthlySeed ? monthlySeed.rows.length >= nextMonthlyLimit : false);
+    setHasMoreDaily(dailyRows.length >= nextDailyLimit);
+    setHasMoreMonthly(monthlyRows.length >= nextMonthlyLimit);
     setMainChartOverwriteObservability(
       summarizeDetailOverwriteObservability(seed ?? null, "daily", null)
     );
@@ -625,14 +633,17 @@ export default function DetailView() {
   const resetCompareChartState = useCallback((seed?: Partial<ChartPrefetchFrames>) => {
     const dailySeed = seed?.daily ?? null;
     const monthlySeed = seed?.monthly ?? null;
+    const dailyRows = Array.isArray(dailySeed?.rows) ? dailySeed.rows : [];
+    const monthlyRows = Array.isArray(monthlySeed?.rows) ? monthlySeed.rows : [];
+    const monthlyBoxes = Array.isArray(monthlySeed?.boxes) ? monthlySeed.boxes : [];
     setCompareDailyLimit(DEFAULT_LIMITS.daily);
-    setCompareMonthlyData(monthlySeed?.rows ?? []);
+    setCompareMonthlyData(monthlyRows);
     setCompareMonthlyErrors([]);
     setCompareLoading(false);
-    setCompareDailyData(dailySeed?.rows ?? []);
+    setCompareDailyData(dailyRows);
     setCompareDailyErrors([]);
     setCompareDailyLoading(false);
-    setCompareBoxes(monthlySeed?.boxes ?? []);
+    setCompareBoxes(monthlyBoxes);
     setCompareTrades([]);
   }, []);
   const compareCode = useMemo(() => {
@@ -2240,6 +2251,10 @@ export default function DetailView() {
     };
     const applyFrames = (frames: ChartPrefetchFrames) => {
       if (!hasCompleteDetailChartPrefetch(frames)) return false;
+      const dailyRows = Array.isArray(frames.daily?.rows) ? frames.daily.rows : [];
+      const weeklyRows = Array.isArray(frames.weekly?.rows) ? frames.weekly.rows : [];
+      const monthlyRows = Array.isArray(frames.monthly?.rows) ? frames.monthly.rows : [];
+      const monthlyBoxes = Array.isArray(frames.monthly?.boxes) ? frames.monthly.boxes : [];
       setLoadingDaily(false);
       setLoadingMonthly(false);
       setMainChartPendingSwap(false);
@@ -2248,25 +2263,25 @@ export default function DetailView() {
       setMonthlyErrors([]);
       setDailyBarsMeta(null);
       setMonthlyBarsMeta(null);
-      setDailyData(frames.daily.rows);
-      setWeeklyData(frames.weekly.rows);
-      setMonthlyData(frames.monthly.rows);
-      setBoxes(frames.monthly.boxes);
-      setHasMoreDaily(frames.daily.rows.length >= dailyLimit);
-      setHasMoreMonthly(frames.monthly.rows.length >= monthlyLimit);
+      setDailyData(dailyRows);
+      setWeeklyData(weeklyRows);
+      setMonthlyData(monthlyRows);
+      setBoxes(monthlyBoxes);
+      setHasMoreDaily(dailyRows.length >= dailyLimit);
+      setHasMoreMonthly(monthlyRows.length >= monthlyLimit);
       setDailyFetch({
         status: "success",
-        responseCount: frames.daily.rows.length,
+        responseCount: dailyRows.length,
         errorMessage: null,
       });
       setWeeklyFetch({
         status: "success",
-        responseCount: frames.weekly.rows.length,
+        responseCount: weeklyRows.length,
         errorMessage: null,
       });
       setMonthlyFetch({
         status: "success",
-        responseCount: frames.monthly.rows.length,
+        responseCount: monthlyRows.length,
         errorMessage: null,
       });
       setMainChartOverwriteObservability(
@@ -2750,6 +2765,18 @@ export default function DetailView() {
   const compareMonthlyCandles = useMemo(
     () => compareMonthlyParse.candles,
     [compareMonthlyParse.candles]
+  );
+  const weeklyChromeTerminalDates = useMemo(
+    () => buildPeriodTerminalDateMap(dailyCandles, "weekly"),
+    [dailyCandles]
+  );
+  const monthlyChromeTerminalDates = useMemo(
+    () => buildPeriodTerminalDateMap(dailyCandles, "monthly"),
+    [dailyCandles]
+  );
+  const compareMonthlyChromeTerminalDates = useMemo(
+    () => buildPeriodTerminalDateMap(compareDailyCandles, "monthly"),
+    [compareDailyCandles]
   );
   const dailyVolume = useMemo(
     () => filterVolumeByAsOf(buildVolume(dailyData), chartAsOfTime),
@@ -5528,6 +5555,8 @@ export default function DetailView() {
                       drawBoxes={monthlyDrawings.drawBoxes}
                       horizontalLines={monthlyDrawings.horizontalLines}
                       showPriceBands
+                      meeMeeDetailChrome={DETAIL_CHROME_MONTHLY}
+                      meeMeeDetailChromeTerminalDates={monthlyChromeTerminalDates}
                       activeTool={activeDrawTool}
                       activeDrawColor={activeDrawColor}
                       activeLineOpacity={activeLineOpacity}
@@ -5579,6 +5608,8 @@ export default function DetailView() {
                         drawBoxes={compareMonthlyDrawings.drawBoxes}
                         horizontalLines={compareMonthlyDrawings.horizontalLines}
                         showPriceBands
+                        meeMeeDetailChrome={DETAIL_CHROME_MONTHLY}
+                        meeMeeDetailChromeTerminalDates={compareMonthlyChromeTerminalDates}
                         activeTool={activeDrawTool}
                         activeDrawColor={activeDrawColor}
                         activeLineOpacity={activeLineOpacity}
@@ -5637,6 +5668,7 @@ export default function DetailView() {
                         drawBoxes={dailyDrawings.drawBoxes}
                         horizontalLines={dailyDrawings.horizontalLines}
                         showPriceBands
+                        meeMeeDetailChrome={DETAIL_CHROME_DAILY}
                         activeTool={activeDrawTool}
                         activeDrawColor={activeDrawColor}
                         activeLineOpacity={activeLineOpacity}
@@ -5703,6 +5735,7 @@ export default function DetailView() {
                         drawBoxes={compareDailyDrawings.drawBoxes}
                         horizontalLines={compareDailyDrawings.horizontalLines}
                         showPriceBands
+                        meeMeeDetailChrome={DETAIL_CHROME_DAILY}
                         activeTool={activeDrawTool}
                         activeDrawColor={activeDrawColor}
                         activeLineOpacity={activeLineOpacity}
@@ -5774,6 +5807,7 @@ export default function DetailView() {
                       drawBoxes={dailyDrawings.drawBoxes}
                       horizontalLines={dailyDrawings.horizontalLines}
                       showPriceBands
+                      meeMeeDetailChrome={DETAIL_CHROME_DAILY}
                       activeTool={activeDrawTool}
                       activeDrawColor={activeDrawColor}
                       activeLineOpacity={activeLineOpacity}
@@ -5825,6 +5859,8 @@ export default function DetailView() {
                     drawBoxes={weeklyDrawings.drawBoxes}
                     horizontalLines={weeklyDrawings.horizontalLines}
                     showPriceBands
+                    meeMeeDetailChrome={DETAIL_CHROME_WEEKLY}
+                    meeMeeDetailChromeTerminalDates={weeklyChromeTerminalDates}
                     activeTool={activeDrawTool}
                     activeDrawColor={activeDrawColor}
                     activeLineOpacity={activeLineOpacity}
@@ -5875,6 +5911,8 @@ export default function DetailView() {
                     drawBoxes={monthlyDrawings.drawBoxes}
                     horizontalLines={monthlyDrawings.horizontalLines}
                     showPriceBands
+                    meeMeeDetailChrome={DETAIL_CHROME_MONTHLY}
+                    meeMeeDetailChromeTerminalDates={monthlyChromeTerminalDates}
                     activeTool={activeDrawTool}
                     activeDrawColor={activeDrawColor}
                     activeLineOpacity={activeLineOpacity}
@@ -5955,6 +5993,7 @@ export default function DetailView() {
                       drawBoxes={dailyDrawings.drawBoxes}
                       horizontalLines={dailyDrawings.horizontalLines}
                       showPriceBands
+                      meeMeeDetailChrome={DETAIL_CHROME_DAILY}
                       activeTool={activeDrawTool}
                       activeDrawColor={activeDrawColor}
                       activeLineOpacity={activeLineOpacity}
@@ -6025,6 +6064,8 @@ export default function DetailView() {
                         drawBoxes={weeklyDrawings.drawBoxes}
                         horizontalLines={weeklyDrawings.horizontalLines}
                         showPriceBands
+                        meeMeeDetailChrome={DETAIL_CHROME_WEEKLY}
+                        meeMeeDetailChromeTerminalDates={weeklyChromeTerminalDates}
                         activeTool={activeDrawTool}
                         activeDrawColor={activeDrawColor}
                         activeLineOpacity={activeLineOpacity}
@@ -6083,6 +6124,8 @@ export default function DetailView() {
                         drawBoxes={monthlyDrawings.drawBoxes}
                         horizontalLines={monthlyDrawings.horizontalLines}
                         showPriceBands
+                        meeMeeDetailChrome={DETAIL_CHROME_MONTHLY}
+                        meeMeeDetailChromeTerminalDates={monthlyChromeTerminalDates}
                         activeTool={activeDrawTool}
                         activeDrawColor={activeDrawColor}
                         activeLineOpacity={activeLineOpacity}

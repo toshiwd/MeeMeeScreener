@@ -2465,6 +2465,26 @@ body {
   pointer-events: none;
 }
 
+.detail-chart-date-chip {
+  top: auto;
+  right: 12px;
+  bottom: 12px;
+  left: auto;
+  min-width: 140px;
+  max-width: calc(100% - 24px);
+  box-shadow: 0 8px 20px rgba(2, 6, 23, 0.22);
+}
+
+.detail-chart-chrome-legend {
+  top: 12px;
+  right: auto;
+  bottom: auto;
+  left: 12px;
+  min-width: 164px;
+  max-width: min(280px, calc(100% - 24px));
+  box-shadow: 0 8px 20px rgba(2, 6, 23, 0.22);
+}
+
 .chart-info-label {
   color: #94a3b8;
 }

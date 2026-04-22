@@ -211,6 +211,8 @@ vi.mock("../components/DetailChart", async () => {
           "data-last-time": lastCandleTime ?? "",
           "data-trade-markers": positionOverlay?.tradeMarkers?.length ?? 0,
           "data-position-text": positionOverlay?.dailyPositions?.[0]?.posText ?? "",
+          "data-detail-chrome": props.meeMeeDetailChrome ? "on" : "",
+          "data-detail-chrome-timeframe": props.meeMeeDetailChrome?.timeframe ?? "",
         });
       }),
       DetailChartHandle: class DetailChartHandle {},
@@ -630,6 +632,7 @@ describe("DetailView", () => {
 
     const chartNodes = Array.from(container.querySelectorAll("[data-testid='detail-chart']"));
     expect(chartNodes.length).toBeGreaterThanOrEqual(3);
+    expect(chartNodes.every((node) => node.getAttribute("data-detail-chrome") === "on")).toBe(true);
 
     const dailyChart = chartNodes[0] as HTMLElement;
     const monthlyChart = chartNodes[2] as HTMLElement;
@@ -819,6 +822,7 @@ describe("DetailView", () => {
     expect(container.textContent).toContain("Monthly: Loading...");
     const chartNodes = Array.from(container.querySelectorAll("[data-testid='detail-chart']"));
     expect(chartNodes.length).toBeGreaterThan(0);
+    expect(chartNodes.every((node) => node.getAttribute("data-detail-chrome") === "on")).toBe(true);
     for (const chartNode of chartNodes) {
       expect(chartNode.getAttribute("data-candles")).toBe("0");
     }

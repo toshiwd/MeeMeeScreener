@@ -28,18 +28,38 @@ describe("computeGapBands", () => {
     ]);
     const result = computeGapBands(candles, 2, 2);
     expect(result).toEqual([
-      { direction: "up", topPrice: 101, bottomPrice: 100, createdAt: 2, filledAt: null }
+      {
+        direction: "up",
+        topPrice: 101,
+        bottomPrice: 100,
+        createdAt: 2,
+        filledAt: null,
+        remainingTopPrice: 101,
+        remainingBottomPrice: 100,
+        fillRatio: 0
+      }
     ]);
   });
 
-  it("drops gap once filled by wick touch", () => {
+  it("keeps gap history after it is fully filled", () => {
     const candles = make([
       [1, 100, 95, 98],
       [2, 104, 101, 103],
       [3, 106, 99, 102]
     ]);
     const result = computeGapBands(candles, 3, 2);
-    expect(result).toEqual([]);
+    expect(result).toEqual([
+      {
+        direction: "up",
+        topPrice: 101,
+        bottomPrice: 100,
+        createdAt: 2,
+        filledAt: 3,
+        remainingTopPrice: 100,
+        remainingBottomPrice: 100,
+        fillRatio: 1
+      }
+    ]);
   });
 
   it("returns newest pending gaps first and limits by global count", () => {
@@ -51,9 +71,47 @@ describe("computeGapBands", () => {
     ]);
     const result = computeGapBands(candles, 4, 2);
     expect(result).toEqual([
-      { direction: "up", topPrice: 125, bottomPrice: 120, createdAt: 4, filledAt: null },
-      { direction: "up", topPrice: 115, bottomPrice: 110, createdAt: 3, filledAt: null }
+      {
+        direction: "up",
+        topPrice: 125,
+        bottomPrice: 120,
+        createdAt: 4,
+        filledAt: null,
+        remainingTopPrice: 125,
+        remainingBottomPrice: 120,
+        fillRatio: 0
+      },
+      {
+        direction: "up",
+        topPrice: 115,
+        bottomPrice: 110,
+        createdAt: 3,
+        filledAt: null,
+        remainingTopPrice: 115,
+        remainingBottomPrice: 110,
+        fillRatio: 0
+      }
     ]);
+  });
+
+  it("shrinks the visible gap as later candles fill part of it", () => {
+    const candles = make([
+      [1, 100, 95, 98],
+      [2, 104, 101, 103],
+      [3, 103, 100.6, 101]
+    ]);
+    const result = computeGapBands(candles, 3, 2);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      direction: "up",
+      topPrice: 101,
+      bottomPrice: 100,
+      createdAt: 2,
+      filledAt: null,
+      remainingTopPrice: 100.6,
+      remainingBottomPrice: 100
+    });
+    expect(result[0].fillRatio).toBeCloseTo(0.4, 6);
   });
 
   it("uses 0.004 as default minGapRatio when omitted", () => {
@@ -63,7 +121,16 @@ describe("computeGapBands", () => {
     ]);
     const result = computeGapBands(candles, 2, 2);
     expect(result).toEqual([
-      { direction: "up", topPrice: 100.4, bottomPrice: 100, createdAt: 2, filledAt: null }
+      {
+        direction: "up",
+        topPrice: 100.4,
+        bottomPrice: 100,
+        createdAt: 2,
+        filledAt: null,
+        remainingTopPrice: 100.4,
+        remainingBottomPrice: 100,
+        fillRatio: 0
+      }
     ]);
   });
 });

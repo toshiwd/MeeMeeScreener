@@ -4,6 +4,9 @@ export type GapBand = {
   bottomPrice: number;
   createdAt: number;
   filledAt: number | null;
+  remainingTopPrice?: number;
+  remainingBottomPrice?: number;
+  fillRatio?: number;
 };
 
 type CandleLike = {
@@ -63,7 +66,10 @@ export const computeGapBands = (
         topPrice: current.low,
         bottomPrice: prev.high,
         createdAt: current.time,
-        filledAt: null
+        filledAt: null,
+        remainingTopPrice: current.low,
+        remainingBottomPrice: prev.high,
+        fillRatio: 0
       });
       continue;
     }
@@ -76,7 +82,10 @@ export const computeGapBands = (
         topPrice: prev.low,
         bottomPrice: current.high,
         createdAt: current.time,
-        filledAt: null
+        filledAt: null,
+        remainingTopPrice: prev.low,
+        remainingBottomPrice: current.high,
+        fillRatio: 0
       });
     }
   }
@@ -88,17 +97,52 @@ export const computeGapBands = (
       if (candle.time <= gap.createdAt) continue;
       if (gap.direction === "up" && candle.low <= gap.bottomPrice) {
         gap.filledAt = candle.time;
+        gap.remainingTopPrice = gap.bottomPrice;
+        gap.remainingBottomPrice = gap.bottomPrice;
+        gap.fillRatio = 1;
         break;
+      }
+      if (gap.direction === "up" && candle.low < (gap.remainingTopPrice ?? gap.topPrice)) {
+        const nextTop = Math.max(
+          gap.bottomPrice,
+          Math.min(gap.topPrice, candle.low)
+        );
+        gap.remainingTopPrice = Math.min(gap.remainingTopPrice ?? gap.topPrice, nextTop);
       }
       if (gap.direction === "down" && candle.high >= gap.topPrice) {
         gap.filledAt = candle.time;
+        gap.remainingTopPrice = gap.topPrice;
+        gap.remainingBottomPrice = gap.topPrice;
+        gap.fillRatio = 1;
         break;
       }
+      if (
+        gap.direction === "down" &&
+        candle.high > (gap.remainingBottomPrice ?? gap.bottomPrice)
+      ) {
+        const nextBottom = Math.min(
+          gap.topPrice,
+          Math.max(gap.bottomPrice, candle.high)
+        );
+        gap.remainingBottomPrice = Math.max(gap.remainingBottomPrice ?? gap.bottomPrice, nextBottom);
+      }
     }
+
+    const originalHeight = gap.topPrice - gap.bottomPrice;
+    const remainingTop =
+      typeof gap.remainingTopPrice === "number" && Number.isFinite(gap.remainingTopPrice)
+        ? gap.remainingTopPrice
+        : gap.topPrice;
+    const remainingBottom =
+      typeof gap.remainingBottomPrice === "number" && Number.isFinite(gap.remainingBottomPrice)
+        ? gap.remainingBottomPrice
+        : gap.bottomPrice;
+    const remainingHeight = Math.max(0, remainingTop - remainingBottom);
+    gap.fillRatio =
+      originalHeight > 0
+        ? Math.max(0, Math.min(1, 1 - remainingHeight / originalHeight))
+        : gap.fillRatio ?? 0;
   }
 
-  const pending = gaps.filter((gap) => gap.filledAt == null);
-  if (pending.length === 0) return [];
-
-  return pending.sort(byCreatedAtDesc).slice(0, maxCount);
+  return gaps.sort(byCreatedAtDesc).slice(0, maxCount);
 };

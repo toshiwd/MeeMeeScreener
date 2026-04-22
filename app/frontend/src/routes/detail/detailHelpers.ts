@@ -119,6 +119,46 @@ export const buildYearBoundaries = (candles: Candle[]) => {
   return boundaries;
 };
 
+const JST_OFFSET_SEC = 9 * 60 * 60;
+
+const getWeekStartTime = (time: number) => {
+  const jstDate = new Date((time + JST_OFFSET_SEC) * 1000);
+  const diff = (jstDate.getUTCDay() + 6) % 7;
+  return Math.floor(
+    Date.UTC(
+      jstDate.getUTCFullYear(),
+      jstDate.getUTCMonth(),
+      jstDate.getUTCDate() - diff
+    ) / 1000 - JST_OFFSET_SEC
+  );
+};
+
+const getMonthStartTime = (time: number) => {
+  const date = new Date(time * 1000);
+  return Math.floor(
+    Date.UTC(
+      date.getUTCFullYear(),
+      date.getUTCMonth(),
+      1
+    ) / 1000
+  );
+};
+
+export const buildPeriodTerminalDateMap = (
+  candles: Candle[],
+  timeframe: "weekly" | "monthly"
+) => {
+  if (!candles.length) return {};
+  const map = new Map<number, number>();
+  for (const candle of candles) {
+    if (!Number.isFinite(candle.time)) continue;
+    const periodStart =
+      timeframe === "weekly" ? getWeekStartTime(candle.time) : getMonthStartTime(candle.time);
+    map.set(periodStart, candle.time);
+  }
+  return Object.fromEntries(map.entries()) as Record<number, number>;
+};
+
 export const DAILY_ROW_RATIO = 12 / 16;
 export const DEFAULT_WEEKLY_RATIO = 3 / 4;
 export const MIN_WEEKLY_RATIO = 0.2;
