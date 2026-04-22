@@ -46,6 +46,21 @@ const waitForRender = (): Promise<void> => {
     });
 };
 
+const shouldForceScreenshotFailure = (): boolean => {
+    const globalWindow = window as Window & {
+        __meemeeFatalDiagnosticsForceScreenshotFailure?: boolean;
+    };
+    if (Boolean(globalWindow.__meemeeFatalDiagnosticsForceScreenshotFailure)) {
+        return true;
+    }
+    try {
+        const probe = new URLSearchParams(window.location.search).get("meemeeFatalDiagnostics");
+        return probe === "window-error-no-root";
+    } catch {
+        return false;
+    }
+};
+
 const captureCanvasElements = (root: HTMLElement): Map<HTMLCanvasElement, string> => {
     const canvasMap = new Map<HTMLCanvasElement, string>();
     const canvases = root.querySelectorAll("canvas");
@@ -93,6 +108,10 @@ export const captureWindowBlob = async (
 ): Promise<CaptureResult> => {
     try {
         await waitForRender();
+
+        if (shouldForceScreenshotFailure()) {
+            return { success: false, error: "forced fatal diagnostics screenshot failure" };
+        }
 
         const root = document.getElementById("root");
         if (!root) {

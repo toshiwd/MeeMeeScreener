@@ -23,6 +23,15 @@ type DiagnosticsApi = {
   open_perf_diagnostics_dir?: () => Promise<unknown>;
 };
 
+type DiagnosticsExportFile = {
+  name?: string;
+  filename?: string;
+  path?: string;
+  content?: unknown;
+  text?: string;
+  jsonl?: string;
+};
+
 type PerfDiagnosticsBridge = {
   enabled: () => boolean;
   export: () => Promise<unknown>;
@@ -181,8 +190,11 @@ const downloadFallback = (filename: string, content: string, mimeType: string) =
   window.URL.revokeObjectURL(url);
 };
 
-export const exportPerfDiagnostics = async () => {
+export const exportPerfDiagnostics = async (extra?: { files?: DiagnosticsExportFile[] }) => {
   const payload = buildExportPayload();
+  if (extra?.files?.length) {
+    payload.files = [...payload.files, ...extra.files];
+  }
   recordPerfEvent("diagnostics_export_requested", { eventCount: buffer.length });
   const api = currentPywebviewApi();
   if (api?.export_perf_diagnostics) {
@@ -205,6 +217,21 @@ export const exportPerfDiagnostics = async () => {
     ),
     "application/json"
   );
+  if (extra?.files?.length) {
+    for (const entry of extra.files) {
+      const name = String(entry.name || entry.filename || entry.path || `perf-diagnostics-${Date.now()}`);
+      const content =
+        entry.content ??
+        entry.text ??
+        entry.jsonl ??
+        "";
+      downloadFallback(
+        name,
+        typeof content === "string" ? content : JSON.stringify(content, null, 2),
+        typeof content === "string" && content.includes("\n") ? "application/jsonl" : "application/json"
+      );
+    }
+  }
   return { success: true, mode: "download" };
 };
 

@@ -327,12 +327,30 @@
     (function () {
       var root = document.getElementById("root");
       var boot = document.getElementById("boot-screen");
+      var fatalDiagnosticsProbe = new URLSearchParams(window.location.search).get("meemeeFatalDiagnostics");
       window.__meemeeFatalDiagnosticsQueue = window.__meemeeFatalDiagnosticsQueue || [];
       window.__meemeeReportFatalDiagnostics =
         window.__meemeeReportFatalDiagnostics ||
         function (payload) {
           window.__meemeeFatalDiagnosticsQueue.push(payload);
         };
+
+      if (fatalDiagnosticsProbe === "boot-window-error-no-root") {
+        window.__meemeeFatalDiagnosticsForceScreenshotFailure = true;
+        window.__meemeeOriginalGetElementById = window.__meemeeOriginalGetElementById || document.getElementById.bind(document);
+        document.getElementById = function (id) {
+          if (id === "root") {
+            return null;
+          }
+          return window.__meemeeOriginalGetElementById(id);
+        };
+      }
+
+      if (fatalDiagnosticsProbe === "boot-window-error" || fatalDiagnosticsProbe === "boot-window-error-no-root") {
+        window.setTimeout(function () {
+          throw new Error("MeeMee fatal diagnostics probe");
+        }, 250);
+      }
 
       // Hide boot screen once React renders into #root
       function hideBoot() {

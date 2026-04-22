@@ -2232,7 +2232,11 @@ def main() -> None:
             if dev_mode and os.getenv("MEEMEE_DEV_FRONTEND_URL"):
                 win.load_url(os.getenv("MEEMEE_DEV_FRONTEND_URL"))
             else:
-                win.load_url(f"http://127.0.0.1:{final_port}/?t={int(time.time())}")
+                fatal_probe = os.getenv("MEEMEE_FATAL_DIAGNOSTICS_E2E", "").strip().lower()
+                query = f"?t={int(time.time())}"
+                if fatal_probe:
+                    query += f"&meemeeFatalDiagnostics={urllib.parse.quote(fatal_probe)}"
+                win.load_url(f"http://127.0.0.1:{final_port}/{query}")
                 _schedule_frontend_watchdog(win, paths, backend_log_path)
             threading.Timer(0.2, _maximize_window, args=(win,)).start()
             
