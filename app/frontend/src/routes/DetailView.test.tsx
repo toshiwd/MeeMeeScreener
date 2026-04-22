@@ -23,6 +23,8 @@ const mocks = vi.hoisted(() => {
     apiGet: vi.fn(),
     apiPost: vi.fn(),
     backendReadyRef: { value: false },
+    aiExplainDockProps: [] as Array<Record<string, unknown>>,
+    detailDebugBannerProps: [] as Array<Record<string, unknown>>,
     storeState: {
       tickers: [
         {
@@ -125,8 +127,9 @@ function MockSimilarSearchPanel() {
   return null;
 }
 
-function MockAiExplainDock() {
-  return null;
+function MockAiExplainDock(props: Record<string, any>) {
+  mocks.aiExplainDockProps.push(props);
+  return <div data-testid="ai-explain-dock" data-inline={props.inline ? "1" : ""} />;
 }
 
 function MockDailyMemoPanel() {
@@ -149,8 +152,10 @@ function MockDetailTdnetCard() {
   return null;
 }
 
-function MockDetailDebugBanner() {
-  return null;
+function MockDetailDebugBanner(props: Record<string, any>) {
+  mocks.detailDebugBannerProps.push(props);
+  if (!props.hasIssues) return null;
+  return <div data-testid="detail-debug-banner" data-inline={props.inline ? "1" : ""} />;
 }
 
 function MockDetailIndicatorOverlay() {
@@ -535,6 +540,8 @@ describe("DetailView", () => {
     mocks.storeState.updateCompareMaSetting.mockClear();
     mocks.storeState.resetMaSettings.mockClear();
     mocks.storeState.resetCompareMaSettings.mockClear();
+    mocks.aiExplainDockProps = [];
+    mocks.detailDebugBannerProps = [];
     window.localStorage.clear();
     window.sessionStorage.clear();
     if (!window.requestAnimationFrame) {
@@ -586,6 +593,24 @@ describe("DetailView", () => {
 
     expect(await waitForSelector(container, "[data-testid='detail-chart']")).not.toBeNull();
     expect(container.querySelector("[data-testid='detail-overwrite-observability']")).toBeNull();
+
+    render.cleanup();
+  });
+
+  it("places the AI explain dock in the lower tools area", async () => {
+    mocks.backendReadyRef.value = true;
+    mocks.apiPost.mockImplementation((url: string) => {
+      if (url === "/batch_bars_v3") {
+        return Promise.resolve(createBarsResponse("7203"));
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    const render = await renderDetailView();
+    const { container } = render;
+
+    expect(await waitForSelector(container, "[data-testid='ai-explain-dock']")).not.toBeNull();
+    expect(mocks.aiExplainDockProps.at(-1)?.inline).toBe(true);
 
     render.cleanup();
   });

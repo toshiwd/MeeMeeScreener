@@ -6294,6 +6294,49 @@ export default function DetailView() {
           </div>
         </div>
       )}
+      <div className="detail-bottom-tools">
+        <DetailDebugBanner
+          hasIssues={hasIssues}
+          bannerTone={bannerTone}
+          bannerTitle={bannerTitle}
+          debugSummary={debugSummary}
+          debugOpen={debugOpen}
+          showInfoDetails={showInfoDetails}
+          debugLines={debugLines}
+          copyFallbackText={copyFallbackText}
+          inline
+          onToggleOpen={() => setDebugOpen((prev) => !prev)}
+          onCopy={handleCopyDebug}
+          onToggleInfoDetails={() => setShowInfoDetails((prev) => !prev)}
+          onClose={() => setDebugOpen(false)}
+        />
+        {overwriteLiveValidationMode && mainChartOverwriteObservability != null && (
+          <div className="detail-debug-banner info is-inline" data-testid="detail-overwrite-observability">
+            <div className="detail-debug-panel">
+              <div className="detail-debug-header">
+                <div className="detail-debug-title">Overwrite Observability</div>
+              </div>
+              <div className="detail-debug-lines">
+                <pre style={{ margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+{JSON.stringify(mainChartOverwriteObservability, null, 2)}
+                </pre>
+              </div>
+            </div>
+          </div>
+        )}
+        {aiExplainDockMounted && (
+          <Suspense fallback={null}>
+            <LazyAiExplainDock
+              screenType={compareCode ? "compare" : "detail"}
+              targetLabel={compareCode ? `${code ?? ""} vs ${compareCode}` : `${code ?? ""} ${tickerName}`.trim()}
+              compareLabel={compareCode ? `${compareCode}${compareTickerName ? ` ${compareTickerName}` : ""}` : null}
+              snapshot={aiExplainSnapshot}
+              images={aiExplainImages}
+              inline
+            />
+          </Suspense>
+        )}
+      </div>
       <DetailPositionLedgerSheet
         isOpen={showPositionLedger}
         expanded={positionLedgerExpanded}
@@ -6308,34 +6351,6 @@ export default function DetailView() {
         formatNumber={formatNumber}
         formatSignedNumber={formatSignedNumber}
       />
-      <DetailDebugBanner
-        hasIssues={hasIssues}
-        bannerTone={bannerTone}
-        bannerTitle={bannerTitle}
-        debugSummary={debugSummary}
-        debugOpen={debugOpen}
-        showInfoDetails={showInfoDetails}
-        debugLines={debugLines}
-        copyFallbackText={copyFallbackText}
-        onToggleOpen={() => setDebugOpen((prev) => !prev)}
-        onCopy={handleCopyDebug}
-        onToggleInfoDetails={() => setShowInfoDetails((prev) => !prev)}
-        onClose={() => setDebugOpen(false)}
-      />
-      {overwriteLiveValidationMode && mainChartOverwriteObservability != null && (
-        <div className="detail-debug-banner info" data-testid="detail-overwrite-observability">
-          <div className="detail-debug-panel">
-            <div className="detail-debug-header">
-              <div className="detail-debug-title">Overwrite Observability</div>
-            </div>
-            <div className="detail-debug-lines">
-              <pre style={{ margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-{JSON.stringify(mainChartOverwriteObservability, null, 2)}
-              </pre>
-            </div>
-          </div>
-        </div>
-      )}
       {showIndicators && (
         <Suspense fallback={null}>
           <LazyDetailIndicatorOverlay
@@ -6362,18 +6377,6 @@ export default function DetailView() {
             isOpen={showSimilar}
             onClose={() => setShowSimilar(false)}
             queryTicker={code ?? null}
-          />
-        </Suspense>
-      )}
-      {aiExplainDockMounted && (
-        <Suspense fallback={null}>
-          <LazyAiExplainDock
-            screenType={compareCode ? "compare" : "detail"}
-            targetLabel={compareCode ? `${code ?? ""} vs ${compareCode}` : `${code ?? ""} ${tickerName}`.trim()}
-            compareLabel={compareCode ? `${compareCode}${compareTickerName ? ` ${compareTickerName}` : ""}` : null}
-            snapshot={aiExplainSnapshot}
-            images={aiExplainImages}
-            bottomOffsetPx={debugOpen ? 324 : hasIssues ? 96 : 18}
           />
         </Suspense>
       )}

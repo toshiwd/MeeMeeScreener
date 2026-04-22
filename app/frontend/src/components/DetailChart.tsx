@@ -1312,6 +1312,10 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
         0,
         GAP_BAND_MAX_VISIBLE
       );
+      const unresolved = limited.filter((gap) => {
+        const fillRatio = Number.isFinite(gap.fillRatio ?? NaN) ? Number(gap.fillRatio) : 0;
+        return fillRatio < 1 && gap.filledAt == null;
+      });
       const drawBandRect = (
         left: number,
         right: number,
@@ -1337,7 +1341,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
       ctx.beginPath();
       ctx.rect(0, 0, plotRight, height);
       ctx.clip();
-      limited.forEach((gap) => {
+      unresolved.forEach((gap) => {
         if (!Number.isFinite(gap.topPrice) || !Number.isFinite(gap.bottomPrice)) return;
         if (visibleTo != null && gap.createdAt > visibleTo) return;
         const originalTop = gap.topPrice;
@@ -2459,6 +2463,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
       : selectedContextShape?.kind === "timeZone"
         ? timeZonesRef.current[selectedContextShape.index]?.color ?? BUY_ZONE_COLOR
         : null;
+  const showDetailChromeDateChip = detailChromeEnabled && detailChromeTimeframe !== "daily";
   const showDetailChromeLegend =
     detailChromeEnabled && detailChromeTimeframe !== "daily" && !positionOverlay;
 
@@ -2836,7 +2841,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     >
       <div className="detail-chart-inner" ref={containerRef} />
       <canvas className="detail-chart-overlay" ref={overlayRef} />
-      {detailChromeEnabled && (
+      {showDetailChromeDateChip && (
         <div
           className="chart-info-panel detail-chart-date-chip"
           data-testid="detail-chart-date-chip"

@@ -9,6 +9,7 @@ type Props = {
   showInfoDetails: boolean;
   debugLines: string[];
   copyFallbackText: string | null;
+  inline?: boolean;
   onToggleOpen: () => void;
   onCopy: () => void;
   onToggleInfoDetails: () => void;
@@ -24,6 +25,7 @@ export default function DetailDebugBanner({
   showInfoDetails,
   debugLines,
   copyFallbackText,
+  inline = false,
   onToggleOpen,
   onCopy,
   onToggleInfoDetails,
@@ -32,7 +34,7 @@ export default function DetailDebugBanner({
   if (!hasIssues) return null;
 
   return (
-    <div className={`detail-debug-banner ${bannerTone}`}>
+    <div className={`detail-debug-banner ${bannerTone} ${inline ? "is-inline" : ""}`.trim()}>
       <button
         type="button"
         className="detail-debug-toggle"

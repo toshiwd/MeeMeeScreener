@@ -414,7 +414,77 @@ describe("DetailChart MeeMee chrome", () => {
     render.cleanup();
   });
 
-  it("draws gap bands inside the plot area and keeps filled gaps visible", async () => {
+  it("hides the extra date chip on daily detail chrome", async () => {
+    const dailyTime = Date.UTC(2026, 3, 22) / 1000;
+    const render = await renderClient(
+      <DetailChart
+        candles={[
+          { time: dailyTime, open: 100, high: 110, low: 95, close: 108 }
+        ]}
+        volume={[{ time: dailyTime, value: 1000 }]}
+        maLines={baseMaLines}
+        showVolume={false}
+        boxes={[]}
+        showBoxes={false}
+        meeMeeDetailChrome={{ timeframe: "daily" }}
+      />
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(render.container.querySelector("[data-testid='detail-chart-date-chip']")).toBeNull();
+    expect(render.container.querySelector("[data-testid='detail-chart-legend']")).toBeNull();
+
+    render.cleanup();
+  });
+
+  it("draws unresolved gap bands inside the plot area", async () => {
+    const render = await renderClient(
+      <DetailChart
+        candles={[
+          { time: 1, open: 100, high: 100, low: 95, close: 98 },
+          { time: 2, open: 103, high: 104, low: 101, close: 103 },
+          { time: 3, open: 102, high: 106, low: 99, close: 100 }
+        ]}
+        volume={[
+          { time: 1, value: 1000 },
+          { time: 2, value: 1100 },
+          { time: 3, value: 1200 }
+        ]}
+        maLines={[]}
+        showVolume={false}
+        boxes={[]}
+        showBoxes={false}
+        gapBands={[
+          {
+            direction: "up",
+            topPrice: 104,
+            bottomPrice: 100,
+            createdAt: 2,
+            filledAt: null,
+            remainingTopPrice: 101,
+            remainingBottomPrice: 100,
+            fillRatio: 0.4
+          }
+        ]}
+      />
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const gapDrawCalls = canvasMock?.ctx.fillRect.mock.calls.filter((call) => call[0] === 2 && call[2] === 878) ?? [];
+    expect(gapDrawCalls.length).toBeGreaterThan(0);
+
+    render.cleanup();
+  });
+
+  it("skips fully filled gap bands", async () => {
     const render = await renderClient(
       <DetailChart
         candles={[
@@ -451,11 +521,8 @@ describe("DetailChart MeeMee chrome", () => {
       await Promise.resolve();
     });
 
-    expect(canvasMock?.ctx.fillRect).toHaveBeenCalled();
-    const gapDrawCall = canvasMock?.ctx.fillRect.mock.calls[0];
-    expect(gapDrawCall).toBeDefined();
-    expect(gapDrawCall?.[0]).toBe(2);
-    expect(gapDrawCall?.[2]).toBe(878);
+    const gapDrawCalls = canvasMock?.ctx.fillRect.mock.calls.filter((call) => call[0] === 2 && call[2] === 878) ?? [];
+    expect(gapDrawCalls.length).toBe(0);
 
     render.cleanup();
   });
