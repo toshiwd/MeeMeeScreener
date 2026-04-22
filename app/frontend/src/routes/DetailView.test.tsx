@@ -192,21 +192,28 @@ vi.mock("../store", () => ({
 
 vi.mock("../components/DetailChart", async () => {
   const React = await import("react");
-  return {
-    __esModule: true,
-    default: React.forwardRef(function MockDetailChart(props: Record<string, unknown>, _ref) {
-      const candles = Array.isArray(props.candles) ? props.candles.length : 0;
-      const positionOverlay = props.positionOverlay as
-        | { dailyPositions?: Array<{ posText?: string }>; tradeMarkers?: unknown[] }
-        | undefined;
-      return React.createElement("div", {
-        "data-testid": "detail-chart",
-        "data-candles": candles,
-        "data-trade-markers": positionOverlay?.tradeMarkers?.length ?? 0,
-        "data-position-text": positionOverlay?.dailyPositions?.[0]?.posText ?? "",
-      });
-    }),
-    DetailChartHandle: class DetailChartHandle {},
+    return {
+      __esModule: true,
+      default: React.forwardRef(function MockDetailChart(props: Record<string, unknown>, _ref) {
+        const candles = Array.isArray(props.candles) ? props.candles.length : 0;
+        const visibleRange = props.visibleRange as { from?: number; to?: number } | undefined;
+        const lastCandleTime = Array.isArray(props.candles) && props.candles.length > 0
+          ? (props.candles[props.candles.length - 1] as { time?: number } | undefined)?.time ?? null
+          : null;
+        const positionOverlay = props.positionOverlay as
+          | { dailyPositions?: Array<{ posText?: string }>; tradeMarkers?: unknown[] }
+          | undefined;
+        return React.createElement("div", {
+          "data-testid": "detail-chart",
+          "data-candles": candles,
+          "data-visible-from": visibleRange?.from ?? "",
+          "data-visible-to": visibleRange?.to ?? "",
+          "data-last-time": lastCandleTime ?? "",
+          "data-trade-markers": positionOverlay?.tradeMarkers?.length ?? 0,
+          "data-position-text": positionOverlay?.dailyPositions?.[0]?.posText ?? "",
+        });
+      }),
+      DetailChartHandle: class DetailChartHandle {},
   };
 });
 
@@ -404,6 +411,39 @@ const createBarsResponse = (code: string, seed = 1000) => ({
   },
 });
 
+const createAsOfMismatchBarsResponse = (code: string) => {
+  const marchDay = Date.UTC(2026, 2, 31) / 1000;
+  const aprilDay = Date.UTC(2026, 3, 1) / 1000;
+  const marchMonth = Date.UTC(2026, 2, 1) / 1000;
+  return {
+    data: {
+      items: {
+        [code]: {
+          daily: {
+            bars: [
+              [Date.UTC(2026, 2, 30) / 1000, 100, 105, 99, 104, 1000],
+              [marchDay, 104, 106, 103, 105, 1200],
+            ],
+          },
+          weekly: {
+            bars: [
+              [Date.UTC(2026, 2, 24) / 1000, 98, 106, 97, 104, 3000],
+              [marchDay, 104, 107, 103, 106, 2800],
+            ],
+          },
+          monthly: {
+            bars: [
+              [marchMonth, 90, 110, 88, 104, 12000],
+              [aprilDay, 104, 112, 102, 110, 13000],
+            ],
+            boxes: [],
+          },
+        },
+      },
+    },
+  };
+};
+
 const createReplayBarsResponse = (code: string) => {
   const daily = {
     bars: [
@@ -566,6 +606,40 @@ describe("DetailView", () => {
     render.cleanup();
   });
 
+  it("keeps monthly charts capped by the daily as-of instead of snapping into the future month", async () => {
+    mocks.backendReadyRef.value = true;
+    mocks.apiPost.mockImplementation((url: string, payload?: Record<string, unknown>) => {
+      if (url !== "/batch_bars_v3") {
+        return Promise.resolve({ data: {} });
+      }
+      const code = Array.isArray(payload?.codes) ? String(payload.codes[0]) : "";
+      if (code === "7203") {
+        return Promise.resolve(createAsOfMismatchBarsResponse("7203"));
+      }
+      return Promise.resolve({ data: { items: {} } });
+    });
+
+    const render = await renderDetailView("/detail/7203?mainAsOf=2026-04-01");
+    const { container } = render;
+
+    await act(async () => {
+      await flushMicrotasks();
+      await new Promise((resolve) => setTimeout(resolve, 450));
+      await flushMicrotasks();
+    });
+
+    const chartNodes = Array.from(container.querySelectorAll("[data-testid='detail-chart']"));
+    expect(chartNodes.length).toBeGreaterThanOrEqual(3);
+
+    const dailyChart = chartNodes[0] as HTMLElement;
+    const monthlyChart = chartNodes[2] as HTMLElement;
+    expect(dailyChart.getAttribute("data-last-time")).toBe(String(Date.UTC(2026, 2, 31) / 1000));
+    expect(monthlyChart.getAttribute("data-candles")).toBe("1");
+    expect(monthlyChart.getAttribute("data-last-time")).toBe(String(Date.UTC(2026, 2, 1) / 1000));
+
+    render.cleanup();
+  });
+
   it("stays mounted after switching to financial mode", async () => {
     vi.useFakeTimers();
     mocks.backendReadyRef.value = true;
@@ -637,6 +711,8 @@ describe("DetailView", () => {
 
     await act(async () => {
       analysisTab?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await flushMicrotasks();
+      await new Promise((resolve) => setTimeout(resolve, 350));
       await flushMicrotasks();
     });
 

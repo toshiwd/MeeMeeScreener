@@ -1780,19 +1780,19 @@ export const buildRange = (candles: Candle[], months: number) => {
 export const buildRangeEndingAt = (candles: Candle[], months: number, endTime: number | null) => {
   if (!candles.length) return null;
   if (!endTime) return buildRange(candles, months);
-  let nearest = candles[candles.length - 1].time;
-  let bestDiff = Number.POSITIVE_INFINITY;
-  for (const candle of candles) {
-    const diff = Math.abs(candle.time - endTime);
-    if (diff < bestDiff) {
-      bestDiff = diff;
-      nearest = candle.time;
+  let selected = candles[0].time;
+  for (let index = candles.length - 1; index >= 0; index -= 1) {
+    const candle = candles[index];
+    if (!candle) continue;
+    if (candle.time <= endTime) {
+      selected = candle.time;
+      break;
     }
   }
-  const endDate = new Date(nearest * 1000);
+  const endDate = new Date(selected * 1000);
   const startDate = new Date(endDate);
   startDate.setMonth(endDate.getMonth() - months);
-  return { from: Math.floor(startDate.getTime() / 1000), to: nearest };
+  return { from: Math.floor(startDate.getTime() / 1000), to: selected };
 };
 
 export const buildRangeFromEndTime = (months: number, endTime: number | null) => {

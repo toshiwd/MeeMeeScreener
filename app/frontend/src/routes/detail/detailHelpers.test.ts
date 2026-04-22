@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildRangeEndingAt,
   MAX_DAILY_BATCH_BARS_LIMIT,
   MAX_MONTHLY_BATCH_BARS_LIMIT,
   incrementBarLimit,
@@ -77,6 +78,22 @@ describe("resolveLatestAnalysisAvailableAsOfTime", () => {
         latestDailyAsOfTime: 1773273600,
       })
     ).toBe(1773273600);
+  });
+});
+
+describe("buildRangeEndingAt", () => {
+  it("caps the range at the last candle on or before the as-of date", () => {
+    const march = Date.UTC(2026, 2, 1) / 1000;
+    const april = Date.UTC(2026, 3, 1) / 1000;
+    const range = buildRangeEndingAt(
+      [
+        { time: march, open: 0, high: 0, low: 0, close: 0 },
+        { time: april, open: 0, high: 0, low: 0, close: 0 },
+      ],
+      3,
+      Date.UTC(2026, 2, 31) / 1000
+    );
+    expect(range?.to).toBe(march);
   });
 });
 

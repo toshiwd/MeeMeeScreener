@@ -38,7 +38,7 @@ import { Box, MaSetting, useStore } from "../store";
 import { computeSignalMetrics } from "../utils/signals";
 import type { TradeEvent, CurrentPosition, DailyPosition } from "../utils/positions";
 import { buildCurrentPositions, buildDailyPositions, buildPositionLedger } from "../utils/positions";
-import { captureAndCopyScreenshot, saveBlobToFile, getScreenType } from "../utils/windowScreenshot";
+import { captureAndCopyScreenshot, getScreenType } from "../utils/windowScreenshot";
 import { formatEventBadgeDate, parseEventDateMs } from "../utils/events";
 import DailyMemoPanel from "../components/DailyMemoPanel";
 import { buildConsultCopyText, copyToClipboard as copyConsultToClipboard } from "../utils/consultCopy";
@@ -835,9 +835,21 @@ export default function DetailView() {
     return normalizeTickerName(tickerByCode.get(compareCode)?.name);
   }, [tickerByCode, compareCode]);
   const sharedDailyParse = useMemo(() => buildCandlesWithStats(dailyData), [dailyData]);
+  const latestSharedDailyAsOfTime = useMemo(() => {
+    return sharedDailyParse.candles.reduce<number | null>((maxValue, candle) => {
+      if (!candle || typeof candle.time !== "number") return maxValue;
+      if (maxValue == null || candle.time > maxValue) return candle.time;
+      return maxValue;
+    }, null);
+  }, [sharedDailyParse.candles]);
+  const chartAsOfTime = useMemo(() => {
+    if (latestSharedDailyAsOfTime == null) return mainAsOfTime;
+    if (mainAsOfTime == null) return latestSharedDailyAsOfTime;
+    return Math.min(mainAsOfTime, latestSharedDailyAsOfTime);
+  }, [latestSharedDailyAsOfTime, mainAsOfTime]);
   const analysisPrefetchCandles = useMemo(
-    () => filterCandlesByAsOf(sharedDailyParse.candles, mainAsOfTime),
-    [sharedDailyParse.candles, mainAsOfTime]
+    () => filterCandlesByAsOf(sharedDailyParse.candles, chartAsOfTime),
+    [chartAsOfTime, sharedDailyParse.candles]
   );
   const analysisPrefetchAsofs = useMemo(() => {
     if (!cursorMode || selectedBarIndex == null) return [];
@@ -2664,8 +2676,8 @@ export default function DetailView() {
     [compareMonthlyData]
   );
   const dailyCandles = useMemo(
-    () => filterCandlesByAsOf(dailyParse.candles, mainAsOfTime),
-    [dailyParse.candles, mainAsOfTime]
+    () => filterCandlesByAsOf(dailyParse.candles, chartAsOfTime),
+    [chartAsOfTime, dailyParse.candles]
   );
   const detailMarkerRange = useMemo(() => {
     if (!dailyCandles.length) return null;
@@ -2724,12 +2736,12 @@ export default function DetailView() {
     };
   }, [analysisFetchEnabled, backendReady, code, detailMarkerRange, mainChartPendingSwap, secondaryFetchStableReady]);
   const monthlyCandles = useMemo(
-    () => filterCandlesByAsOf(monthlyParse.candles, mainAsOfTime),
-    [monthlyParse.candles, mainAsOfTime]
+    () => filterCandlesByAsOf(monthlyParse.candles, chartAsOfTime),
+    [chartAsOfTime, monthlyParse.candles]
   );
   const weeklyCandles = useMemo(
-    () => filterCandlesByAsOf(weeklyParse.candles, mainAsOfTime),
-    [weeklyParse.candles, mainAsOfTime]
+    () => filterCandlesByAsOf(weeklyParse.candles, chartAsOfTime),
+    [chartAsOfTime, weeklyParse.candles]
   );
   const compareDailyCandles = useMemo(
     () => compareDailyParse.candles,
@@ -2740,16 +2752,16 @@ export default function DetailView() {
     [compareMonthlyParse.candles]
   );
   const dailyVolume = useMemo(
-    () => filterVolumeByAsOf(buildVolume(dailyData), mainAsOfTime),
-    [dailyData, mainAsOfTime]
+    () => filterVolumeByAsOf(buildVolume(dailyData), chartAsOfTime),
+    [chartAsOfTime, dailyData]
   );
   const weeklyVolume = useMemo(
-    () => filterVolumeByAsOf(buildVolume(weeklyData), mainAsOfTime),
-    [weeklyData, mainAsOfTime]
+    () => filterVolumeByAsOf(buildVolume(weeklyData), chartAsOfTime),
+    [chartAsOfTime, weeklyData]
   );
   const monthlyVolume = useMemo(
-    () => filterVolumeByAsOf(buildVolume(monthlyData), mainAsOfTime),
-    [monthlyData, mainAsOfTime]
+    () => filterVolumeByAsOf(buildVolume(monthlyData), chartAsOfTime),
+    [chartAsOfTime, monthlyData]
   );
   const compareDailyVolume = useMemo(
     () => buildVolume(compareDailyData),
@@ -3453,12 +3465,12 @@ export default function DetailView() {
   };
 
   const mainDailyTargetRange = useMemo(
-    () => (rangeMonths ? buildRangeFromEndTime(rangeMonths, mainAsOfTime) : null),
-    [rangeMonths, mainAsOfTime]
+    () => (rangeMonths ? buildRangeFromEndTime(rangeMonths, chartAsOfTime) : null),
+    [chartAsOfTime, rangeMonths]
   );
   const mainMonthlyTargetRange = useMemo(
-    () => (rangeMonths ? buildRangeFromEndTime(rangeMonths, mainAsOfTime) : null),
-    [rangeMonths, mainAsOfTime]
+    () => (rangeMonths ? buildRangeFromEndTime(rangeMonths, chartAsOfTime) : null),
+    [chartAsOfTime, rangeMonths]
   );
   const dailyVisibleRange = useMemo(() => {
     if (!rangeMonths) return null;
@@ -3473,11 +3485,11 @@ export default function DetailView() {
   );
   const monthlyVisibleRange = useMemo(() => {
     if (!rangeMonths) return null;
-    if (mainAsOfTime) {
-      return buildRangeEndingAt(monthlyCandles, rangeMonths, mainAsOfTime);
+    if (chartAsOfTime) {
+      return buildRangeEndingAt(monthlyCandles, rangeMonths, chartAsOfTime);
     }
     return buildRange(monthlyCandles, rangeMonths);
-  }, [monthlyCandles, rangeMonths, mainAsOfTime]);
+  }, [chartAsOfTime, monthlyCandles, rangeMonths]);
   const resolvedDailyVisibleRange = rangeMonths ? dailyVisibleRange : manualDailyRangeRef.current;
   const resolvedWeeklyVisibleRange = rangeMonths ? weeklyVisibleRange : manualWeeklyRangeRef.current;
   const resolvedMonthlyVisibleRange = rangeMonths ? monthlyVisibleRange : manualMonthlyRangeRef.current;
@@ -5170,55 +5182,14 @@ export default function DetailView() {
             return;
           }
 
-          const handleSaveSuccess = (saveResult: { success: boolean, savedPath?: string, savedDir?: string, error?: string }) => {
-            if (saveResult.savedPath || saveResult.savedDir) {
-              setToastMessage("スクショを保存しました");
-              setToastAction({
-                label: "フォルダを開く",
-                onClick: async () => {
-                  if (window.pywebview?.api?.open_path) {
-                    const target = saveResult.savedPath || saveResult.savedDir;
-                    if (target) {
-                      await window.pywebview.api.open_path(target);
-                    }
-                  }
-                }
-              });
-            } else {
-              setToastMessage("スクショを保存しました（保存のみ）");
-              setToastAction(null);
-            }
-          };
-
-          if (result.copied) {
-            const blob = result.blob!;
-            const filename = result.filename!;
-            setToastMessage("スクショをクリップボードにコピーしました");
-            setToastAction({
-              label: "保存...",
-              onClick: async () => {
-                const saveResult = await saveBlobToFile(blob, filename);
-                if (saveResult.success) {
-                  handleSaveSuccess(saveResult);
-                } else {
-                  setToastMessage(saveResult.error || "保存に失敗しました");
-                  setToastAction(null);
-                }
-              },
-            });
-          } else {
-            setToastMessage("クリップボードにコピーできなかったため保存しました");
+          if (!result.copied) {
+            setToastMessage("Screenshot clipboard write failed");
             setToastAction(null);
-            if (result.blob && result.filename) {
-              const saveResult = await saveBlobToFile(result.blob, result.filename);
-              if (saveResult.success) {
-                handleSaveSuccess(saveResult);
-              } else {
-                setToastMessage(saveResult.error || "保存に失敗しました");
-                setToastAction(null);
-              }
-            }
+            return;
           }
+
+          setToastMessage("Screenshot copied to clipboard");
+          setToastAction(null);
         } finally {
           setScreenshotBusy(false);
         }
