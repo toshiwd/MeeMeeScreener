@@ -1461,6 +1461,18 @@ def _run_selftest() -> int:
     os.makedirs(artifacts_dir, exist_ok=True)
     selftest_log_path = os.path.join(artifacts_dir, "selftest.log")
     log_handle = open(selftest_log_path, "a", encoding="utf-8")
+    manifest_path = os.path.join(artifacts_dir, "selftest_manifest.json")
+    manifest_state: dict[str, object | None] = {
+        "status": "running",
+        "detail": None,
+        "artifactsDir": artifacts_dir,
+        "backendLogPath": backend_log_path if "backend_log_path" in locals() else None,
+        "targetUrl": None,
+        "screenshotPath": None,
+        "screenshotStatus": None,
+        "screenshotDetail": None,
+        "updatedAt": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+    }
 
     def log(message: str) -> None:
         timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -1472,7 +1484,21 @@ def _run_selftest() -> int:
         except Exception:
             pass
 
+    def write_manifest() -> None:
+        manifest_state["updatedAt"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+        try:
+            _write_json(manifest_path, manifest_state)
+        except Exception as exc:
+            log(f"WARN: failed to write selftest manifest: {exc}")
+
+    def finish(status: str, detail: object | None = None, code: int = 0) -> int:
+        manifest_state["status"] = status
+        manifest_state["detail"] = detail
+        write_manifest()
+        return code
+
     backend_log_path = os.path.join(paths["logs_dir"], "backend.log")
+    manifest_state["backendLogPath"] = backend_log_path
     proc = None
     proc_log_handle = None
     try:
@@ -1486,7 +1512,7 @@ def _run_selftest() -> int:
         if not ok:
             log(f"FAIL: backend health timeout: {err}")
             _write_text(os.path.join(artifacts_dir, "health_error.txt"), str(err))
-            return 1
+            return finish("failed", {"stage": "backend_health", "error": str(err)}, 1)
 
         log("Fetching heatmap API...")
         heatmap_url = "http://127.0.0.1:28888/api/market/heatmap?period=1d"
@@ -1496,22 +1522,22 @@ def _run_selftest() -> int:
         diagnostics = heatmap.get("diagnostics") if isinstance(heatmap, dict) else None
         if not isinstance(items, list) or not diagnostics:
             log("FAIL: heatmap response missing items/diagnostics")
-            return 1
+            return finish("failed", {"stage": "heatmap", "error": "missing items/diagnostics"}, 1)
         if not diagnostics.get("industry_master_present"):
             log("FAIL: industry_master_present is false")
-            return 1
+            return finish("failed", {"stage": "heatmap", "error": "industry_master_present false"}, 1)
         if diagnostics.get("industry_master_rows", 0) <= 0:
             log("FAIL: industry_master_rows is 0")
-            return 1
+            return finish("failed", {"stage": "heatmap", "error": "industry_master_rows zero"}, 1)
         if diagnostics.get("computed_from") != "industry_master":
             log("FAIL: computed_from is fallback")
-            return 1
+            return finish("failed", {"stage": "heatmap", "error": "computed_from fallback"}, 1)
         if len(items) == 0:
             log("FAIL: heatmap items empty")
-            return 1
+            return finish("failed", {"stage": "heatmap", "error": "items empty"}, 1)
         if all(abs(float(item.get("color", 0) or 0)) < 1e-9 for item in items):
             log("FAIL: heatmap colors all 0.0")
-            return 1
+            return finish("failed", {"stage": "heatmap", "error": "colors all zero"}, 1)
 
         log("Importing trade CSV fixtures...")
         fixtures = [
@@ -1522,7 +1548,7 @@ def _run_selftest() -> int:
         for path, filename, broker in fixtures:
             if not os.path.isfile(path):
                 log(f"FAIL: fixture missing: {path}")
-                return 1
+                return finish("failed", {"stage": "trade_import", "error": f"fixture missing: {path}"}, 1)
             with open(path, "rb") as handle:
                 content = handle.read()
             resp = _http_post_multipart(
@@ -1547,7 +1573,16 @@ def _run_selftest() -> int:
             if not ok_flag or received <= 0 or inserted <= 0:
                 log(f"FAIL: trade import failed for {filename}")
                 _write_json(os.path.join(artifacts_dir, f"trade_import_{filename}.json"), resp)
-                return 1
+                return finish(
+                    "failed",
+                    {
+                        "stage": "trade_import",
+                        "error": f"trade import failed for {filename}",
+                        "filename": filename,
+                        "broker": broker,
+                    },
+                    1,
+                )
             _write_json(os.path.join(artifacts_dir, f"trade_import_{filename}.json"), resp)
 
         log("Launching browser for UI smoke...")
@@ -1559,6 +1594,7 @@ def _run_selftest() -> int:
                 frontend_base = "http://127.0.0.1:28888"
         frontend_base = frontend_base.rstrip("/")
         target_url = f"{frontend_base}/market"
+        manifest_state["targetUrl"] = target_url
 
         def _find_external_python() -> str | None:
             for candidate in ("python", "py"):
@@ -1603,17 +1639,24 @@ def _run_selftest() -> int:
 
         screenshot_path = os.path.join(artifacts_dir, "screenshot.png")
         status, detail = _run_playwright_external(target_url, screenshot_path)
+        manifest_state["screenshotPath"] = screenshot_path
+        manifest_state["screenshotStatus"] = status
+        manifest_state["screenshotDetail"] = detail
         if status != "ok":
             log(f"FAIL: UI smoke test failed: {detail}")
-            return 1
+            return finish(
+                "failed",
+                {"stage": "ui_smoke", "error": detail},
+                1,
+            )
         
         log("Selftest passed.")
-        return 0
+        return finish("passed", {"stage": "complete"}, 0)
 
     except Exception as exc:
         log(f"FAIL: Unhandled exception: {exc}")
         traceback.print_exc(file=log_handle)
-        return 1
+        return finish("failed", {"stage": "exception", "error": str(exc)}, 1)
     finally:
         if proc is not None:
             _stop_backend_process(proc, proc_log_handle)
@@ -1961,6 +2004,33 @@ def main() -> None:
                     return {
                         "success": False,
                         "error": str(e)
+                    }
+
+            def save_perf_diagnostic_artifact(self, data_uri: str, filename: str) -> dict:
+                try:
+                    if "," in data_uri:
+                        header, encoded = data_uri.split(",", 1)
+                    else:
+                        encoded = data_uri
+
+                    data = base64.b64decode(encoded)
+                    diagnostics_path = str(self._ensure_perf_diagnostics_dir())
+                    os.makedirs(diagnostics_path, exist_ok=True)
+                    save_path = os.path.join(diagnostics_path, filename)
+
+                    with open(save_path, "wb") as f:
+                        f.write(data)
+
+                    return {
+                        "success": True,
+                        "savedPath": save_path,
+                        "savedDir": diagnostics_path,
+                        "fileName": filename,
+                    }
+                except Exception as e:
+                    return {
+                        "success": False,
+                        "error": str(e),
                     }
 
             def open_path(self, path: str) -> bool:

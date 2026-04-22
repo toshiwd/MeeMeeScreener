@@ -25,6 +25,7 @@ import {
   ConsultationTimeframe
 } from "../utils/consultation";
 import { downloadChartScreenshots } from "../utils/chartScreenshot";
+import { captureWindowBlob, getScreenType, saveBlobToFile } from "../utils/windowScreenshot";
 import { openDetailWithPrefetch } from "./detail/openDetailWithPrefetch";
 import { buildTradexListSummaryKey } from "./list/tradexSummary";
 import { TradexListSummaryMount } from "./list/TradexListSummaryMount";
@@ -1660,12 +1661,48 @@ export default function RankingView() {
     listRangeBars
   ]);
 
+  const handleCaptureScreen = useCallback(async () => {
+    if (screenshotBusy) {
+      return;
+    }
+    setScreenshotBusy(true);
+    setToastAction(null);
+    try {
+      const screenType = getScreenType(location.pathname);
+      const captureResult = await captureWindowBlob({
+        screenType,
+        code: "screen"
+      });
+      if (!captureResult.success || !captureResult.blob || !captureResult.filename) {
+        setToastMessage(captureResult.error ?? "スクショを作成できませんでした。");
+        return;
+      }
+      const saveResult = await saveBlobToFile(captureResult.blob, captureResult.filename);
+      if (!saveResult.success) {
+        setToastMessage(saveResult.error ?? "スクショの保存に失敗しました。");
+        return;
+      }
+      setToastMessage("画面スクショを保存しました。");
+      const targetPath = saveResult.savedPath || saveResult.savedDir;
+      if (targetPath && window.pywebview?.api?.open_path) {
+        setToastAction({
+          label: "保存先を開く",
+          onClick: async () => {
+            await window.pywebview!.api.open_path(targetPath);
+          }
+        });
+      }
+    } finally {
+      setScreenshotBusy(false);
+    }
+  }, [location.pathname, screenshotBusy]);
+
   const rankingTopNavActions = (
     <button
       type="button"
       className="help-button"
-      onClick={handleCreateScreenshots}
-      disabled={!selectedCodes.length || screenshotBusy}
+      onClick={handleCaptureScreen}
+      disabled={screenshotBusy}
     >
       <IconCamera size={16} />
       <span>{screenshotBusy ? "作成中..." : "スクショ"}</span>

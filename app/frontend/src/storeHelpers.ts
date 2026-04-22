@@ -436,6 +436,7 @@ export const getInitialSortKey = (): SortKey => {
   const options: SortKey[] = [
     "code",
     "name",
+    "sector",
     "entryPriority",
     "buyCandidate",
     "buySignalLatest",
@@ -466,7 +467,8 @@ export const getInitialSortKey = (): SortKey => {
     "shortPriority",
     "shortScore",
     "aScore",
-    "bScore"
+    "bScore",
+    "performance"
   ];
   return options.includes(saved as SortKey) ? (saved as SortKey) : "code";
 };

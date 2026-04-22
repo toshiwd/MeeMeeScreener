@@ -37,6 +37,8 @@ _TXT_UPDATE_JOB_TYPE = "txt_update"
 _TXT_FOLLOWUP_JOB_TYPE = "txt_followup"
 _COMPLETION_MODE_FULL = "full"
 _COMPLETION_MODE_PRACTICAL_FAST = "practical_fast"
+_TRACKING_REFRESH_PROGRESS_BASE = 99.0
+_TRACKING_REFRESH_PROGRESS_SPAN = 0.9
 
 
 def _hidden_process_kwargs() -> dict[str, object]:
@@ -199,6 +201,75 @@ def _set_pipeline_stage(
         state["last_pipeline_message"] = message
     if save:
         _save_update_state(state)
+
+
+def _tracking_refresh_message(progress: dict[str, Any]) -> str:
+    substage = str(progress.get("substage") or f"tracking_refresh.{progress.get('phase') or 'unknown'}").strip()
+    processed = progress.get("processed")
+    total = progress.get("total")
+    detail = str(progress.get("detail") or "").strip()
+    message = f"Refreshing signal/ranking tracking... {substage}"
+    if processed is not None and total not in (None, 0):
+        message = f"{message} {processed}/{total}"
+    if detail:
+        message = f"{message} - {detail}"
+    return message
+
+
+def _tracking_refresh_progress_value(progress: dict[str, Any]) -> float:
+    phase = str(progress.get("phase") or "")
+    status = str(progress.get("status") or "running")
+    processed = progress.get("processed")
+    total = progress.get("total")
+    if phase == "finalize" and status == "done":
+        return 99.9
+    fraction = 0.0
+    if isinstance(processed, (int, float)) and isinstance(total, (int, float)) and float(total) > 0:
+        fraction = max(0.0, min(1.0, float(processed) / float(total)))
+    return round(min(99.9, _TRACKING_REFRESH_PROGRESS_BASE + 0.1 + (_TRACKING_REFRESH_PROGRESS_SPAN * fraction)), 1)
+
+
+def _record_tracking_refresh_progress(state: dict, *, job_id: str, progress: dict[str, Any]) -> None:
+    now_iso = datetime.now().isoformat()
+    substage = str(progress.get("substage") or f"tracking_refresh.{progress.get('phase') or 'unknown'}").strip()
+    phase = str(progress.get("phase") or "unknown").strip()
+    status = str(progress.get("status") or "running").strip()
+    heartbeat_at = str(progress.get("heartbeat_at") or now_iso)
+    progress_value = _tracking_refresh_progress_value(progress)
+    message = _tracking_refresh_message(progress)
+    detail_payload = {
+        "current_phase": phase,
+        "substage": substage,
+        "substage_status": status,
+        "processed": progress.get("processed"),
+        "total": progress.get("total"),
+        "processed_dates": progress.get("processed"),
+        "total_dates": progress.get("total"),
+        "current_market_ymd": progress.get("current_market_ymd"),
+        "current_market_date": progress.get("current_market_date"),
+        "current_side": progress.get("current_side"),
+        "detail": progress.get("detail"),
+        "heartbeat_at": heartbeat_at,
+        "progress": progress_value,
+    }
+    _set_pipeline_stage(state, "tracking_refresh", message=message, save=False)
+    state["last_pipeline_substage"] = substage
+    state["last_pipeline_substage_status"] = status
+    state["last_pipeline_substage_at"] = now_iso
+    state["last_pipeline_heartbeat_at"] = heartbeat_at
+    state["last_pipeline_progress_detail"] = detail_payload
+    state["last_pipeline_progress_percent"] = progress_value
+    try:
+        job_manager._update_db(
+            job_id,
+            "txt_update",
+            "running",
+            message=message,
+            progress=progress_value,
+        )
+    except Exception as exc:
+        logger.warning("Failed to publish tracking refresh heartbeat: %s", exc)
+    _save_update_state(state)
 
 
 def _record_pipeline_failure(state: dict, *, stage: str, error: str, message: str | None = None) -> None:
@@ -2009,7 +2080,13 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
         )
         from app.backend.services import signal_tracking_service
 
-        tracking_result = signal_tracking_service.refresh_daily_tracking_window()
+        def _on_tracking_refresh_progress(progress: dict[str, Any]) -> None:
+            try:
+                _record_tracking_refresh_progress(state, job_id=job_id, progress=progress)
+            except Exception as exc:
+                logger.warning("Tracking refresh heartbeat skipped: %s", exc)
+
+        tracking_result = signal_tracking_service.refresh_daily_tracking_window(progress_cb=_on_tracking_refresh_progress)
         state["last_tracking_refresh_at"] = datetime.now().isoformat()
         state["last_tracking_refresh_result"] = {
             "market_day_window": tracking_result.get("market_day_window"),

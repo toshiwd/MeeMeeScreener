@@ -1,4 +1,5 @@
 import React from "react";
+import { reportFrontendFatalDiagnostics } from "../utils/fatalDiagnostics";
 
 type ErrorBoundaryState = {
   error: Error | null;
@@ -21,6 +22,11 @@ export default class ErrorBoundary extends React.Component<ErrorBoundaryProps, E
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
     this.setState({ error, info });
+    void reportFrontendFatalDiagnostics({
+      source: "error-boundary",
+      error,
+      componentStack: info.componentStack,
+    });
   }
 
   render() {

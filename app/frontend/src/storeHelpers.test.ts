@@ -71,6 +71,24 @@ describe("storeHelpers defaults", () => {
     expect(getInitialListRangeBars()).toBe(90);
   });
 
+  it("restores sector and performance sort keys", () => {
+    const stub = createWindowStub() as Window & {
+      localStorage: {
+        getItem: (key: string) => string | null;
+        setItem: (key: string, value: string) => void;
+        removeItem: (key: string) => void;
+        clear: () => void;
+      };
+    };
+    stub.localStorage.setItem("sortKey", "sector");
+    vi.stubGlobal("window", stub);
+    expect(getInitialSortKey()).toBe("sector");
+
+    stub.localStorage.setItem("sortKey", "performance");
+    vi.stubGlobal("window", stub);
+    expect(getInitialSortKey()).toBe("performance");
+  });
+
   it("clamps written density presets to 4x4", () => {
     const stub = createWindowStub() as Window & {
       localStorage: {

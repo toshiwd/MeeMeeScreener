@@ -1,4 +1,5 @@
 import os
+from copy import deepcopy
 import sys
 from unittest.mock import patch
 
@@ -71,7 +72,7 @@ def test_txt_update_success_records_cache_refresh_stage():
     def _refresh_cache():
         stage_trace.append("cache_refresh")
 
-    def _refresh_tracking():
+    def _refresh_tracking(*_args, **_kwargs):
         stage_trace.append("tracking_refresh")
         return {
             "ok": True,
@@ -118,6 +119,129 @@ def test_txt_update_success_records_cache_refresh_stage():
     assert "last_tracking_refresh_at" in saved_state
     assert "last_txt_update_at" in saved_state
     assert any(call.args[2] == "success" for call in mock_update_db.call_args_list)
+
+
+def test_txt_update_records_tracking_refresh_heartbeats_and_substages():
+    state_store: dict = {}
+    stage_trace: list[str] = []
+    saved_snapshots: list[dict] = []
+
+    def _scoring_run(*_args, **_kwargs):
+        stage_trace.append("scoring")
+        return [{"code": "1301"}]
+
+    def _refresh_cache():
+        stage_trace.append("cache_refresh")
+
+    def _refresh_tracking(*_args, **kwargs):
+        stage_trace.append("tracking_refresh")
+        progress_cb = kwargs.get("progress_cb")
+        if progress_cb is not None:
+            progress_cb(
+                {
+                    "stage": "tracking_refresh",
+                    "phase": "prepare",
+                    "status": "start",
+                    "substage": "tracking_refresh.prepare",
+                    "processed": 0,
+                    "total": 6,
+                    "detail": "preparing backfill",
+                    "heartbeat_at": "2026-04-22T03:40:00+09:00",
+                }
+            )
+            progress_cb(
+                {
+                    "stage": "tracking_refresh",
+                    "phase": "basis",
+                    "status": "running",
+                    "substage": "tracking_refresh.basis",
+                    "processed": 2,
+                    "total": 6,
+                    "current_market_ymd": 20260421,
+                    "current_market_date": "2026-04-21",
+                    "detail": "building basis rows",
+                    "heartbeat_at": "2026-04-22T03:40:02+09:00",
+                }
+            )
+            progress_cb(
+                {
+                    "stage": "tracking_refresh",
+                    "phase": "ranking_appearances",
+                    "status": "running",
+                    "substage": "tracking_refresh.ranking_appearances",
+                    "processed": 5,
+                    "total": 6,
+                    "current_market_ymd": 20260421,
+                    "current_market_date": "2026-04-21",
+                    "detail": "building ranking appearances",
+                    "heartbeat_at": "2026-04-22T03:40:04+09:00",
+                }
+            )
+            progress_cb(
+                {
+                    "stage": "tracking_refresh",
+                    "phase": "finalize",
+                    "status": "done",
+                    "substage": "tracking_refresh.finalize",
+                    "processed": 6,
+                    "total": 6,
+                    "current_market_ymd": 20260421,
+                    "current_market_date": "2026-04-21",
+                    "detail": "tracking refresh completed",
+                    "heartbeat_at": "2026-04-22T03:40:06+09:00",
+                }
+            )
+        return {
+            "ok": True,
+            "market_day_window": 60,
+            "from": "2025-11-01",
+            "to": "2026-01-01",
+            "result": {"basis": {"dates_processed": 10}, "ranking": {"appearance_upserted": 20}},
+        }
+
+    def _save_state(state: dict) -> None:
+        saved_snapshots.append(deepcopy(state))
+
+    patches = _build_common_patches()
+    patches.extend(
+        [
+            patch("app.backend.core.txt_update_job._load_update_state", return_value=state_store),
+            patch("app.backend.core.txt_update_job._save_update_state", side_effect=_save_state),
+            patch("app.backend.jobs.scoring_job.ScoringJob.run", side_effect=_scoring_run),
+            patch("app.backend.services.rankings_cache.refresh_cache", side_effect=_refresh_cache),
+            patch("app.backend.services.signal_tracking_service.refresh_daily_tracking_window", side_effect=_refresh_tracking),
+        ]
+    )
+
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patches[5],
+        patches[6] as mock_update_db,
+        patches[7],
+        patches[8],
+        patches[9] as mock_save_state,
+        patches[10],
+        patches[11],
+        patches[12],
+    ):
+        txt_update_job.handle_txt_update("job-heartbeat", {"auto_ml_predict": False, "auto_ml_train": False})
+
+    assert stage_trace == ["scoring", "cache_refresh", "tracking_refresh"]
+    assert mock_save_state.call_count > 0
+    assert len(saved_snapshots) >= 4
+    substage_sequence = [snapshot.get("last_pipeline_substage") for snapshot in saved_snapshots if snapshot.get("last_pipeline_substage")]
+    assert substage_sequence[0] == "tracking_refresh.prepare"
+    assert "tracking_refresh.basis" in substage_sequence
+    assert "tracking_refresh.ranking_appearances" in substage_sequence
+    assert substage_sequence[-1] == "tracking_refresh.finalize"
+    assert saved_snapshots[-1]["last_pipeline_heartbeat_at"] == "2026-04-22T03:40:06+09:00"
+    assert saved_snapshots[-1]["last_pipeline_progress_detail"]["current_phase"] == "finalize"
+    assert any("tracking_refresh.prepare" in (call.kwargs.get("message") or "") for call in mock_update_db.call_args_list)
+    assert any("tracking_refresh.finalize" in (call.kwargs.get("message") or "") for call in mock_update_db.call_args_list)
 
 
 def test_txt_update_skips_legacy_recompute_when_pan_finalize_detected():
@@ -208,7 +332,7 @@ def test_txt_update_practical_fast_skips_legacy_followup_after_initial_cache_ref
             ),
             patch(
                 "app.backend.services.signal_tracking_service.refresh_daily_tracking_window",
-                side_effect=lambda: (
+                side_effect=lambda *args, **kwargs: (
                     stage_trace.append("tracking_refresh")
                     or {
                         "ok": True,

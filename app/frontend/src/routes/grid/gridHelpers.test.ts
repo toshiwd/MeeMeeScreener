@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
   buildAvailableSectorOptions,
+  buildVisibleRequestSignature,
   TERMINAL_JOB_STATUS,
   gridPresetOptions,
   mergeHealthStatus,
   normalizeHealthStatus,
+  isGridBarsDependentSortKey,
   resolveGridPrimaryChangeValue,
+  resolveGridFastSortValue,
+  resolveGridRefineWindow,
+  resolveGridSignalSortScore,
   resolveGridRangeBars,
   resolveGridVolumeSurgeRatio
 } from "./gridHelpers";
@@ -124,6 +129,100 @@ describe("resolveGridPrimaryChangeValue", () => {
 
   it("uses the monthly change on monthly view", () => {
     expect(resolveGridPrimaryChangeValue(ticker, "monthly")).toBe(0.12);
+  });
+
+  it("prefers the change computed from loaded bars when available", () => {
+    const bars = [
+      [20260421, 1, 1, 1, 100, 10],
+      [20260422, 1, 1, 1, 110, 12]
+    ];
+    expect(resolveGridPrimaryChangeValue(ticker, "daily", bars)).toBeCloseTo(0.1);
+  });
+});
+
+describe("isGridBarsDependentSortKey", () => {
+  it("identifies bars-dependent sort keys", () => {
+    expect(isGridBarsDependentSortKey("ma20Dev")).toBe(true);
+    expect(isGridBarsDependentSortKey("volumeSurge")).toBe(true);
+    expect(isGridBarsDependentSortKey("code")).toBe(false);
+  });
+});
+
+describe("buildVisibleRequestSignature", () => {
+  it("normalizes visible codes independently of order and duplicates", () => {
+    const a = buildVisibleRequestSignature("daily", 60, "sig", ["7203", "9984", "7203"]);
+    const b = buildVisibleRequestSignature("daily", 60, "sig", ["9984", "7203"]);
+    expect(a).toBe(b);
+  });
+});
+
+describe("resolveGridFastSortValue", () => {
+  const ticker = {
+    code: "7203",
+    name: "トヨタ",
+    chg1D: 0.01,
+    chg1W: 0.02,
+    chg1M: 0.03,
+    chg1Q: 0.04,
+    chg1Y: 0.05,
+    prevWeekChg: 0.06,
+    prevMonthChg: 0.07,
+    prevQuarterChg: 0.08,
+    prevYearChg: 0.09,
+    scores: {
+      upScore: 1.5,
+      downScore: 2.5,
+      overheatUp: 3.5,
+      overheatDown: 4.5
+    },
+    swingScore: 5.5,
+    swingLongScore: null,
+    swingShortScore: null,
+    mlEv20Net: 6.5,
+    mlPUpShort: 7.5,
+    mlPDownShort: 8.5,
+    boxState: "IN_BOX",
+    shortScore: 9.5,
+    aScore: 10.5,
+    bScore: 11.5,
+    shortPriorityScore: 12.5,
+    entryPriorityScore: 13.5,
+    buyStateScore: 14.5,
+    sector33Code: "30"
+  } as any;
+
+  it("uses snapshot-only fields for fast sort values", () => {
+    expect(resolveGridFastSortValue(ticker, "code", "1M")).toBe("7203");
+    expect(resolveGridFastSortValue(ticker, "buySignalLatest", "1M")).toBe(14.5);
+    expect(resolveGridFastSortValue(ticker, "sellSignalLatest", "1M")).toBe(12.5);
+    expect(resolveGridFastSortValue(ticker, "ma20Dev", "1M")).toBeNull();
+    expect(resolveGridFastSortValue(ticker, "performance", "1Q")).toBe(0.04);
+  });
+});
+
+describe("resolveGridRefineWindow", () => {
+  it("expands the visible window by one viewport", () => {
+    expect(resolveGridRefineWindow(10, 20, 100, 3, 3)).toEqual({ start: 1, stop: 29 });
+  });
+});
+
+describe("resolveGridSignalSortScore", () => {
+  const metrics = {
+    counts: {
+      7: { upCount: 7, downCount: 0, pendingSide: null },
+      20: { upCount: 16, downCount: 0, pendingSide: null },
+      60: { upCount: 0, downCount: 0, pendingSide: null },
+      100: { upCount: 0, downCount: 0, pendingSide: null }
+    },
+    signals: [{ label: "20上:16", kind: "warning", priority: 200 }],
+    trendStrength: 11,
+    exhaustionRisk: 0
+  };
+
+  it("rewards direction-matched buy signals", () => {
+    expect(resolveGridSignalSortScore(metrics, 50_000_000, "up")).toBeGreaterThan(
+      resolveGridSignalSortScore(metrics, 50_000_000, "down")
+    );
   });
 });
 

@@ -327,6 +327,12 @@
     (function () {
       var root = document.getElementById("root");
       var boot = document.getElementById("boot-screen");
+      window.__meemeeFatalDiagnosticsQueue = window.__meemeeFatalDiagnosticsQueue || [];
+      window.__meemeeReportFatalDiagnostics =
+        window.__meemeeReportFatalDiagnostics ||
+        function (payload) {
+          window.__meemeeFatalDiagnosticsQueue.push(payload);
+        };
 
       // Hide boot screen once React renders into #root
       function hideBoot() {
@@ -372,13 +378,37 @@
         root.appendChild(container);
       }
 
+      function queueBootFatalDiagnostics(source, detail, extra) {
+        try {
+          window.__meemeeReportFatalDiagnostics({
+            source: source,
+            message: detail || "Unknown boot failure",
+            stack: extra && extra.stack ? extra.stack : null,
+            componentStack: null,
+            reason: extra && extra.reason ? extra.reason : null,
+            href: window.location && window.location.href ? window.location.href : "",
+            route: window.location && window.location.pathname ? window.location.pathname : "/",
+            timestamp: new Date().toISOString()
+          });
+        } catch (queueError) {
+          console.warn("Failed to queue boot fatal diagnostics", queueError);
+        }
+      }
+
       window.addEventListener("error", function (event) {
         var detail = event && event.error && event.error.stack ? event.error.stack : String(event.message || event);
+        queueBootFatalDiagnostics("boot-window-error", detail, {
+          stack: event && event.error && event.error.stack ? event.error.stack : null,
+          reason: event && event.error ? event.error : event && event.message ? event.message : null
+        });
         renderBootError("Javascript error", detail);
       });
 
       window.addEventListener("unhandledrejection", function (event) {
         var reason = event && event.reason ? event.reason : "Unknown rejection";
+        queueBootFatalDiagnostics("boot-unhandledrejection", String(reason), {
+          reason: reason
+        });
         renderBootError("Unhandled promise rejection", String(reason));
       });
 

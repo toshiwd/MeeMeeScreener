@@ -1,6 +1,8 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import StockTile from "./StockTile";
+import { buildThumbnailCacheKey, clearThumbnailCache, setThumbnailCache } from "./thumbnailCache";
+import { resolveListThumbnailMaSettings } from "../storeHelpers";
 
 const mocks = vi.hoisted(() => {
   const state = {
@@ -63,6 +65,7 @@ vi.mock("./ThumbnailCanvas", () => ({
 
 describe("StockTile", () => {
   beforeEach(() => {
+    clearThumbnailCache();
     mocks.apiPost.mockReset();
     mocks.apiDelete.mockReset();
     mocks.state.setFavoriteLocal.mockReset();
@@ -84,6 +87,62 @@ describe("StockTile", () => {
     mocks.state.barsStatus = { daily: { "7203": "success" }, weekly: {}, monthly: {} };
     mocks.state.maSettings = { daily: [], weekly: [], monthly: [] };
     mocks.state.settings = { showBoxes: true };
+  });
+
+  it("keeps the previous visual visible while revalidating live bars", () => {
+    mocks.state.barsStatus = { daily: { "7203": "loading" }, weekly: {}, monthly: {} };
+    const markup = renderToStaticMarkup(
+      <StockTile
+        ticker={
+          {
+            code: "7203",
+            name: "\u30c8\u30e8\u30bf",
+            lastClose: 110,
+            chg1D: 0.1
+          } as any
+        }
+        timeframe="daily"
+        maxBars={60}
+        onOpenDetail={vi.fn()}
+      />
+    );
+
+    expect(markup).toContain("thumbnail-canvas");
+    expect(markup).toContain("更新中");
+    expect(markup).not.toContain("skeleton-chart");
+  });
+
+  it("keeps a cached thumbnail visible while revalidating", () => {
+    const cacheKey = buildThumbnailCacheKey(
+      "7203",
+      "daily",
+      true,
+      resolveListThumbnailMaSettings("daily", []),
+      "dark"
+    );
+    setThumbnailCache(cacheKey, "data:image/png;base64,ZmFrZQ==");
+    mocks.state.barsCache = { daily: {}, weekly: {}, monthly: {} };
+    mocks.state.barsStatus = { daily: { "7203": "loading" }, weekly: {}, monthly: {} };
+
+    const markup = renderToStaticMarkup(
+      <StockTile
+        ticker={
+          {
+            code: "7203",
+            name: "\u30c8\u30e8\u30bf",
+            lastClose: 110,
+            chg1D: 0.1
+          } as any
+        }
+        timeframe="daily"
+        maxBars={60}
+        onOpenDetail={vi.fn()}
+      />
+    );
+
+    expect(markup).toContain("thumb-canvas-image");
+    expect(markup).toContain("更新中");
+    expect(markup).not.toContain("skeleton-chart");
   });
 
   it("hides heavy analysis tags and shows the compact cell metadata", () => {

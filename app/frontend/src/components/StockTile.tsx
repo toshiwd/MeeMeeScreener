@@ -82,6 +82,10 @@ const StockTile = memo(function StockTile({
   const earningsLabel = formatEventBadgeDate(ticker.eventEarningsDate);
   const rightsLabel = formatEventBadgeDate(ticker.eventRightsDate);
   const bars = barsPayload?.bars ?? [];
+  const hasLiveBars = bars.length > 0;
+  const hasCachedThumb = Boolean(cachedThumb);
+  const hasRenderableVisual = hasLiveBars || hasCachedThumb;
+  const isRevalidating = barsStatus === "loading" && hasRenderableVisual;
   const latestBar = bars.length ? bars[bars.length - 1] : null;
   const prevBar = bars.length > 1 ? bars[bars.length - 2] : null;
   const latestBarTime = Number.isFinite(latestBar?.[0]) ? Number(latestBar[0]) : null;
@@ -259,8 +263,8 @@ const StockTile = memo(function StockTile({
         </div>
       )}
       {annotation ? <div className="tile-annotation-row">{annotation}</div> : null}
-      <div className="tile-chart">
-        {barsPayload && barsPayload.bars?.length ? (
+      <div className={`tile-chart${isRevalidating ? " is-revalidating" : ""}`}>
+        {hasLiveBars ? (
           <ThumbnailCanvas
             payload={barsPayload}
             boxes={boxes}
@@ -271,7 +275,7 @@ const StockTile = memo(function StockTile({
             showAxes
             theme={theme}
           />
-        ) : cachedThumb ? (
+        ) : hasCachedThumb ? (
           <div className="thumb-canvas">
             <img className="thumb-canvas-image" src={cachedThumb} alt="" />
           </div>
@@ -284,6 +288,7 @@ const StockTile = memo(function StockTile({
               : null}
           </div>
         )}
+        {isRevalidating && <div className="tile-loading-overlay">更新中</div>}
       </div>
     </div>
   );
