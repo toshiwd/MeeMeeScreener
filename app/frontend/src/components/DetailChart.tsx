@@ -2266,7 +2266,11 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
         },
         timeScale: {
           borderVisible: false,
-          tickMarkFormatter: formatChartDate
+          tickMarkFormatter: formatChartDate,
+          rightOffset: 0,
+          fixRightEdge: true,
+          lockVisibleTimeRangeOnResize: true,
+          rightBarStaysOnScroll: true
         }
       });
 
@@ -2463,7 +2467,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
       : selectedContextShape?.kind === "timeZone"
         ? timeZonesRef.current[selectedContextShape.index]?.color ?? BUY_ZONE_COLOR
         : null;
-  const showDetailChromeDateChip = detailChromeEnabled && detailChromeTimeframe !== "daily";
+  const showDetailChromeDateChip = false;
   const showDetailChromeLegend =
     detailChromeEnabled && detailChromeTimeframe !== "daily" && !positionOverlay;
 

@@ -6283,14 +6283,28 @@ export default function DetailView() {
         </Suspense>
       )}
       {!focusPanel && (
-        <div className="detail-footer">
+        <div className="detail-footer" data-testid="detail-footer">
           <div className="detail-footer-left">
             <button className="load-more" onClick={loadMoreDailyAndMonthly} disabled={loadMoreDisabled}>
               {loadMoreLabel}
             </button>
           </div>
-          <div className="detail-hint">
-            Daily {dailyCandles.length} bars | Weekly {weeklyCandles.length} bars | Monthly {monthlyCandles.length} bars
+          <div className="detail-footer-right">
+            <div className="detail-hint">
+              Daily {dailyCandles.length} bars | Weekly {weeklyCandles.length} bars | Monthly {monthlyCandles.length} bars
+            </div>
+            {aiExplainDockMounted && (
+              <Suspense fallback={null}>
+                <LazyAiExplainDock
+                  screenType={compareCode ? "compare" : "detail"}
+                  targetLabel={compareCode ? `${code ?? ""} vs ${compareCode}` : `${code ?? ""} ${tickerName}`.trim()}
+                  compareLabel={compareCode ? `${compareCode}${compareTickerName ? ` ${compareTickerName}` : ""}` : null}
+                  snapshot={aiExplainSnapshot}
+                  images={aiExplainImages}
+                  inline
+                />
+              </Suspense>
+            )}
           </div>
         </div>
       )}
@@ -6323,18 +6337,6 @@ export default function DetailView() {
               </div>
             </div>
           </div>
-        )}
-        {aiExplainDockMounted && (
-          <Suspense fallback={null}>
-            <LazyAiExplainDock
-              screenType={compareCode ? "compare" : "detail"}
-              targetLabel={compareCode ? `${code ?? ""} vs ${compareCode}` : `${code ?? ""} ${tickerName}`.trim()}
-              compareLabel={compareCode ? `${compareCode}${compareTickerName ? ` ${compareTickerName}` : ""}` : null}
-              snapshot={aiExplainSnapshot}
-              images={aiExplainImages}
-              inline
-            />
-          </Suspense>
         )}
       </div>
       <DetailPositionLedgerSheet

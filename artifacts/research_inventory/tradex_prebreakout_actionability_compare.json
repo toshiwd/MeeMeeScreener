@@ -1,0 +1,443 @@
+{
+  "schema_version": "tradex_prebreakout_actionability_compare_v1",
+  "generated_at": "2026-04-22T14:56:55.708306+00:00",
+  "status": "confirmed",
+  "authoritative_sources": {
+    "buy_judgment_effectiveness_audit": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_effectiveness_audit.json",
+    "action_precision_thresholds": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\action_precision_thresholds.json"
+  },
+  "audit_scope": {
+    "basis": "confirmed_data_only",
+    "same_condition_compare": true,
+    "boundary_aware_compare_executed": false,
+    "live_snapshot_check_executed": true,
+    "notes": [
+      "Same-condition evaluation is based on the confirmed audit rows in buy_judgment_effectiveness_audit.json.",
+      "The challenger is the live TRADEX additive axis currently wired into rankings_cache.py with weight 0.3.",
+      "ETF/ETN soft suppression remains background noise control and is not part of this challenger axis."
+    ]
+  },
+  "thresholds": {
+    "target_gain_pct_long": 0.1,
+    "soft_gain_pct_long": 0.05,
+    "max_adverse_pct_long": 0.08,
+    "max_days_to_favorable_move": 20,
+    "timing_late_remaining_ratio_threshold": 0.35,
+    "timing_late_pre_move_threshold_pct": 0.05
+  },
+  "challenge_definition": {
+    "baseline_id": "buy_candidate_score_proxy_v1",
+    "challenger_id": "prebreakout_actionability_axis_v1",
+    "live_weight": 0.3,
+    "feature_family": "pre-breakout actionability",
+    "feature_map": {
+      "compression_tightness": {
+        "type": "common_pattern_feature",
+        "features": [
+          "high20_dist",
+          "diff20_pct",
+          "monthlyBoxState",
+          "monthlyBoxMonths"
+        ]
+      },
+      "boundary_proximity": {
+        "type": "boundary_moving_feature",
+        "features": [
+          "breakout20_up",
+          "weekly_breakout_up_prob",
+          "monthly_breakout_up_prob"
+        ]
+      },
+      "upside_room_left": {
+        "type": "common_pattern_feature",
+        "features": [
+          "drawdown60",
+          "rebound60",
+          "buy_overextended"
+        ]
+      },
+      "liquidity_quality": {
+        "type": "bad_pick_removal",
+        "features": [
+          "turnover_z20",
+          "liquidity20d"
+        ]
+      },
+      "lateness_penalty": {
+        "type": "bad_pick_removal",
+        "features": [
+          "candle_upper_wick_ratio",
+          "patternS3LateBreakout",
+          "high20_dist",
+          "diff20_pct"
+        ]
+      }
+    },
+    "formula": {
+      "axis_score": "0.34*compression_tightness + 0.28*boundary_proximity + 0.24*upside_room_left + 0.08*liquidity_quality + 0.06*(1-lateness_penalty)",
+      "final_bonus": "0.3 * (axis_score - 0.5)",
+      "clamp": "final tradePriorityScore stays in [0, 1] after the additive bonus and ETF/ETN haircut"
+    }
+  },
+  "baseline": {
+    "by_top_k": {
+      "5": {
+        "top_k": 5,
+        "count": 5,
+        "hit_rate": 0.4,
+        "mean_ret20": -0.028948788725426812,
+        "median_ret20": -0.05343707800141473,
+        "flat_rate": 0.0,
+        "immediate_reverse_rate": 0.6,
+        "ge_5pct_rate": 0.2,
+        "ge_10pct_rate": 0.0,
+        "strong_capture_count": 0,
+        "pattern_bucket_counts": {
+          "early reversal / failed breakdown recovery": 3,
+          "regime mismatch": 1,
+          "pullback / rebound": 1
+        },
+        "top_codes": [
+          "1001:20110930",
+          "1001:19980519",
+          "1001:20010629",
+          "1001:20191011",
+          "1001:20020809"
+        ]
+      },
+      "10": {
+        "top_k": 10,
+        "count": 10,
+        "hit_rate": 0.2,
+        "mean_ret20": -0.046623802067273366,
+        "median_ret20": -0.05678709555702288,
+        "flat_rate": 0.0,
+        "immediate_reverse_rate": 0.8,
+        "ge_5pct_rate": 0.1,
+        "ge_10pct_rate": 0.0,
+        "strong_capture_count": 0,
+        "pattern_bucket_counts": {
+          "early reversal / failed breakdown recovery": 6,
+          "regime mismatch": 2,
+          "pullback / rebound": 2
+        },
+        "top_codes": [
+          "1001:20110930",
+          "1001:19980519",
+          "1001:20010629",
+          "1001:20191011",
+          "1001:20020809",
+          "1001:19971120",
+          "1001:20020703",
+          "1001:20020712",
+          "1001:20010118",
+          "1001:19980320"
+        ]
+      },
+      "20": {
+        "top_k": 20,
+        "count": 20,
+        "hit_rate": 0.5,
+        "mean_ret20": 0.0051977355196481,
+        "median_ret20": 0.009459540880882189,
+        "flat_rate": 0.0,
+        "immediate_reverse_rate": 0.5,
+        "ge_5pct_rate": 0.35,
+        "ge_10pct_rate": 0.15,
+        "strong_capture_count": 3,
+        "pattern_bucket_counts": {
+          "early reversal / failed breakdown recovery": 10,
+          "regime mismatch": 3,
+          "pullback / rebound": 5,
+          "MA recovery": 2
+        },
+        "top_codes": [
+          "1001:20110930",
+          "1001:19980519",
+          "1001:20010629",
+          "1001:20191011",
+          "1001:20020809",
+          "1001:19971120",
+          "1001:20020703",
+          "1001:20020712",
+          "1001:20010118",
+          "1001:19980320",
+          "1001:20161004",
+          "1001:20020213",
+          "1001:20030502",
+          "1001:20090721",
+          "1001:20010411",
+          "1001:19990303",
+          "1001:19990216",
+          "1001:20021121",
+          "1001:20110901",
+          "1001:20160824"
+        ]
+      }
+    },
+    "top_codes": {
+      "5": [
+        "1001:20110930",
+        "1001:19980519",
+        "1001:20010629",
+        "1001:20191011",
+        "1001:20020809"
+      ],
+      "10": [
+        "1001:20110930",
+        "1001:19980519",
+        "1001:20010629",
+        "1001:20191011",
+        "1001:20020809",
+        "1001:19971120",
+        "1001:20020703",
+        "1001:20020712",
+        "1001:20010118",
+        "1001:19980320"
+      ],
+      "20": [
+        "1001:20110930",
+        "1001:19980519",
+        "1001:20010629",
+        "1001:20191011",
+        "1001:20020809",
+        "1001:19971120",
+        "1001:20020703",
+        "1001:20020712",
+        "1001:20010118",
+        "1001:19980320",
+        "1001:20161004",
+        "1001:20020213",
+        "1001:20030502",
+        "1001:20090721",
+        "1001:20010411",
+        "1001:19990303",
+        "1001:19990216",
+        "1001:20021121",
+        "1001:20110901",
+        "1001:20160824"
+      ]
+    },
+    "top10_component_means": {
+      "compression_tightness": 0.5654629170309133,
+      "boundary_proximity": 0.35289765717158506,
+      "upside_room_left": 0.5181999540558447,
+      "liquidity_quality": 0.5746043496281475,
+      "lateness_penalty": 0.17310980620232175,
+      "overall": 0.5110184843700696
+    }
+  },
+  "challenger": {
+    "by_top_k": {
+      "5": {
+        "top_k": 5,
+        "count": 5,
+        "hit_rate": 0.4,
+        "mean_ret20": -0.028948788725426812,
+        "median_ret20": -0.05343707800141473,
+        "flat_rate": 0.0,
+        "immediate_reverse_rate": 0.6,
+        "ge_5pct_rate": 0.2,
+        "ge_10pct_rate": 0.0,
+        "strong_capture_count": 0,
+        "pattern_bucket_counts": {
+          "early reversal / failed breakdown recovery": 3,
+          "regime mismatch": 1,
+          "pullback / rebound": 1
+        },
+        "top_codes": [
+          "1001:20110930",
+          "1001:19980519",
+          "1001:20191011",
+          "1001:20010629",
+          "1001:20020809"
+        ]
+      },
+      "10": {
+        "top_k": 10,
+        "count": 10,
+        "hit_rate": 0.3,
+        "mean_ret20": -0.03920822151733996,
+        "median_ret20": -0.05678709555702288,
+        "flat_rate": 0.0,
+        "immediate_reverse_rate": 0.7,
+        "ge_5pct_rate": 0.1,
+        "ge_10pct_rate": 0.0,
+        "strong_capture_count": 0,
+        "pattern_bucket_counts": {
+          "early reversal / failed breakdown recovery": 5,
+          "regime mismatch": 2,
+          "pullback / rebound": 3
+        },
+        "top_codes": [
+          "1001:20110930",
+          "1001:19980519",
+          "1001:20191011",
+          "1001:20010629",
+          "1001:20020809",
+          "1001:19971120",
+          "1001:20020703",
+          "1001:20020712",
+          "1001:19980320",
+          "1001:20161004"
+        ]
+      },
+      "20": {
+        "top_k": 20,
+        "count": 20,
+        "hit_rate": 0.5,
+        "mean_ret20": 0.0051977355196481,
+        "median_ret20": 0.009459540880882189,
+        "flat_rate": 0.0,
+        "immediate_reverse_rate": 0.5,
+        "ge_5pct_rate": 0.35,
+        "ge_10pct_rate": 0.15,
+        "strong_capture_count": 3,
+        "pattern_bucket_counts": {
+          "early reversal / failed breakdown recovery": 10,
+          "regime mismatch": 3,
+          "pullback / rebound": 5,
+          "MA recovery": 2
+        },
+        "top_codes": [
+          "1001:20110930",
+          "1001:19980519",
+          "1001:20191011",
+          "1001:20010629",
+          "1001:20020809",
+          "1001:19971120",
+          "1001:20020703",
+          "1001:20020712",
+          "1001:19980320",
+          "1001:20161004",
+          "1001:20010118",
+          "1001:20090721",
+          "1001:20020213",
+          "1001:20030502",
+          "1001:19990303",
+          "1001:20010411",
+          "1001:19990216",
+          "1001:20021121",
+          "1001:20160824",
+          "1001:20110901"
+        ]
+      }
+    },
+    "top_codes": {
+      "5": [
+        "1001:20110930",
+        "1001:19980519",
+        "1001:20191011",
+        "1001:20010629",
+        "1001:20020809"
+      ],
+      "10": [
+        "1001:20110930",
+        "1001:19980519",
+        "1001:20191011",
+        "1001:20010629",
+        "1001:20020809",
+        "1001:19971120",
+        "1001:20020703",
+        "1001:20020712",
+        "1001:19980320",
+        "1001:20161004"
+      ],
+      "20": [
+        "1001:20110930",
+        "1001:19980519",
+        "1001:20191011",
+        "1001:20010629",
+        "1001:20020809",
+        "1001:19971120",
+        "1001:20020703",
+        "1001:20020712",
+        "1001:19980320",
+        "1001:20161004",
+        "1001:20010118",
+        "1001:20090721",
+        "1001:20020213",
+        "1001:20030502",
+        "1001:19990303",
+        "1001:20010411",
+        "1001:19990216",
+        "1001:20021121",
+        "1001:20160824",
+        "1001:20110901"
+      ]
+    },
+    "top10_component_means": {
+      "compression_tightness": 0.5862854433441758,
+      "boundary_proximity": 0.39555837458097615,
+      "upside_room_left": 0.5470122727826341,
+      "liquidity_quality": 0.551439793257458,
+      "lateness_penalty": 0.1707059600484756,
+      "overall": 0.5352491669452134
+    }
+  },
+  "delta": {
+    "top5_mean_ret20_delta": 0.0,
+    "top10_mean_ret20_delta": 0.007415580549933409,
+    "top20_mean_ret20_delta": 0.0,
+    "top5_hit_rate_delta": 0.0,
+    "top10_hit_rate_delta": 0.09999999999999998,
+    "top20_hit_rate_delta": 0.0,
+    "top20_ge_10pct_rate_delta": 0.0,
+    "top20_ge_5pct_rate_delta": 0.0,
+    "top20_strong_capture_count_delta": 0
+  },
+  "selection_divergence": {
+    "changed_top5_members_count": 0,
+    "changed_top10_members_count": 2,
+    "changed_rank_count": 784,
+    "selection_divergence_reason": "rank_reorder_inside_pool"
+  },
+  "bucket_diagnostics": {
+    "baseline_top10_pattern_buckets": {
+      "early reversal / failed breakdown recovery": 6,
+      "regime mismatch": 2,
+      "pullback / rebound": 2
+    },
+    "challenger_top10_pattern_buckets": {
+      "early reversal / failed breakdown recovery": 5,
+      "regime mismatch": 2,
+      "pullback / rebound": 3
+    },
+    "baseline_top20_pattern_buckets": {
+      "early reversal / failed breakdown recovery": 10,
+      "regime mismatch": 3,
+      "pullback / rebound": 5,
+      "MA recovery": 2
+    },
+    "challenger_top20_pattern_buckets": {
+      "early reversal / failed breakdown recovery": 10,
+      "regime mismatch": 3,
+      "pullback / rebound": 5,
+      "MA recovery": 2
+    }
+  },
+  "live_snapshot_verification": {
+    "freshness_state": "fresh",
+    "stale": false,
+    "snapshot_as_of": "2026-04-22",
+    "top_codes": [
+      "7951",
+      "9041",
+      "6367",
+      "6724",
+      "1545",
+      "1655",
+      "7868"
+    ],
+    "etf_codes_in_top7": [
+      "1545",
+      "1655"
+    ]
+  },
+  "judgment": {
+    "candidate_local_decision": "hold",
+    "session_aggregate_decision": "hold",
+    "authoritative_rollup_decision": "hold",
+    "reason": "The challenger reorders the top trade pool and improves top10 mean ret20 / hit rate on the same-condition audit, but the top20 member set and top20 ret20 summary do not materially change yet."
+  }
+}

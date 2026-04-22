@@ -597,7 +597,7 @@ describe("DetailView", () => {
     render.cleanup();
   });
 
-  it("places the AI explain dock in the lower tools area", async () => {
+  it("places the AI explain dock in the detail footer row", async () => {
     mocks.backendReadyRef.value = true;
     mocks.apiPost.mockImplementation((url: string) => {
       if (url === "/batch_bars_v3") {
@@ -610,6 +610,7 @@ describe("DetailView", () => {
     const { container } = render;
 
     expect(await waitForSelector(container, "[data-testid='ai-explain-dock']")).not.toBeNull();
+    expect(container.querySelector("[data-testid='detail-footer'] [data-testid='ai-explain-dock']")).not.toBeNull();
     expect(mocks.aiExplainDockProps.at(-1)?.inline).toBe(true);
 
     render.cleanup();

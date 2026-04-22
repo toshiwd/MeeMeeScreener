@@ -269,7 +269,7 @@ describe("DetailChart MeeMee chrome", () => {
     render.cleanup();
   });
 
-  it("enables MeeMee detail chrome with hidden MA edge labels and a visible date chip", async () => {
+  it("enables MeeMee detail chrome with hidden MA edge labels and no date chip overlay", async () => {
     const weeklyChipTime = Date.UTC(2026, 3, 6) / 1000;
     const render = await renderClient(
       <DetailChart
@@ -296,12 +296,15 @@ describe("DetailChart MeeMee chrome", () => {
     const chart = chartMocks[0];
     expect(chart.options.rightPriceScale.borderVisible).toBe(true);
     expect(chart.options.rightPriceScale.minimumWidth).toBeGreaterThanOrEqual(72);
+    expect(chart.options.timeScale.rightOffset).toBe(0);
+    expect(chart.options.timeScale.fixRightEdge).toBe(true);
+    expect(chart.options.timeScale.lockVisibleTimeRangeOnResize).toBe(true);
+    expect(chart.options.timeScale.rightBarStaysOnScroll).toBe(true);
     expect(chart.lineSeries.every((series: any) => series.options.lastValueVisible === false)).toBe(true);
 
     const chip = render.container.querySelector("[data-testid='detail-chart-date-chip']");
     const legend = render.container.querySelector("[data-testid='detail-chart-legend']");
-    expect(chip).not.toBeNull();
-    expect(chip?.textContent).toContain("26/04/09");
+    expect(chip).toBeNull();
     expect(legend).not.toBeNull();
     expect(legend?.textContent).toContain("Date");
     expect(legend?.textContent).toContain("Close");
@@ -343,13 +346,13 @@ describe("DetailChart MeeMee chrome", () => {
 
     const chip = render.container.querySelector("[data-testid='detail-chart-date-chip']");
     const legend = render.container.querySelector("[data-testid='detail-chart-legend']");
-    expect(chip?.textContent).toContain("26/04/18");
+    expect(chip).toBeNull();
     expect(legend).toBeNull();
 
     render.cleanup();
   });
 
-  it("updates the date chip from the visible range and keeps the actual weekly terminal date", async () => {
+  it("keeps the chart pinned to the latest bar while hiding the extra date chip", async () => {
     const chartRef = React.createRef<any>();
     const firstWeekTime = Date.UTC(2026, 3, 6) / 1000;
     const secondWeekTime = Date.UTC(2026, 3, 13) / 1000;
@@ -394,9 +397,13 @@ describe("DetailChart MeeMee chrome", () => {
       await Promise.resolve();
     });
 
-    expect(render.container.querySelector("[data-testid='detail-chart-date-chip']")?.textContent).toContain(
-      "26/04/17"
-    );
+    const chart = chartMocks[0];
+    expect(chart.options.timeScale.rightOffset).toBe(0);
+    expect(chart.options.timeScale.fixRightEdge).toBe(true);
+    expect(chart.options.timeScale.lockVisibleTimeRangeOnResize).toBe(true);
+    expect(chart.options.timeScale.rightBarStaysOnScroll).toBe(true);
+    expect(render.container.querySelector("[data-testid='detail-chart-date-chip']")).toBeNull();
+    expect(render.container.querySelector("[data-testid='detail-chart-legend']")).not.toBeNull();
 
     await act(async () => {
       chartRef.current?.setVisibleRange({
@@ -407,9 +414,7 @@ describe("DetailChart MeeMee chrome", () => {
       await Promise.resolve();
     });
 
-    expect(render.container.querySelector("[data-testid='detail-chart-date-chip']")?.textContent).toContain(
-      "26/04/09"
-    );
+    expect(render.container.querySelector("[data-testid='detail-chart-date-chip']")).toBeNull();
 
     render.cleanup();
   });
