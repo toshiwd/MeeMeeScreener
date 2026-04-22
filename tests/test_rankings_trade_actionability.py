@@ -339,3 +339,177 @@ def test_trade_prebreakout_actionability_axis_prefers_compressed_release_setup(m
 
     assert [item["code"] for item in items] == ["1001", "1002"]
     assert items[0]["tradePriorityScore"] > items[1]["tradePriorityScore"]
+
+
+def test_trade_prebreakout_actionability_axis_v2_prefers_pure_launch_setup(monkeypatch) -> None:
+    monkeypatch.setattr(
+        rankings_cache,
+        "_load_trade_market_code_map",
+        lambda codes: {"2001": "PRIME", "2002": "PRIME", "2003": "PRIME"},
+    )
+    pure_item = {
+        "code": "2001",
+        "setupType": "breakout",
+        "entryQualified": True,
+        "probSideCalib": 0.81,
+        "probSide": 0.81,
+        "prob20d": 0.81,
+        "prob10d": 0.81,
+        "prob5d": 0.81,
+        "entryScore": 0.72,
+        "hybridScore": 0.72,
+        "downsideRisk": 0.18,
+        "swingScore": 0.63,
+        "weeklyBreakoutUpProb": 0.59,
+        "monthlyBreakoutUpProb": 0.66,
+        "high20_dist": -0.028,
+        "breakout20_up": -0.028,
+        "diff20_pct": 0.009,
+        "drawdown60": -0.055,
+        "rebound60": 0.112,
+        "turnover_z20": 0.72,
+        "liquidity20d": 1_100_000_000.0,
+        "monthlyBoxState": "box_upper",
+        "monthlyBoxMonths": 8,
+        "candleUpperWickRatio": 0.10,
+        "buy_overextended": False,
+    }
+    late_item = {
+        "code": "2002",
+        "setupType": "breakout",
+        "entryQualified": True,
+        "probSideCalib": 0.81,
+        "probSide": 0.81,
+        "prob20d": 0.81,
+        "prob10d": 0.81,
+        "prob5d": 0.81,
+        "entryScore": 0.72,
+        "hybridScore": 0.72,
+        "downsideRisk": 0.18,
+        "swingScore": 0.63,
+        "weeklyBreakoutUpProb": 0.74,
+        "monthlyBreakoutUpProb": 0.80,
+        "high20_dist": -0.004,
+        "breakout20_up": -0.004,
+        "diff20_pct": 0.020,
+        "drawdown60": -0.020,
+        "rebound60": 0.030,
+        "turnover_z20": -0.12,
+        "liquidity20d": 28_000_000.0,
+        "candleUpperWickRatio": 0.48,
+        "buy_overextended": True,
+        "patternS3LateBreakout": True,
+    }
+    weak_item = {
+        "code": "2003",
+        "setupType": "breakout",
+        "entryQualified": True,
+        "probSideCalib": 0.81,
+        "probSide": 0.81,
+        "prob20d": 0.81,
+        "prob10d": 0.81,
+        "prob5d": 0.81,
+        "entryScore": 0.72,
+        "hybridScore": 0.72,
+        "downsideRisk": 0.18,
+        "swingScore": 0.63,
+        "weeklyBreakoutUpProb": 0.39,
+        "monthlyBreakoutUpProb": 0.42,
+        "high20_dist": -0.043,
+        "breakout20_up": -0.043,
+        "diff20_pct": 0.011,
+        "drawdown60": -0.142,
+        "rebound60": 0.024,
+        "turnover_z20": -0.58,
+        "liquidity20d": 12_000_000.0,
+        "candleUpperWickRatio": 0.18,
+        "buy_overextended": False,
+    }
+
+    pure_score = rankings_cache._calc_trade_prebreakout_actionability_score(pure_item, direction="up")  # type: ignore[attr-defined]
+    late_score = rankings_cache._calc_trade_prebreakout_actionability_score(late_item, direction="up")  # type: ignore[attr-defined]
+    weak_score = rankings_cache._calc_trade_prebreakout_actionability_score(weak_item, direction="up")  # type: ignore[attr-defined]
+
+    assert pure_score > late_score
+    assert pure_score > weak_score
+
+    items = [dict(pure_item), dict(late_item), dict(weak_item)]
+    rankings_cache._apply_trade_priority_scores(items, direction="up")  # type: ignore[attr-defined]
+    items.sort(key=rankings_cache._trade_priority_sort_key)  # type: ignore[attr-defined]
+
+    assert items[0]["code"] == "2001"
+    assert items[0]["tradePriorityScore"] > items[1]["tradePriorityScore"]
+    assert items[0]["tradePriorityScore"] > items[2]["tradePriorityScore"]
+
+
+def test_trade_prebreakout_actionability_axis_v3_only_penalizes_failed_breakdown_residue(monkeypatch) -> None:
+    monkeypatch.setattr(
+        rankings_cache,
+        "_load_trade_market_code_map",
+        lambda codes: {"3001": "PRIME", "3002": "PRIME"},
+    )
+    pure_launch = {
+        "code": "3001",
+        "setupType": "breakout",
+        "entryQualified": True,
+        "probSideCalib": 0.81,
+        "probSide": 0.81,
+        "prob20d": 0.81,
+        "prob10d": 0.81,
+        "prob5d": 0.81,
+        "entryScore": 0.72,
+        "hybridScore": 0.72,
+        "downsideRisk": 0.18,
+        "swingScore": 0.63,
+        "weeklyBreakoutUpProb": 0.61,
+        "monthlyBreakoutUpProb": 0.68,
+        "high20_dist": -0.026,
+        "breakout20_up": -0.026,
+        "diff20_pct": 0.008,
+        "drawdown60": -0.058,
+        "rebound60": 0.109,
+        "turnover_z20": 0.66,
+        "liquidity20d": 1_020_000_000.0,
+        "monthlyBoxState": "box_upper",
+        "monthlyBoxMonths": 8,
+        "candleUpperWickRatio": 0.09,
+        "buy_overextended": False,
+    }
+    failed_breakdown_residue = {
+        "code": "3002",
+        "setupType": "breakout",
+        "entryQualified": True,
+        "probSideCalib": 0.81,
+        "probSide": 0.81,
+        "prob20d": 0.81,
+        "prob10d": 0.81,
+        "prob5d": 0.81,
+        "entryScore": 0.72,
+        "hybridScore": 0.72,
+        "downsideRisk": 0.18,
+        "swingScore": 0.63,
+        "weeklyBreakoutUpProb": 0.44,
+        "monthlyBreakoutUpProb": 0.49,
+        "high20_dist": -0.041,
+        "breakout20_up": -0.041,
+        "diff20_pct": 0.011,
+        "drawdown60": -0.132,
+        "rebound60": 0.026,
+        "turnover_z20": -0.55,
+        "liquidity20d": 18_000_000.0,
+        "candleUpperWickRatio": 0.20,
+        "buy_overextended": True,
+        "patternS3LateBreakout": False,
+    }
+
+    pure_v2 = rankings_cache._calc_trade_prebreakout_actionability_score(pure_launch, direction="up")  # type: ignore[attr-defined]
+    pure_v3 = rankings_cache._calc_trade_prebreakout_actionability_score_v3(pure_launch, direction="up")  # type: ignore[attr-defined]
+    residue_v2 = rankings_cache._calc_trade_prebreakout_actionability_score(failed_breakdown_residue, direction="up")  # type: ignore[attr-defined]
+    residue_v3 = rankings_cache._calc_trade_prebreakout_actionability_score_v3(failed_breakdown_residue, direction="up")  # type: ignore[attr-defined]
+    pure_components = rankings_cache._calc_trade_prebreakout_actionability_components(pure_launch, direction="up")  # type: ignore[attr-defined]
+    residue_components = rankings_cache._calc_trade_prebreakout_actionability_components(failed_breakdown_residue, direction="up")  # type: ignore[attr-defined]
+
+    assert pure_components["failed_breakdown_residue_penalty"] < residue_components["failed_breakdown_residue_penalty"]
+    assert pure_v3 >= pure_v2 - 0.05
+    assert residue_v3 < residue_v2
+    assert pure_v3 > residue_v3

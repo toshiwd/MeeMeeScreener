@@ -1,0 +1,668 @@
+{
+  "schema_version": "tradex_prebreakout_actionability_compare_v3",
+  "generated_at": "2026-04-23T01:48:37.681875+09:00",
+  "status": "confirmed",
+  "authoritative_sources": {
+    "buy_judgment_effectiveness_audit": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_effectiveness_audit.json",
+    "action_precision_thresholds": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\action_precision_thresholds.json",
+    "prior_compare_v2": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\tradex_prebreakout_actionability_compare_v2.json"
+  },
+  "audit_scope": {
+    "basis": "confirmed_data_only",
+    "same_condition_compare": true,
+    "boundary_aware_compare_executed": true,
+    "live_snapshot_check_executed": true,
+    "notes": [
+      "Baseline and challenger_v2 metrics are copied from the previously published authoritative v2 compare artifact.",
+      "Challenger_v3 uses the confirmed audit rows with a compressed buy_candidate_score proxy, a modest pre-breakout purity lift, and the narrow failed-breakdown residue penalty.",
+      "The published v2 artifact does not expose a full row-level challenger ledger, so v2_to_v3 changed_rank_count is carried as the same-condition baseline-ledger proxy for boundary comparison.",
+      "ETF/ETN soft suppression remains background-noise control and is not part of the v3 challenger family.",
+      "Replay outcome: early-reversal residue is reduced, but the top20 strong-capture count falls below the v2 baseline, so the v3 candidate is a hold rather than a keep."
+    ]
+  },
+  "thresholds": {
+    "target_gain_pct_long": 0.1,
+    "soft_gain_pct_long": 0.05,
+    "max_adverse_pct_long": 0.08,
+    "max_days_to_favorable_move": 20,
+    "timing_late_remaining_ratio_threshold": 0.35,
+    "timing_late_pre_move_threshold_pct": 0.05
+  },
+  "challenge_definition": {
+    "baseline_id": "buy_candidate_score_proxy_v1",
+    "challenger_v2_id": "prebreakout_purity_axis_v2",
+    "challenger_v3_id": "failed_breakdown_residue_cleaner_v3",
+    "feature_family": "pre-breakout purity",
+    "feature_map": {
+      "failed_breakdown_residue_support": {
+        "type": "boundary_moving_feature",
+        "features": [
+          "high20_dist",
+          "breakout20_up",
+          "diff20_pct",
+          "weekly_breakout_up_prob",
+          "monthly_breakout_up_prob",
+          "drawdown60",
+          "rebound60",
+          "buy_overextended"
+        ]
+      },
+      "failed_breakdown_residue_gap": {
+        "type": "bad_pick_removal",
+        "features": [
+          "early_reversal_penalty",
+          "failed_breakdown_residue_support"
+        ]
+      },
+      "failed_breakdown_residue_penalty": {
+        "type": "bad_pick_removal",
+        "features": [
+          "early_reversal_penalty",
+          "failed_breakdown_residue_gap"
+        ]
+      }
+    },
+    "formula": {
+      "baseline_score": "normalized buy_candidate_score proxy",
+      "purity_lift": "0.15 * (overall_v2 - 0.5)",
+      "residue_penalty": "0.05 * failed_breakdown_residue_penalty",
+      "final_score": "baseline_score + purity_lift - residue_penalty",
+      "clamp": "final score stays in [0, 1] after the additive purity lift and residue penalty"
+    }
+  },
+  "baseline": {
+    "by_top_k": {
+      "5": {
+        "top_k": 5,
+        "count": 5,
+        "hit_rate": 0.4,
+        "mean_ret20": -0.028948788725426812,
+        "median_ret20": -0.05343707800141473,
+        "flat_rate": 0.0,
+        "immediate_reverse_rate": 0.6,
+        "ge_5pct_rate": 0.2,
+        "ge_10pct_rate": 0.0,
+        "strong_capture_count": 0,
+        "pattern_bucket_counts": {
+          "early reversal / failed breakdown recovery": 3,
+          "regime mismatch": 1,
+          "pullback / rebound": 1
+        },
+        "top_codes": [
+          "1001:20110930",
+          "1001:19980519",
+          "1001:20010629",
+          "1001:20191011",
+          "1001:20020809"
+        ]
+      },
+      "10": {
+        "top_k": 10,
+        "count": 10,
+        "hit_rate": 0.2,
+        "mean_ret20": -0.046623802067273366,
+        "median_ret20": -0.05678709555702288,
+        "flat_rate": 0.0,
+        "immediate_reverse_rate": 0.8,
+        "ge_5pct_rate": 0.1,
+        "ge_10pct_rate": 0.0,
+        "strong_capture_count": 0,
+        "pattern_bucket_counts": {
+          "early reversal / failed breakdown recovery": 6,
+          "regime mismatch": 2,
+          "pullback / rebound": 2
+        },
+        "top_codes": [
+          "1001:20110930",
+          "1001:19980519",
+          "1001:20010629",
+          "1001:20191011",
+          "1001:20020809",
+          "1001:19971120",
+          "1001:20020703",
+          "1001:20020712",
+          "1001:20010118",
+          "1001:19980320"
+        ]
+      },
+      "20": {
+        "top_k": 20,
+        "count": 20,
+        "hit_rate": 0.5,
+        "mean_ret20": 0.0051977355196481,
+        "median_ret20": 0.009459540880882189,
+        "flat_rate": 0.0,
+        "immediate_reverse_rate": 0.5,
+        "ge_5pct_rate": 0.35,
+        "ge_10pct_rate": 0.15,
+        "strong_capture_count": 3,
+        "pattern_bucket_counts": {
+          "early reversal / failed breakdown recovery": 10,
+          "regime mismatch": 3,
+          "pullback / rebound": 5,
+          "MA recovery": 2
+        },
+        "top_codes": [
+          "1001:20110930",
+          "1001:19980519",
+          "1001:20010629",
+          "1001:20191011",
+          "1001:20020809",
+          "1001:19971120",
+          "1001:20020703",
+          "1001:20020712",
+          "1001:20010118",
+          "1001:19980320",
+          "1001:20161004",
+          "1001:20020213",
+          "1001:20030502",
+          "1001:20090721",
+          "1001:20010411",
+          "1001:19990303",
+          "1001:19990216",
+          "1001:20021121",
+          "1001:20110901",
+          "1001:20160824"
+        ]
+      }
+    },
+    "top_codes": {
+      "5": [
+        "1001:20110930",
+        "1001:19980519",
+        "1001:20010629",
+        "1001:20191011",
+        "1001:20020809"
+      ],
+      "10": [
+        "1001:20110930",
+        "1001:19980519",
+        "1001:20010629",
+        "1001:20191011",
+        "1001:20020809",
+        "1001:19971120",
+        "1001:20020703",
+        "1001:20020712",
+        "1001:20010118",
+        "1001:19980320"
+      ],
+      "20": [
+        "1001:20110930",
+        "1001:19980519",
+        "1001:20010629",
+        "1001:20191011",
+        "1001:20020809",
+        "1001:19971120",
+        "1001:20020703",
+        "1001:20020712",
+        "1001:20010118",
+        "1001:19980320",
+        "1001:20161004",
+        "1001:20020213",
+        "1001:20030502",
+        "1001:20090721",
+        "1001:20010411",
+        "1001:19990303",
+        "1001:19990216",
+        "1001:20021121",
+        "1001:20110901",
+        "1001:20160824"
+      ]
+    },
+    "top10_component_means": {
+      "compression_tightness": 0.5654629170309133,
+      "boundary_proximity": 0.35289765717158506,
+      "upside_room_left": 0.5181999540558447,
+      "liquidity_quality": 0.5746043496281475,
+      "lateness_penalty": 0.17310980620232175,
+      "overall": 0.5110184843700696
+    }
+  },
+  "challenger_v2": {
+    "by_top_k": {
+      "5": {
+        "top_k": 5,
+        "count": 5,
+        "hit_rate": 0.8,
+        "mean_ret20": 0.02291306450281263,
+        "median_ret20": 0.023842246788168486,
+        "flat_rate": 0.0,
+        "immediate_reverse_rate": 0.2,
+        "ge_5pct_rate": 0.4,
+        "ge_10pct_rate": 0.0,
+        "strong_capture_count": 0,
+        "pattern_bucket_counts": {
+          "pullback / rebound": 4,
+          "regime mismatch": 1
+        },
+        "top_codes": [
+          "1001:20160921",
+          "1001:20090721",
+          "1001:20191011",
+          "1001:20161004",
+          "1001:19980320"
+        ]
+      },
+      "10": {
+        "top_k": 10,
+        "count": 10,
+        "hit_rate": 0.8,
+        "mean_ret20": 0.038432520960465656,
+        "median_ret20": 0.05305905571580394,
+        "flat_rate": 0.0,
+        "immediate_reverse_rate": 0.2,
+        "ge_5pct_rate": 0.5,
+        "ge_10pct_rate": 0.2,
+        "strong_capture_count": 2,
+        "pattern_bucket_counts": {
+          "pullback / rebound": 5,
+          "regime mismatch": 1,
+          "late/stretched entry": 1,
+          "MA recovery": 3
+        },
+        "top_codes": [
+          "1001:20160921",
+          "1001:20090721",
+          "1001:20191011",
+          "1001:20161004",
+          "1001:19980320",
+          "1001:20160824",
+          "1001:20091015",
+          "1001:19990216",
+          "1001:20010411",
+          "1001:19990222"
+        ]
+      },
+      "20": {
+        "top_k": 20,
+        "count": 20,
+        "hit_rate": 0.6,
+        "mean_ret20": 0.019850790396610658,
+        "median_ret20": 0.02243112988635687,
+        "flat_rate": 0.0,
+        "immediate_reverse_rate": 0.4,
+        "ge_5pct_rate": 0.35,
+        "ge_10pct_rate": 0.2,
+        "strong_capture_count": 4,
+        "pattern_bucket_counts": {
+          "pullback / rebound": 9,
+          "regime mismatch": 2,
+          "late/stretched entry": 1,
+          "MA recovery": 3,
+          "early reversal / failed breakdown recovery": 5
+        },
+        "top_codes": [
+          "1001:20160921",
+          "1001:20090721",
+          "1001:20191011",
+          "1001:20161004",
+          "1001:19980320",
+          "1001:20160824",
+          "1001:20091015",
+          "1001:19990216",
+          "1001:20010411",
+          "1001:19990222",
+          "1001:19980519",
+          "1001:20110930",
+          "1001:20160822",
+          "1001:19980227",
+          "1001:19971120",
+          "1001:19990303",
+          "1001:20010629",
+          "1001:20020703",
+          "1001:20020213",
+          "1001:20011115"
+        ]
+      }
+    },
+    "top_codes": {
+      "5": [
+        "1001:20160921",
+        "1001:20090721",
+        "1001:20191011",
+        "1001:20161004",
+        "1001:19980320"
+      ],
+      "10": [
+        "1001:20160921",
+        "1001:20090721",
+        "1001:20191011",
+        "1001:20161004",
+        "1001:19980320",
+        "1001:20160824",
+        "1001:20091015",
+        "1001:19990216",
+        "1001:20010411",
+        "1001:19990222"
+      ],
+      "20": [
+        "1001:20160921",
+        "1001:20090721",
+        "1001:20191011",
+        "1001:20161004",
+        "1001:19980320",
+        "1001:20160824",
+        "1001:20091015",
+        "1001:19990216",
+        "1001:20010411",
+        "1001:19990222",
+        "1001:19980519",
+        "1001:20110930",
+        "1001:20160822",
+        "1001:19980227",
+        "1001:19971120",
+        "1001:19990303",
+        "1001:20010629",
+        "1001:20020703",
+        "1001:20020213",
+        "1001:20011115"
+      ]
+    },
+    "top10_component_means": {
+      "compression_tightness": 0.6843538451476959,
+      "boundary_proximity": 0.3690141687993411,
+      "upside_room_left": 0.6302002878985125,
+      "liquidity_quality": 0.5327877106542408,
+      "late_extension_penalty": 0.12439173226720734,
+      "early_reversal_penalty": 0.04739930495971688,
+      "weak_convexity_penalty": 0.4672122893457592,
+      "launch_core": 0.5727441490599794,
+      "overall": 0.5493326147215262
+    }
+  },
+  "challenger_v3": {
+    "by_top_k": {
+      "5": {
+        "top_k": 5,
+        "count": 5,
+        "hit_rate": 0.8,
+        "mean_ret20": 0.027163404915546897,
+        "median_ret20": 0.023842246788168486,
+        "flat_rate": 0.0,
+        "immediate_reverse_rate": 0.2,
+        "ge_5pct_rate": 0.4,
+        "ge_10pct_rate": 0.0,
+        "strong_capture_count": 0,
+        "pattern_bucket_counts": {
+          "regime mismatch": 1,
+          "pullback / rebound": 3,
+          "late/stretched entry": 1
+        },
+        "top_codes": [
+          "1001:20090721",
+          "1001:20160921",
+          "1001:20191011",
+          "1001:20161004",
+          "1001:20091015"
+        ]
+      },
+      "10": {
+        "top_k": 10,
+        "count": 10,
+        "hit_rate": 0.7,
+        "mean_ret20": 0.02542716701669543,
+        "median_ret20": 0.023842246788168486,
+        "flat_rate": 0.0,
+        "immediate_reverse_rate": 0.3,
+        "ge_5pct_rate": 0.4,
+        "ge_10pct_rate": 0.1,
+        "strong_capture_count": 1,
+        "pattern_bucket_counts": {
+          "regime mismatch": 1,
+          "pullback / rebound": 6,
+          "MA recovery": 2,
+          "late/stretched entry": 1
+        },
+        "top_codes": [
+          "1001:20090721",
+          "1001:20160921",
+          "1001:20191011",
+          "1001:20161004",
+          "1001:20091015",
+          "1001:19980320",
+          "1001:20160824",
+          "1001:20160822",
+          "1001:20010411",
+          "1001:19990216"
+        ]
+      },
+      "20": {
+        "top_k": 20,
+        "count": 20,
+        "hit_rate": 0.6,
+        "mean_ret20": 0.010340790346342277,
+        "median_ret20": 0.00966710277656646,
+        "flat_rate": 0.0,
+        "immediate_reverse_rate": 0.4,
+        "ge_5pct_rate": 0.3,
+        "ge_10pct_rate": 0.15,
+        "strong_capture_count": 3,
+        "pattern_bucket_counts": {
+          "regime mismatch": 1,
+          "pullback / rebound": 11,
+          "MA recovery": 7,
+          "late/stretched entry": 1
+        },
+        "top_codes": [
+          "1001:20090721",
+          "1001:20160921",
+          "1001:20191011",
+          "1001:20161004",
+          "1001:20091015",
+          "1001:19980320",
+          "1001:20160824",
+          "1001:20160822",
+          "1001:20010411",
+          "1001:19990216",
+          "1001:19980227",
+          "1001:19990222",
+          "1001:20011115",
+          "1001:19990303",
+          "1001:19980731",
+          "1001:20230301",
+          "1001:20020508",
+          "1001:20011212",
+          "1001:20160608",
+          "1001:20090910"
+        ]
+      }
+    },
+    "top_codes": {
+      "5": [
+        "1001:20090721",
+        "1001:20160921",
+        "1001:20191011",
+        "1001:20161004",
+        "1001:20091015"
+      ],
+      "10": [
+        "1001:20090721",
+        "1001:20160921",
+        "1001:20191011",
+        "1001:20161004",
+        "1001:20091015",
+        "1001:19980320",
+        "1001:20160824",
+        "1001:20160822",
+        "1001:20010411",
+        "1001:19990216"
+      ],
+      "20": [
+        "1001:20090721",
+        "1001:20160921",
+        "1001:20191011",
+        "1001:20161004",
+        "1001:20091015",
+        "1001:19980320",
+        "1001:20160824",
+        "1001:20160822",
+        "1001:20010411",
+        "1001:19990216",
+        "1001:19980227",
+        "1001:19990222",
+        "1001:20011115",
+        "1001:19990303",
+        "1001:19980731",
+        "1001:20230301",
+        "1001:20020508",
+        "1001:20011212",
+        "1001:20160608",
+        "1001:20090910"
+      ]
+    },
+    "top10_component_means": {
+      "compression_tightness": 0.726699899017751,
+      "boundary_proximity": 0.3668942652878071,
+      "upside_room_left": 0.6294690253614262,
+      "liquidity_quality": 0.5278206760693661,
+      "lateness_penalty": 0.49075172137102807,
+      "failed_breakdown_residue_penalty": 0.0,
+      "overall_v2": 0.5519922974432997,
+      "overall_v3": 0.5597911420597945
+    }
+  },
+  "delta": {
+    "baseline_to_v3": {
+      "top5_ret20_mean_delta": 0.05611219364097371,
+      "top10_ret20_mean_delta": 0.0720509690839688,
+      "top20_ret20_mean_delta": 0.005143054826694177,
+      "top5_hit_rate_delta": 0.4,
+      "top10_hit_rate_delta": 0.49999999999999994,
+      "top20_hit_rate_delta": 0.09999999999999998,
+      "top20_ge_10pct_rate_delta": 0.0,
+      "top20_ge_5pct_rate_delta": -0.04999999999999999,
+      "top20_strong_capture_count_delta": 0
+    },
+    "v2_to_v3": {
+      "top5_ret20_mean_delta": 0.004250340412734269,
+      "top10_ret20_mean_delta": -0.013005353943770226,
+      "top20_ret20_mean_delta": -0.00951000005026838,
+      "top5_hit_rate_delta": 0.0,
+      "top10_hit_rate_delta": -0.10000000000000009,
+      "top20_hit_rate_delta": 0.0,
+      "top20_ge_10pct_rate_delta": -0.05000000000000002,
+      "top20_ge_5pct_rate_delta": -0.04999999999999999,
+      "top20_strong_capture_count_delta": -1
+    }
+  },
+  "selection_divergence": {
+    "baseline_to_v2": {
+      "changed_top5_members_count": 4,
+      "changed_top10_members_count": 8,
+      "changed_rank_count": 1133,
+      "selection_divergence_reason": "top5_member_replacement"
+    },
+    "baseline_to_v3": {
+      "changed_top5_members_count": 8,
+      "changed_top10_members_count": 16,
+      "changed_rank_count": 1146,
+      "selection_divergence_reason": "top5_member_replacement"
+    },
+    "v2_to_v3": {
+      "changed_top5_members_count": 2,
+      "changed_top10_members_count": 2,
+      "changed_rank_count": 1146,
+      "selection_divergence_reason": "top5_member_replacement"
+    }
+  },
+  "bucket_diagnostics": {
+    "baseline_top10_pattern_buckets": {
+      "early reversal / failed breakdown recovery": 6,
+      "regime mismatch": 2,
+      "pullback / rebound": 2
+    },
+    "challenger_v2_top10_pattern_buckets": {
+      "pullback / rebound": 5,
+      "regime mismatch": 1,
+      "late/stretched entry": 1,
+      "MA recovery": 3
+    },
+    "challenger_v3_top10_pattern_buckets": {
+      "regime mismatch": 1,
+      "pullback / rebound": 6,
+      "MA recovery": 2,
+      "late/stretched entry": 1
+    },
+    "baseline_top20_pattern_buckets": {
+      "early reversal / failed breakdown recovery": 10,
+      "regime mismatch": 3,
+      "pullback / rebound": 5,
+      "MA recovery": 2
+    },
+    "challenger_v2_top20_pattern_buckets": {
+      "pullback / rebound": 9,
+      "regime mismatch": 2,
+      "late/stretched entry": 1,
+      "MA recovery": 3,
+      "early reversal / failed breakdown recovery": 5
+    },
+    "challenger_v3_top20_pattern_buckets": {
+      "regime mismatch": 1,
+      "pullback / rebound": 11,
+      "MA recovery": 7,
+      "late/stretched entry": 1
+    },
+    "true_pre_expansion_proxy": {
+      "definition": [
+        "pullback / rebound",
+        "MA recovery",
+        "box breakout"
+      ],
+      "baseline_top20_count": 7,
+      "challenger_v2_top20_count": 12,
+      "challenger_v3_top20_count": 18
+    },
+    "early_reversal_noise_proxy": {
+      "definition": "early reversal / failed breakdown recovery",
+      "baseline_top20_count": 10,
+      "challenger_v2_top20_count": 5,
+      "challenger_v3_top20_count": 0
+    },
+    "late_continuation_proxy": {
+      "definition": "late/stretched entry",
+      "baseline_top20_count": 0,
+      "challenger_v2_top20_count": 1,
+      "challenger_v3_top20_count": 1
+    },
+    "etf_leakage": {
+      "baseline_live_top7": [
+        "1545",
+        "1655"
+      ],
+      "v2_live_top7": [
+        "9041",
+        "7951",
+        "6367",
+        "6724",
+        "7868",
+        "1655",
+        "1545"
+      ],
+      "note": "ETF/ETN leakage is monitored on the live snapshot; the audit source does not carry market_code tags."
+    }
+  },
+  "live_snapshot_verification": {
+    "freshness_state": "fresh",
+    "stale": false,
+    "snapshot_as_of": "2026-04-22",
+    "top_codes": [
+      "9041",
+      "7951",
+      "6367",
+      "6724",
+      "7868",
+      "1655",
+      "1545"
+    ],
+    "etf_codes_in_top7": [
+      "1655",
+      "1545"
+    ]
+  },
+  "judgment": {
+    "candidate_local_decision": "hold",
+    "session_aggregate_decision": "hold",
+    "authoritative_rollup_decision": "hold",
+    "reason": "The narrow v3 residue cleaner reduces early-reversal residue in the top20 boundary, but it gives back the strong-capture count versus the v2 baseline, so it is not yet a keep candidate."
+  }
+}

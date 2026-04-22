@@ -80,6 +80,8 @@ _CURRENT_RANKINGS_MAX_AGE_DAYS = max(
 _ETF_MARKET_CODE = "ETF・ETN"
 _ETF_TRADE_PRIORITY_HAIRCUT = 0.86
 _TRADE_PREBREAKOUT_ACTIONABILITY_WEIGHT = 0.3
+_TRADE_PREBREAKOUT_RESIDUE_EMPHASIS = 0.15
+_TRADE_PREBREAKOUT_RESIDUE_WEIGHT = 0.05
 
 
 def _log_rankings_timing(tag: str, payload: dict[str, Any]) -> None:
@@ -5612,8 +5614,15 @@ def _calc_trade_prebreakout_actionability_components(item: dict[str, Any], *, di
             "boundary_proximity": 0.5,
             "upside_room_left": 0.5,
             "liquidity_quality": 0.5,
+            "late_extension_penalty": 0.5,
+            "early_reversal_penalty": 0.5,
+            "weak_convexity_penalty": 0.5,
+            "failed_breakdown_residue_support": 0.5,
+            "failed_breakdown_residue_gap": 0.0,
+            "failed_breakdown_residue_penalty": 0.5,
             "lateness_penalty": 0.5,
             "overall": 0.5,
+            "overall_v3": 0.5,
         }
 
     high20_dist = _first_finite(item.get("high20_dist"), item.get("breakout20_up"), item.get("breakout20Up"))
@@ -5632,8 +5641,8 @@ def _calc_trade_prebreakout_actionability_components(item: dict[str, Any], *, di
     late_breakout_raw = item.get("patternS3LateBreakout") if "patternS3LateBreakout" in item else item.get("s3LateBreakout") if "s3LateBreakout" in item else None
 
     compression_parts: list[float] = [
-        _centered_score(high20_dist, center=-0.012, width=0.05),
-        _centered_score(diff20_pct, center=0.006, width=0.02),
+        _centered_score(high20_dist, center=-0.03, width=0.03),
+        _centered_score(diff20_pct, center=0.009, width=0.015),
     ]
     if monthly_box_state in {"box_upper", "box_mid", "breakout_up"} and monthly_box_months is not None:
         compression_parts.append(_centered_score(monthly_box_months, center=8.0, width=4.0))
@@ -5641,48 +5650,96 @@ def _calc_trade_prebreakout_actionability_components(item: dict[str, Any], *, di
 
     boundary_parts: list[float] = []
     if breakout20_up is not None:
-        boundary_parts.append(_centered_score(breakout20_up, center=-0.012, width=0.05))
+        boundary_parts.append(_centered_score(breakout20_up, center=-0.025, width=0.03))
     if weekly_breakout_up_prob is not None:
-        boundary_parts.append(_unit_score(weekly_breakout_up_prob, lower=0.45, upper=0.75))
+        boundary_parts.append(_unit_score(weekly_breakout_up_prob, lower=0.50, upper=0.78))
     if monthly_breakout_up_prob is not None:
-        boundary_parts.append(_unit_score(monthly_breakout_up_prob, lower=0.45, upper=0.75))
+        boundary_parts.append(_unit_score(monthly_breakout_up_prob, lower=0.50, upper=0.78))
     boundary_proximity = float(sum(boundary_parts) / len(boundary_parts)) if boundary_parts else 0.5
 
     room_parts: list[float] = []
     if rebound60 is not None:
-        room_parts.append(_unit_score(rebound60, lower=0.0, upper=0.12))
+        room_parts.append(_unit_score(rebound60, lower=0.07, upper=0.14))
     if drawdown60 is not None:
-        room_parts.append(_centered_score(drawdown60, center=-0.05, width=0.08))
-    room_parts.append(0.0 if buy_overextended_raw is True else 0.75 if buy_overextended_raw is False else 0.5)
+        room_parts.append(_centered_score(drawdown60, center=-0.065, width=0.05))
+    room_parts.append(0.0 if buy_overextended_raw is True else 0.78 if buy_overextended_raw is False else 0.5)
     upside_room_left = float(sum(room_parts) / len(room_parts)) if room_parts else 0.5
 
     liquidity_parts: list[float] = []
     if turnover_z20 is not None:
-        liquidity_parts.append(_unit_score(turnover_z20, lower=-0.40, upper=0.80))
+        liquidity_parts.append(_unit_score(turnover_z20, lower=-0.20, upper=0.85))
     if liquidity20d is not None:
         liquidity_parts.append(_unit_score(liquidity20d, lower=50_000_000.0, upper=1_500_000_000.0))
     liquidity_quality = float(sum(liquidity_parts) / len(liquidity_parts)) if liquidity_parts else 0.5
 
-    lateness_parts: list[float] = []
+    late_extension_parts: list[float] = []
     if candle_upper_wick_ratio is not None:
-        lateness_parts.append(_unit_score(candle_upper_wick_ratio, lower=0.25, upper=0.55))
+        late_extension_parts.append(_unit_score(candle_upper_wick_ratio, lower=0.22, upper=0.45))
     if diff20_pct is not None:
-        lateness_parts.append(_unit_score(diff20_pct, lower=0.012, upper=0.03))
+        late_extension_parts.append(_unit_score(diff20_pct, lower=0.010, upper=0.026))
     if high20_dist is not None:
-        lateness_parts.append(_unit_score(high20_dist, lower=0.0, upper=0.05))
-    lateness_parts.append(1.0 if late_breakout_raw is True else 0.0 if late_breakout_raw is False else 0.5)
-    lateness_penalty = float(sum(lateness_parts) / len(lateness_parts)) if lateness_parts else 0.5
+        late_extension_parts.append(_unit_score(high20_dist, lower=0.0, upper=0.035))
+    late_extension_parts.append(1.0 if late_breakout_raw is True else 0.0 if late_breakout_raw is False else 0.5)
+    late_extension_penalty = float(sum(late_extension_parts) / len(late_extension_parts)) if late_extension_parts else 0.5
+
+    early_reversal_parts: list[float] = []
+    if drawdown60 is not None:
+        early_reversal_parts.append(_unit_score(-drawdown60, lower=0.05, upper=0.14))
+    if rebound60 is not None:
+        early_reversal_parts.append(1.0 - _unit_score(rebound60, lower=0.03, upper=0.09))
+    early_reversal_penalty = float(sum(early_reversal_parts) / len(early_reversal_parts)) if early_reversal_parts else 0.5
+
+    weak_convexity_penalty = float(max(0.0, min(1.0, 1.0 - liquidity_quality)))
+
+    launch_core = float(
+        max(
+            0.0,
+            min(
+                1.0,
+                0.50 * min(compression_tightness, upside_room_left)
+                + 0.35 * math.sqrt(max(0.0, compression_tightness * upside_room_left))
+                + 0.15 * boundary_proximity,
+            ),
+        )
+    )
+    noise_penalty = float(
+        max(
+            late_extension_penalty,
+            early_reversal_penalty,
+            weak_convexity_penalty,
+        )
+    )
+    failed_breakdown_residue_support = float(
+        max(
+            0.0,
+            min(
+                1.0,
+                0.45 * compression_tightness
+                + 0.35 * boundary_proximity
+                + 0.20 * upside_room_left,
+            ),
+        )
+    )
+    failed_breakdown_residue_gap = float(max(0.0, early_reversal_penalty - failed_breakdown_residue_support))
+    failed_breakdown_residue_penalty = float(_unit_score(failed_breakdown_residue_gap, lower=0.05, upper=0.18))
 
     overall = float(
         max(
             0.0,
             min(
                 1.0,
-                0.34 * compression_tightness
-                + 0.28 * boundary_proximity
-                + 0.24 * upside_room_left
-                + 0.08 * liquidity_quality
-                + 0.06 * (1.0 - lateness_penalty),
+                0.60 * launch_core + 0.40 * (1.0 - noise_penalty),
+            ),
+        )
+    )
+    overall_v3 = float(
+        max(
+            0.0,
+            min(
+                1.0,
+                overall
+                + _TRADE_PREBREAKOUT_RESIDUE_EMPHASIS * (overall - 0.5)
+                - _TRADE_PREBREAKOUT_RESIDUE_WEIGHT * failed_breakdown_residue_penalty,
             ),
         )
     )
@@ -5691,13 +5748,25 @@ def _calc_trade_prebreakout_actionability_components(item: dict[str, Any], *, di
         "boundary_proximity": float(boundary_proximity),
         "upside_room_left": float(upside_room_left),
         "liquidity_quality": float(liquidity_quality),
-        "lateness_penalty": float(lateness_penalty),
+        "late_extension_penalty": float(late_extension_penalty),
+        "early_reversal_penalty": float(early_reversal_penalty),
+        "weak_convexity_penalty": float(weak_convexity_penalty),
+        "failed_breakdown_residue_support": failed_breakdown_residue_support,
+        "failed_breakdown_residue_gap": failed_breakdown_residue_gap,
+        "failed_breakdown_residue_penalty": failed_breakdown_residue_penalty,
+        "lateness_penalty": float(noise_penalty),
+        "launch_core": float(launch_core),
         "overall": overall,
+        "overall_v3": overall_v3,
     }
 
 
 def _calc_trade_prebreakout_actionability_score(item: dict[str, Any], *, direction: RankDir) -> float:
     return float(_calc_trade_prebreakout_actionability_components(item, direction=direction)["overall"])
+
+
+def _calc_trade_prebreakout_actionability_score_v3(item: dict[str, Any], *, direction: RankDir) -> float:
+    return float(_calc_trade_prebreakout_actionability_components(item, direction=direction)["overall_v3"])
 
 
 def _summarize_trade_items(items: list[dict[str, Any]], *, direction: RankDir, top_n: int = 5) -> dict[str, Any]:
