@@ -20,6 +20,17 @@ _screener_repo = None
 _repo_lock = RLock()
 _logger = logging.getLogger(__name__)
 _logged_paths = False
+_resources_initialized = False
+
+
+def _is_implicit_repo_init_allowed() -> bool:
+    app_env = str(os.getenv("APP_ENV") or os.getenv("ENV") or "").strip().lower()
+    if app_env in {"dev", "development", "test"}:
+        return True
+    explicit = str(os.getenv("MEEMEE_ALLOW_IMPLICIT_REPO_INIT") or "").strip().lower()
+    if explicit in {"1", "true", "yes", "on"}:
+        return True
+    return bool(os.getenv("PYTEST_CURRENT_TEST"))
 
 
 def _resolve_data_dir(data_dir: str | None = None) -> str:
@@ -49,7 +60,7 @@ def _log_paths_once(data_dir: str, db_path: str, fav_path: str) -> None:
 
 
 def _init_repos(data_dir: str | None, allow_fallback: bool) -> None:
-    global _stock_repo, _favorites_repo, _config_repo, _screener_repo
+    global _stock_repo, _favorites_repo, _config_repo, _screener_repo, _resources_initialized
     if _stock_repo and _favorites_repo and _config_repo and _screener_repo:
         return
     with _repo_lock:
@@ -70,15 +81,27 @@ def _init_repos(data_dir: str | None, allow_fallback: bool) -> None:
         _screener_repo = _screener_repo or ScreenerRepository(db_path)
         _favorites_repo = _favorites_repo or FavoritesRepository(fav_path)
         _config_repo = _config_repo or ConfigRepository(resolved_data_dir)
+        _resources_initialized = True
 
 def init_resources(data_dir: str):
     _init_repos(data_dir, allow_fallback=False)
+
+
+def _require_repo_resources_initialized() -> None:
+    if _resources_initialized:
+        return
+    if _is_implicit_repo_init_allowed():
+        _init_repos(None, allow_fallback=True)
+        return
+    raise RuntimeError(
+        "Repository resources are not initialized. Call init_resources(data_dir) before requesting repositories."
+    )
 
 def get_stock_repo() -> StockRepository:
     global _stock_repo
     if _stock_repo:
         return _stock_repo
-    _init_repos(None, allow_fallback=True)
+    _require_repo_resources_initialized()
     if not _stock_repo:
         raise RuntimeError("StockRepo not initialized")
     return _stock_repo
@@ -87,7 +110,7 @@ def get_favorites_repo() -> FavoritesRepository:
     global _favorites_repo
     if _favorites_repo:
         return _favorites_repo
-    _init_repos(None, allow_fallback=True)
+    _require_repo_resources_initialized()
     if not _favorites_repo:
         raise RuntimeError("FavoritesRepo not initialized")
     return _favorites_repo
@@ -96,7 +119,7 @@ def get_config_repo() -> ConfigRepository:
     global _config_repo
     if _config_repo:
         return _config_repo
-    _init_repos(None, allow_fallback=True)
+    _require_repo_resources_initialized()
     if not _config_repo:
         raise RuntimeError("ConfigRepo not initialized")
     return _config_repo
@@ -105,7 +128,7 @@ def get_screener_repo() -> ScreenerRepository:
     global _screener_repo
     if _screener_repo:
         return _screener_repo
-    _init_repos(None, allow_fallback=True)
+    _require_repo_resources_initialized()
     if not _screener_repo:
         raise RuntimeError("ScreenerRepo not initialized")
     return _screener_repo

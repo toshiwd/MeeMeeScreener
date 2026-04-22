@@ -65,6 +65,53 @@ type DetailParams = {
   asof?: string | null;
 };
 
+type ScopedDetailParams = DetailParams & {
+  timeframes?: BatchBarsRequestTimeframe[];
+  includeBoxes?: boolean;
+};
+
+const DEFAULT_DETAIL_TIMEFRAMES: BatchBarsRequestTimeframe[] = ["daily", "weekly", "monthly"];
+
+const normalizeDetailTimeframes = (timeframes?: BatchBarsRequestTimeframe[]) => {
+  const candidate = Array.isArray(timeframes) && timeframes.length > 0 ? timeframes : DEFAULT_DETAIL_TIMEFRAMES;
+  return Array.from(new Set(candidate.filter((timeframe): timeframe is BatchBarsRequestTimeframe =>
+    timeframe === "daily" || timeframe === "weekly" || timeframe === "monthly"
+  )));
+};
+
+export const buildScopedDetailBatchBarsRequestPayload = ({
+  code,
+  dailyLimit,
+  weeklyLimit,
+  monthlyLimit,
+  asof,
+  timeframes,
+  includeBoxes,
+}: ScopedDetailParams): BatchBarsRequestPayload => {
+  const resolvedTimeframes = normalizeDetailTimeframes(timeframes);
+  const timeframeLimits = {
+    daily: dailyLimit,
+    weekly: weeklyLimit,
+    monthly: monthlyLimit,
+  } satisfies Partial<Record<BatchBarsRequestTimeframe, number>>;
+  const resolvedLimit = Math.max(
+    ...resolvedTimeframes.map((timeframe) => timeframeLimits[timeframe] ?? 0),
+    0
+  );
+  const payload: BatchBarsRequestPayload = {
+    codes: [code],
+    timeframes: resolvedTimeframes,
+    limit: resolvedLimit,
+    timeframeLimits,
+    includeProvisional: true,
+    includeBoxes: typeof includeBoxes === "boolean" ? includeBoxes : true,
+  };
+  if (typeof asof === "string" && asof.trim()) {
+    payload.asof = asof.trim();
+  }
+  return payload;
+};
+
 export const buildDetailBatchBarsRequestPayload = ({
   code,
   dailyLimit,
@@ -72,22 +119,15 @@ export const buildDetailBatchBarsRequestPayload = ({
   monthlyLimit,
   asof,
 }: DetailParams): BatchBarsRequestPayload => {
-  const payload: BatchBarsRequestPayload = {
-    codes: [code],
-    timeframes: ["daily", "weekly", "monthly"],
-    limit: Math.max(dailyLimit, weeklyLimit, monthlyLimit),
-    timeframeLimits: {
-      daily: dailyLimit,
-      weekly: weeklyLimit,
-      monthly: monthlyLimit,
-    },
-    includeProvisional: true,
+  return buildScopedDetailBatchBarsRequestPayload({
+    code,
+    dailyLimit,
+    weeklyLimit,
+    monthlyLimit,
+    asof,
+    timeframes: DEFAULT_DETAIL_TIMEFRAMES,
     includeBoxes: true,
-  };
-  if (typeof asof === "string" && asof.trim()) {
-    payload.asof = asof.trim();
-  }
-  return payload;
+  });
 };
 
 type DetailPrefetchParams = DetailParams & {
@@ -102,15 +142,15 @@ export const buildDetailPrefetchBatchBarsRequestPayload = ({
   asof,
   includeBoxes,
 }: DetailPrefetchParams): BatchBarsRequestPayload => {
-  const payload = buildDetailBatchBarsRequestPayload({
+  return buildScopedDetailBatchBarsRequestPayload({
     code,
     dailyLimit,
     weeklyLimit,
     monthlyLimit,
     asof,
+    timeframes: DEFAULT_DETAIL_TIMEFRAMES,
+    includeBoxes: typeof includeBoxes === "boolean" ? includeBoxes : false,
   });
-  payload.includeBoxes = typeof includeBoxes === "boolean" ? includeBoxes : false;
-  return payload;
 };
 
 export const postDetailBatchBarsRequest = async (

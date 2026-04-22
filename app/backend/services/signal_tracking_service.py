@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import threading
+import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
 import duckdb
 import pandas as pd
@@ -17,6 +19,8 @@ from app.backend.services.ml import rankings_cache
 from app.core.config import config
 from app.db.session import get_conn, get_conn_for_path
 from shared.runtime_stock_db_contract import inspect_runtime_stock_db
+
+logger = logging.getLogger(__name__)
 
 WATCH_HORIZON_BARS = 30
 COMPLETED_RETENTION_DAYS = 30
@@ -78,6 +82,77 @@ class DailyBar:
     high: float | None
     low: float | None
     close: float | None
+
+
+TrackingProgressCallback = Callable[[dict[str, Any]], None]
+
+
+def _tracking_heartbeat_at() -> str:
+    return _serialize_timestamp(datetime.now(timezone.utc))
+
+
+def _tracking_progress_event(
+    *,
+    phase: str,
+    status: str,
+    processed: int | None = None,
+    total: int | None = None,
+    current_market_ymd: int | None = None,
+    current_market_date: str | None = None,
+    detail: str | None = None,
+    stage: str = "tracking_refresh",
+    substage: str | None = None,
+    current_side: str | None = None,
+) -> dict[str, Any]:
+    event: dict[str, Any] = {
+        "stage": stage,
+        "phase": str(phase),
+        "status": str(status),
+        "processed": int(processed) if processed is not None else None,
+        "total": int(total) if total is not None else None,
+        "current_market_ymd": int(current_market_ymd) if current_market_ymd is not None else None,
+        "current_market_date": str(current_market_date) if current_market_date is not None else None,
+        "current_side": str(current_side) if current_side is not None else None,
+        "detail": str(detail) if detail is not None else None,
+        "heartbeat_at": _tracking_heartbeat_at(),
+    }
+    if substage is not None:
+        event["substage"] = str(substage)
+    return event
+
+
+def _emit_tracking_progress(
+    progress_cb: TrackingProgressCallback | None,
+    event: dict[str, Any],
+    *,
+    throttle_state: dict[str, Any] | None = None,
+    force: bool = False,
+    min_interval_sec: float = 2.0,
+) -> None:
+    if progress_cb is None:
+        return
+    now = time.monotonic()
+    if throttle_state is not None:
+        last_emit = float(throttle_state.get("last_emit_at") or 0.0)
+        last_key = throttle_state.get("last_key")
+        key = (
+            event.get("stage"),
+            event.get("substage"),
+            event.get("phase"),
+            event.get("status"),
+            event.get("processed"),
+            event.get("total"),
+            event.get("current_market_ymd"),
+            event.get("current_side"),
+            event.get("detail"),
+        )
+        if not force and key == last_key and (now - last_emit) < min_interval_sec:
+            return
+        if not force and event.get("status") == "running" and (now - last_emit) < min_interval_sec:
+            return
+        throttle_state["last_emit_at"] = now
+        throttle_state["last_key"] = key
+    progress_cb(dict(event))
 
 
 @dataclass(frozen=True)
@@ -1493,6 +1568,7 @@ def backfill_signal_basis(
     basis_version: str = DEFAULT_BASIS_VERSION,
     reset_scope: bool = False,
     db_path: str | None = None,
+    progress_cb: TrackingProgressCallback | None = None,
 ) -> dict[str, Any]:
     from_int = _coerce_ymd(from_ymd)
     to_int = _coerce_ymd(to_ymd)
@@ -1501,6 +1577,17 @@ def backfill_signal_basis(
         effective_to = to_int or latest_market_ymd
         market_dates = _list_market_dates(conn, from_ymd=from_int, to_ymd=effective_to)
     if not market_dates:
+        _emit_tracking_progress(
+            progress_cb,
+            _tracking_progress_event(
+                phase="basis",
+                status="done",
+                processed=0,
+                total=0,
+                detail="no market dates",
+            ),
+            force=True,
+        )
         return {
             "ok": True,
             "basis_version": str(basis_version),
@@ -1510,7 +1597,36 @@ def backfill_signal_basis(
             "rows_upserted": 0,
         }
     rows: list[list[Any]] = []
-    for dt in market_dates:
+    progress_state: dict[str, Any] = {"last_emit_at": 0.0}
+    total_dates = len(market_dates)
+    _emit_tracking_progress(
+        progress_cb,
+        _tracking_progress_event(
+            phase="basis",
+            status="start",
+            processed=0,
+            total=total_dates,
+            current_market_ymd=market_dates[0],
+            current_market_date=_ymd_to_iso(market_dates[0]),
+            detail=f"building basis rows (version={basis_version})",
+        ),
+        throttle_state=progress_state,
+        force=True,
+    )
+    for index, dt in enumerate(market_dates, start=1):
+        _emit_tracking_progress(
+            progress_cb,
+            _tracking_progress_event(
+                phase="basis",
+                status="running",
+                processed=index,
+                total=total_dates,
+                current_market_ymd=dt,
+                current_market_date=_ymd_to_iso(dt),
+                detail="building basis rows",
+            ),
+            throttle_state=progress_state,
+        )
         for row in _call_build_basis_rows_for_date(dt, db_path=db_path):
             rows.append(
                 [
@@ -1568,6 +1684,20 @@ def backfill_signal_basis(
         except Exception:
             conn.execute("ROLLBACK")
             raise
+    _emit_tracking_progress(
+        progress_cb,
+        _tracking_progress_event(
+            phase="basis",
+            status="done",
+            processed=total_dates,
+            total=total_dates,
+            current_market_ymd=market_dates[-1],
+            current_market_date=_ymd_to_iso(market_dates[-1]),
+            detail=f"rows_upserted={len(rows)}",
+        ),
+        throttle_state=progress_state,
+        force=True,
+    )
     return {
         "ok": True,
         "basis_version": str(basis_version),
@@ -1931,6 +2061,7 @@ def rebuild_signal_decisions(
     basis_version: str | None = None,
     reset_scope: bool = False,
     db_path: str | None = None,
+    progress_cb: TrackingProgressCallback | None = None,
 ) -> dict[str, Any]:
     normalized_side = _normalize_side(side, allow_all=True)
     with _open_conn(db_path) as conn:
@@ -1958,6 +2089,23 @@ def rebuild_signal_decisions(
         latest_market_ymd = _latest_market_ymd(conn)
         bars_cache: dict[str, tuple[list[DailyBar], dict[int, int]]] = {}
         start_ymd_for_bars = basis_dates[0] if basis_dates else from_int
+        total_units = max(1, len(basis_dates) * max(1, len(target_sides)))
+        progress_state: dict[str, Any] = {"last_emit_at": 0.0}
+        _emit_tracking_progress(
+            progress_cb,
+            _tracking_progress_event(
+                phase="decisions",
+                status="start",
+                processed=0,
+                total=total_units,
+                current_market_ymd=basis_dates[0] if basis_dates else None,
+                current_market_date=_ymd_to_iso(basis_dates[0]) if basis_dates else None,
+                detail=f"rebuilding decision rows (version={resolved_logic_version})",
+            ),
+            throttle_state=progress_state,
+            force=True,
+        )
+        completed_units = 0
         for dt in basis_dates:
             items, buy_rank, sell_rank = _load_basis_items_for_date(conn, dt=dt, basis_version=resolved_basis_version)
             if not items:
@@ -2058,6 +2206,21 @@ def rebuild_signal_decisions(
                             datetime.now(timezone.utc),
                         ]
                     )
+                completed_units += 1
+                _emit_tracking_progress(
+                    progress_cb,
+                    _tracking_progress_event(
+                        phase="decisions",
+                        status="running",
+                        processed=completed_units,
+                        total=total_units,
+                        current_market_ymd=dt,
+                        current_market_date=_ymd_to_iso(dt),
+                        current_side=target_side,
+                        detail=f"dt={dt} side={target_side}",
+                    ),
+                    throttle_state=progress_state,
+                )
     with _open_conn(db_path) as conn:
         conn.execute("BEGIN TRANSACTION")
         try:
@@ -2113,6 +2276,20 @@ def rebuild_signal_decisions(
         except Exception:
             conn.execute("ROLLBACK")
             raise
+    _emit_tracking_progress(
+        progress_cb,
+        _tracking_progress_event(
+            phase="decisions",
+            status="done",
+            processed=completed_units,
+            total=total_units,
+            current_market_ymd=basis_dates[-1] if basis_dates else None,
+            current_market_date=_ymd_to_iso(basis_dates[-1]) if basis_dates else None,
+            detail=f"decision_rows={len(decision_rows)}",
+        ),
+        throttle_state=progress_state,
+        force=True,
+    )
     return {
         "ok": True,
         "logic_version": resolved_logic_version,
@@ -2155,6 +2332,7 @@ def rebuild_signal_campaigns(
     logic_version: str | None = None,
     side: str = "all",
     db_path: str | None = None,
+    progress_cb: TrackingProgressCallback | None = None,
 ) -> dict[str, Any]:
     normalized_side = _normalize_side(side, allow_all=True)
     with _open_conn(db_path) as conn:
@@ -2180,6 +2358,20 @@ def rebuild_signal_campaigns(
             """,
             [resolved_logic_version, *target_sides],
         ).fetchall()
+        progress_state: dict[str, Any] = {"last_emit_at": 0.0}
+        total_rows = len(decision_rows)
+        _emit_tracking_progress(
+            progress_cb,
+            _tracking_progress_event(
+                phase="campaigns",
+                status="start",
+                processed=0,
+                total=total_rows,
+                detail=f"rebuilding campaigns (logic_version={resolved_logic_version})",
+            ),
+            throttle_state=progress_state,
+            force=True,
+        )
         conn.execute(
             f"DELETE FROM signal_occurrence WHERE logic_version = ? AND side IN ({', '.join(['?'] * len(target_sides))})",
             [resolved_logic_version, *target_sides],
@@ -2189,6 +2381,18 @@ def rebuild_signal_campaigns(
             [resolved_logic_version, *target_sides],
         )
         if not decision_rows:
+            _emit_tracking_progress(
+                progress_cb,
+                _tracking_progress_event(
+                    phase="campaigns",
+                    status="done",
+                    processed=0,
+                    total=0,
+                    detail="campaigns=0 occurrences=0",
+                ),
+                throttle_state=progress_state,
+                force=True,
+            )
             return {
                 "ok": True,
                 "logic_version": resolved_logic_version,
@@ -2197,7 +2401,7 @@ def rebuild_signal_campaigns(
                 "campaign_count": 0,
             }
         grouped: dict[tuple[str, str], list[SignalOccurrence]] = {}
-        for dt, code, row_side, basis_version, row_logic_version, _name, reason_json, score_json in decision_rows:
+        for index, (dt, code, row_side, basis_version, row_logic_version, _name, reason_json, score_json) in enumerate(decision_rows, start=1):
             bars = _fetch_code_bars(conn, code=str(code), start_ymd=int(dt))
             by_date = _bar_price_lookup(bars)
             idx = by_date.get(int(dt))
@@ -2217,6 +2421,20 @@ def rebuild_signal_campaigns(
                 entry_next_open_price=next_open_price,
             )
             grouped.setdefault((occurrence.side, occurrence.code), []).append(occurrence)
+            _emit_tracking_progress(
+                progress_cb,
+                _tracking_progress_event(
+                    phase="campaigns",
+                    status="running",
+                    processed=index,
+                    total=total_rows,
+                    current_market_ymd=int(dt),
+                    current_market_date=_ymd_to_iso(int(dt)),
+                    current_side=str(row_side),
+                    detail=f"decision_row={index}/{total_rows}",
+                ),
+                throttle_state=progress_state,
+            )
         occurrence_rows: list[list[Any]] = []
         campaign_rows: list[list[Any]] = []
         name_rows = conn.execute("SELECT code, name FROM stock_meta").fetchall()
@@ -2389,6 +2607,18 @@ def rebuild_signal_campaigns(
                 """,
                 campaign_rows,
             )
+        _emit_tracking_progress(
+            progress_cb,
+            _tracking_progress_event(
+                phase="campaigns",
+                status="done",
+                processed=total_rows,
+                total=total_rows,
+                detail=f"campaigns={len(campaign_rows)} occurrences={len(occurrence_rows)}",
+            ),
+            throttle_state=progress_state,
+            force=True,
+        )
         return {
             "ok": True,
             "logic_version": resolved_logic_version,
@@ -2461,6 +2691,163 @@ def refresh_signal_tracking(
         "ranking_appearance_upserted": int(ranking_result.get("appearance_upserted") or 0),
         "lookback_days": int(lookback_days or DEFAULT_LOOKBACK_DAYS),
         "limit": int(limit or DEFAULT_LIMIT),
+    }
+
+
+def refresh_daily_tracking_window(
+    *,
+    market_day_window: int | None = None,
+    db_path: str | None = None,
+    progress_cb: TrackingProgressCallback | None = None,
+) -> dict[str, Any]:
+    started_at = time.monotonic()
+    requested_window = max(1, int(market_day_window or (WATCH_HORIZON_BARS + COMPLETED_RETENTION_DAYS)))
+    with _open_conn(db_path, read_only=True) as conn:
+        market_dates = _list_market_dates(conn)
+    logger.info(
+        "tracking_refresh start window=%s market_dates=%s db_path=%s",
+        requested_window,
+        len(market_dates),
+        db_path,
+    )
+    progress_state: dict[str, Any] = {"last_emit_at": 0.0}
+    _emit_tracking_progress(
+        progress_cb,
+        _tracking_progress_event(
+            phase="prepare",
+            status="start",
+            processed=0,
+            total=6,
+            current_market_ymd=market_dates[-1] if market_dates else None,
+            current_market_date=_ymd_to_iso(market_dates[-1]) if market_dates else None,
+            detail=f"window={requested_window} dates={len(market_dates)}",
+        ),
+        throttle_state=progress_state,
+        force=True,
+    )
+    if not market_dates:
+        _emit_tracking_progress(
+            progress_cb,
+            _tracking_progress_event(
+                phase="prepare",
+                status="done",
+                processed=0,
+                total=6,
+                detail="no market dates",
+            ),
+            throttle_state=progress_state,
+            force=True,
+        )
+        return {
+            "ok": True,
+            "skipped": True,
+            "reason": "no_market_dates",
+            "market_day_window": requested_window,
+            "from": None,
+            "to": None,
+            "from_int": None,
+            "to_int": None,
+        }
+    from_index = max(0, len(market_dates) - requested_window)
+    from_int = int(market_dates[from_index])
+    to_int = int(market_dates[-1])
+
+    phase_timers: dict[str, float] = {}
+
+    def _forward_progress(event: dict[str, Any]) -> None:
+        phase = str(event.get("phase") or "unknown")
+        status = str(event.get("status") or "running")
+        substage = f"tracking_refresh.{phase}"
+        forwarded = dict(event)
+        forwarded["stage"] = "tracking_refresh"
+        forwarded["substage"] = substage
+        forwarded.setdefault("current_market_ymd", event.get("current_market_ymd"))
+        forwarded.setdefault("current_market_date", event.get("current_market_date"))
+        forwarded["heartbeat_at"] = _tracking_heartbeat_at()
+        if status == "start":
+            phase_timers[substage] = time.monotonic()
+            logger.info(
+                "tracking_refresh substage start: %s detail=%s processed=%s/%s current=%s",
+                substage,
+                forwarded.get("detail"),
+                forwarded.get("processed"),
+                forwarded.get("total"),
+                forwarded.get("current_market_date"),
+            )
+        elif status == "done":
+            started = phase_timers.pop(substage, None)
+            elapsed = time.monotonic() - started if started is not None else None
+            logger.info(
+                "tracking_refresh substage done: %s elapsed=%s detail=%s processed=%s/%s current=%s",
+                substage,
+                f"{elapsed:.1f}s" if elapsed is not None else "unknown",
+                forwarded.get("detail"),
+                forwarded.get("processed"),
+                forwarded.get("total"),
+                forwarded.get("current_market_date"),
+            )
+        _emit_tracking_progress(progress_cb, forwarded, throttle_state=progress_state)
+
+    _forward_progress(
+        _tracking_progress_event(
+            phase="prepare",
+            status="start",
+            processed=0,
+            total=6,
+            current_market_ymd=from_int,
+            current_market_date=_ymd_to_iso(from_int) if from_int is not None else None,
+            detail="preparing backfill",
+        )
+    )
+    result = backfill_signal_tracking(
+        from_ymd=from_int,
+        to_ymd=to_int,
+        logic_version=ACTIVE_LOGIC_VERSION_ALIAS,
+        basis_version=DEFAULT_BASIS_VERSION,
+        reset_scope=False,
+        db_path=db_path,
+        progress_cb=_forward_progress,
+    )
+    with _REFRESH_LOCK:
+        _REFRESH_STATE["as_of"] = to_int
+        _REFRESH_STATE["refreshed_at"] = datetime.now(timezone.utc)
+    _forward_progress(
+        _tracking_progress_event(
+            phase="finalize",
+            status="start",
+            processed=5,
+            total=6,
+            current_market_ymd=to_int,
+            current_market_date=_ymd_to_iso(to_int),
+            detail="writing refresh state",
+        )
+    )
+    elapsed_sec = time.monotonic() - started_at
+    logger.info(
+        "tracking_refresh complete window=%s market_dates=%s elapsed=%.1fs",
+        requested_window,
+        len(market_dates),
+        elapsed_sec,
+    )
+    _forward_progress(
+        _tracking_progress_event(
+            phase="finalize",
+            status="done",
+            processed=6,
+            total=6,
+            current_market_ymd=to_int,
+            current_market_date=_ymd_to_iso(to_int),
+            detail="tracking refresh completed",
+        )
+    )
+    return {
+        "ok": True,
+        "market_day_window": requested_window,
+        "from": _ymd_to_iso(from_int),
+        "to": _ymd_to_iso(to_int),
+        "from_int": from_int,
+        "to_int": to_int,
+        "result": result,
     }
 
 
@@ -5250,6 +5637,7 @@ def rebuild_ranking_appearances(
     basis_version: str | None = None,
     reset_scope: bool = False,
     db_path: str | None = None,
+    progress_cb: TrackingProgressCallback | None = None,
 ) -> dict[str, Any]:
     from_int = _coerce_ymd(from_ymd)
     to_int = _coerce_ymd(to_ymd)
@@ -5279,7 +5667,21 @@ def rebuild_ranking_appearances(
     with _open_conn(db_path, read_only=True) as conn:
         bars_cache: dict[str, tuple[list[DailyBar], dict[int, int]]] = {}
         decision_rows_cache: dict[tuple[str, str, int, int], list[dict[str, Any]]] = {}
-        for dt in basis_dates:
+        total_dates = len(basis_dates)
+        progress_state: dict[str, Any] = {"last_emit_at": 0.0}
+        _emit_tracking_progress(
+            progress_cb,
+            _tracking_progress_event(
+                phase="ranking_appearances",
+                status="start",
+                processed=0,
+                total=total_dates,
+                detail=f"rebuilding ranking appearances (logic_version={resolved_ranking_logic_version})",
+            ),
+            throttle_state=progress_state,
+            force=True,
+        )
+        for index, dt in enumerate(basis_dates, start=1):
             items, _buy_rank, _sell_rank = _load_basis_items_for_date(conn, dt=dt, basis_version=resolved_basis_version)
             if not items:
                 continue
@@ -5387,6 +5789,19 @@ def rebuild_ranking_appearances(
                             datetime.now(timezone.utc),
                         ]
                     )
+            _emit_tracking_progress(
+                progress_cb,
+                _tracking_progress_event(
+                    phase="ranking_appearances",
+                    status="running",
+                    processed=index,
+                    total=total_dates,
+                    current_market_ymd=dt,
+                    current_market_date=_ymd_to_iso(dt),
+                    detail=f"dt={dt} appearances={len(appearance_rows)}",
+                ),
+                throttle_state=progress_state,
+            )
     with _open_conn(db_path) as conn:
         conn.execute("BEGIN TRANSACTION")
         try:
@@ -5453,6 +5868,20 @@ def rebuild_ranking_appearances(
         except Exception:
             conn.execute("ROLLBACK")
             raise
+    _emit_tracking_progress(
+        progress_cb,
+        _tracking_progress_event(
+            phase="ranking_appearances",
+            status="done",
+            processed=total_dates,
+            total=total_dates,
+            current_market_ymd=basis_dates[-1] if basis_dates else None,
+            current_market_date=_ymd_to_iso(basis_dates[-1]) if basis_dates else None,
+            detail=f"appearance_upserted={len(appearance_rows)}",
+        ),
+        throttle_state=progress_state,
+        force=True,
+    )
     return {
         "ok": True,
         "ranking_logic_version": resolved_ranking_logic_version,
@@ -6483,6 +6912,7 @@ def backfill_signal_tracking(
     basis_version: str = DEFAULT_BASIS_VERSION,
     reset_scope: bool = False,
     db_path: str | None = None,
+    progress_cb: TrackingProgressCallback | None = None,
 ) -> dict[str, Any]:
     from_int = _coerce_ymd(from_ymd)
     to_int = _coerce_ymd(to_ymd)
@@ -6495,12 +6925,26 @@ def backfill_signal_tracking(
             if from_int is None:
                 lookback = max(20, int(lookback_days or DEFAULT_BACKFILL_LOOKBACK_DAYS))
                 from_int = market_dates[max(0, len(market_dates) - lookback)]
+    _emit_tracking_progress(
+        progress_cb,
+        _tracking_progress_event(
+            phase="prepare",
+            status="start",
+            processed=0,
+            total=4,
+            current_market_ymd=to_int,
+            current_market_date=_ymd_to_iso(to_int) if to_int is not None else None,
+            detail=f"backfill window={_ymd_to_iso(from_int) if from_int is not None else None}..{_ymd_to_iso(to_int) if to_int is not None else None}",
+        ),
+        force=True,
+    )
     basis_result = backfill_signal_basis(
         from_ymd=from_int,
         to_ymd=to_int,
         basis_version=basis_version,
         reset_scope=reset_scope,
         db_path=db_path,
+        progress_cb=progress_cb,
     )
     decision_result = rebuild_signal_decisions(
         from_ymd=from_int,
@@ -6510,11 +6954,13 @@ def backfill_signal_tracking(
         basis_version=basis_version,
         reset_scope=reset_scope,
         db_path=db_path,
+        progress_cb=progress_cb,
     )
     campaign_result = rebuild_signal_campaigns(
         logic_version=logic_version,
         side=side,
         db_path=db_path,
+        progress_cb=progress_cb,
     )
     ranking_result = rebuild_ranking_appearances(
         from_ymd=from_int,
@@ -6524,6 +6970,20 @@ def backfill_signal_tracking(
         basis_version=basis_version,
         reset_scope=reset_scope,
         db_path=db_path,
+        progress_cb=progress_cb,
+    )
+    _emit_tracking_progress(
+        progress_cb,
+        _tracking_progress_event(
+            phase="prepare",
+            status="done",
+            processed=4,
+            total=4,
+            current_market_ymd=to_int,
+            current_market_date=_ymd_to_iso(to_int) if to_int is not None else None,
+            detail="backfill completed",
+        ),
+        force=True,
     )
     return {
         "ok": True,

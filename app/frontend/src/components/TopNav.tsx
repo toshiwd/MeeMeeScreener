@@ -1,11 +1,6 @@
+import type { ReactNode } from "react";
 import { NavLink } from "react-router-dom";
-import {
-  clearPerfDiagnostics,
-  exportPerfDiagnostics,
-  isPerfDiagnosticsEnabled,
-  openPerfDiagnosticsDir,
-  recordPerfEvent,
-} from "../perfDiagnostics";
+import { recordPerfEvent } from "../perfDiagnostics";
 import { preloadRoute } from "../routePreload";
 
 const navItems = [
@@ -17,9 +12,11 @@ const navItems = [
   { to: "/candidates", label: "候補" },
 ];
 
-export default function TopNav() {
-  const diagnosticsEnabled = isPerfDiagnosticsEnabled();
+type TopNavProps = {
+  actions?: ReactNode;
+};
 
+export default function TopNav({ actions }: TopNavProps) {
   return (
     <>
       <div className="app-brand">
@@ -61,60 +58,7 @@ export default function TopNav() {
           </NavLink>
         ))}
       </nav>
-      {diagnosticsEnabled ? (
-        <div className="perf-diagnostics-tools">
-          <button
-            type="button"
-            className="perf-diagnostics-button"
-            onClick={() => {
-              window.localStorage.removeItem("meemeePerfDiagnosticsEnabled");
-              window.location.reload();
-            }}
-          >
-            診断OFF
-          </button>
-          <button
-            type="button"
-            className="perf-diagnostics-button"
-            onClick={() => {
-              void exportPerfDiagnostics();
-            }}
-          >
-            診断保存
-          </button>
-          <button
-            type="button"
-            className="perf-diagnostics-button"
-            onClick={() => {
-              void openPerfDiagnosticsDir();
-            }}
-          >
-            保存先
-          </button>
-          <button
-            type="button"
-            className="perf-diagnostics-button"
-            onClick={() => {
-              void clearPerfDiagnostics();
-            }}
-          >
-            消去
-          </button>
-        </div>
-      ) : (
-        <div className="perf-diagnostics-tools">
-          <button
-            type="button"
-            className="perf-diagnostics-button"
-            onClick={() => {
-              window.localStorage.setItem("meemeePerfDiagnosticsEnabled", "1");
-              window.location.reload();
-            }}
-          >
-            診断ON
-          </button>
-        </div>
-      )}
+      {actions ? <div className="topnav-actions">{actions}</div> : null}
     </>
   );
 }

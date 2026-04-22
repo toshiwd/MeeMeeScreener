@@ -1,39 +1,48 @@
 # Tools
 
-MeeMee の build / release / selftest 用ツールの入口はここに集約する。
+Tooling for MeeMee build, release, self-test, and repo hygiene lives here.
 
-## 正規入口
+## Build and release
 
 - `build_release.cmd`
-  - 公開 build 入口はこれだけ
-  - 既定は `release/MeeMeeScreener/` の onedir build のみ
-  - 既定の DuckDB 同梱元は `%LOCALAPPDATA%\\MeeMeeScreener\\data\\stocks.duckdb`
-  - 別 DB を使う場合だけ `MEEMEE_RELEASE_DB_PATH` を明示する
-  - `-PackageZip` を付けたときだけ `release/MeeMeeScreener-portable.zip` を作る
-  - `-SmokeRun` を付けたときだけ build 後に exe 起動確認を行う
+  - Builds the packaged application.
+  - The normal build keeps only the onedir output under `release/MeeMeeScreener/`.
+  - The default DuckDB source is `%LOCALAPPDATA%\\MeeMeeScreener\\data\\stocks.duckdb`.
+  - Set `MEEMEE_RELEASE_DB_PATH` to point at a different DB for release packaging.
+  - `-PackageZip` creates `release/MeeMeeScreener-portable.zip`.
+  - `-SmokeRun` launches the built executable for a smoke check.
 - `build_release.ps1`
-  - `build_release.cmd` の内部実装
+  - PowerShell wrapper for `build_release.cmd`.
 
-## 配布後ランチャー
+## Portable launcher
 
 - `portable_bootstrap.cmd`
 - `portable_bootstrap.ps1`
-  - ZIP 展開後に runtime 前提を確認して `MeeMeeScreener.exe` を起動する
-  - build はしない
+  - Validates the extracted ZIP runtime and starts `MeeMeeScreener.exe`.
+  - Does not build artifacts.
 
-## selftest
+## Self-test
 
 - `selftest.ps1`
-  - `-Mode dev`: 開発環境 selftest
-  - `-Mode release`: build 済み `release/MeeMeeScreener/` に対する selftest
+  - `-Mode dev`: run the development self-test flow.
+  - `-Mode release`: run self-test against `release/MeeMeeScreener/`.
 
-## 補助ファイル
+## Repo hygiene
+
+- `check_repo_hygiene.ps1`
+  - Run before heavy Codex or VS Code work.
+  - Fails when repo-root scratch trees such as `.pytest_cache` or `.tmp-*` remain.
+  - Fails when unpacked build or release residue stays in the repo.
+  - Heavy TRADEX outputs must live under `G:\\Tradex`, not inside the repo.
+  - Repo-root temp or cache directories are treated as reproducible residue and should be cleaned up.
+
+## Supporting files
 
 - `export_pan.vbs`
-  - PAN export 用
+  - PAN export helper.
 - `code.txt`
-  - `code.txt` の既定配置
+  - Reference code list input.
 - `setup/`
-  - DB / seed / import 系のセットアップ補助
+  - DB, seed, and import setup helpers.
 - `debug/`
-  - 手元診断用スクリプト
+  - Debugging scripts.

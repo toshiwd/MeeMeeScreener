@@ -300,6 +300,140 @@ def test_signal_tracking_summary_is_scoped_by_logic_version(monkeypatch) -> None
     assert summary_latest["duplicate_signal_rate"] == 0.0
 
 
+def test_refresh_daily_tracking_window_limits_backfill_to_recent_market_days(monkeypatch) -> None:
+    db_path = _make_temp_db()
+    market_days = _seed_market_data(db_path)
+    captured: dict[str, object] = {}
+
+    def _fake_backfill_signal_tracking(**kwargs):
+        captured.update(kwargs)
+        return {"ok": True, "basis": {"dates_processed": 10}, "ranking": {"appearance_upserted": 20}}
+
+    monkeypatch.setattr(service, "backfill_signal_tracking", _fake_backfill_signal_tracking)
+    result = service.refresh_daily_tracking_window(db_path=db_path, market_day_window=10)
+
+    assert result["ok"] is True
+    assert result["market_day_window"] == 10
+    assert result["from_int"] == market_days[-10]
+    assert result["to_int"] == market_days[-1]
+    assert captured["from_ymd"] == market_days[-10]
+    assert captured["to_ymd"] == market_days[-1]
+    assert captured["logic_version"] == service.ACTIVE_LOGIC_VERSION_ALIAS
+    assert captured["basis_version"] == service.DEFAULT_BASIS_VERSION
+
+
+def test_backfill_signal_basis_emits_progress_heartbeats(monkeypatch) -> None:
+    db_path = _make_temp_db()
+    market_days = _seed_market_data(db_path)
+    target_dates = market_days[:3]
+    _install_fake_pipeline(monkeypatch, target_dates)
+    clock = {"value": 0.0}
+
+    def _fake_monotonic() -> float:
+        clock["value"] += 3.0
+        return clock["value"]
+
+    monkeypatch.setattr(service.time, "monotonic", _fake_monotonic)
+    events: list[dict[str, object]] = []
+
+    result = service.backfill_signal_basis(
+        from_ymd=target_dates[0],
+        to_ymd=target_dates[-1],
+        basis_version="basis:test:v1",
+        reset_scope=True,
+        db_path=db_path,
+        progress_cb=events.append,
+    )
+
+    basis_events = [event for event in events if event.get("phase") == "basis"]
+    assert result["ok"] is True
+    assert basis_events[0]["status"] == "start"
+    assert any(event["status"] == "running" for event in basis_events)
+    assert basis_events[-1]["status"] == "done"
+    assert all("heartbeat_at" in event for event in basis_events)
+
+
+def test_refresh_daily_tracking_window_forwards_progress_substages(monkeypatch) -> None:
+    db_path = _make_temp_db()
+    _seed_market_data(db_path)
+    clock = {"value": 0.0}
+
+    def _fake_monotonic() -> float:
+        clock["value"] += 3.0
+        return clock["value"]
+
+    def _fake_backfill_signal_tracking(**kwargs):
+        progress_cb = kwargs["progress_cb"]
+        progress_cb(
+            {
+                "stage": "tracking_refresh",
+                "phase": "prepare",
+                "status": "start",
+                "processed": 0,
+                "total": 6,
+                "current_market_ymd": 20260421,
+                "current_market_date": "2026-04-21",
+                "detail": "preparing backfill",
+            }
+        )
+        progress_cb(
+            {
+                "stage": "tracking_refresh",
+                "phase": "basis",
+                "status": "running",
+                "processed": 2,
+                "total": 6,
+                "current_market_ymd": 20260421,
+                "current_market_date": "2026-04-21",
+                "detail": "building basis rows",
+            }
+        )
+        progress_cb(
+            {
+                "stage": "tracking_refresh",
+                "phase": "ranking_appearances",
+                "status": "running",
+                "processed": 5,
+                "total": 6,
+                "current_market_ymd": 20260421,
+                "current_market_date": "2026-04-21",
+                "detail": "building ranking appearances",
+            }
+        )
+        progress_cb(
+            {
+                "stage": "tracking_refresh",
+                "phase": "finalize",
+                "status": "done",
+                "processed": 6,
+                "total": 6,
+                "current_market_ymd": 20260421,
+                "current_market_date": "2026-04-21",
+                "detail": "tracking refresh completed",
+            }
+        )
+        return {
+            "ok": True,
+            "basis": {"dates_processed": 10},
+            "decisions": {"decision_upserted": 20},
+            "campaigns": {"campaign_count": 5},
+            "ranking": {"appearance_upserted": 12},
+        }
+
+    monkeypatch.setattr(service.time, "monotonic", _fake_monotonic)
+    monkeypatch.setattr(service, "backfill_signal_tracking", _fake_backfill_signal_tracking)
+    events: list[dict[str, object]] = []
+
+    result = service.refresh_daily_tracking_window(db_path=db_path, market_day_window=10, progress_cb=events.append)
+
+    assert result["ok"] is True
+    assert any(event.get("substage") == "tracking_refresh.prepare" for event in events)
+    assert any(event.get("substage") == "tracking_refresh.basis" for event in events)
+    assert any(event.get("substage") == "tracking_refresh.ranking_appearances" for event in events)
+    assert any(event.get("substage") == "tracking_refresh.finalize" for event in events)
+    assert all("heartbeat_at" in event for event in events)
+
+
 def test_signal_tracking_validation_returns_decision_and_campaign_levels(monkeypatch) -> None:
     db_path = _make_temp_db()
     market_days = _seed_market_data(db_path)

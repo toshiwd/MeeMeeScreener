@@ -15,6 +15,7 @@ $frontendRouteVerifier = Join-Path $repoRoot "tools/verify_frontend_research_rou
 $releaseDir = Join-Path $repoRoot "release"
 $releaseZip = Join-Path $releaseDir "MeeMeeScreener-portable.zip"
 $iconPath = Join-Path $repoRoot "resources/icons/app_icon.ico"
+$dpiManifestPath = Join-Path $repoRoot "resources/windows/meemee_dpi_aware.manifest"
 $buildRoot = Join-Path $repoRoot "build"
 $artifactsDir = Join-Path $repoRoot "build/release_artifacts"
 $releaseRootCandidate = $ReleaseRoot
@@ -367,6 +368,9 @@ try {
     if (-not (Test-Path $iconPath)) {
         throw "Missing icon: $iconPath`nPlace app_icon.ico under resources/icons before building."
     }
+    if (-not (Test-Path $dpiManifestPath)) {
+        throw "Missing DPI manifest: $dpiManifestPath"
+    }
 
     Write-Host "Starting build_release.ps1"
     $running = Get-Process -Name "MeeMeeScreener" -ErrorAction SilentlyContinue
@@ -503,6 +507,7 @@ print(json.dumps(missing))
         "--noconsole",
         "--name", "MeeMeeScreener",
         "--icon", "$iconPath",
+        "--manifest", "$dpiManifestPath",
         "--distpath", "$releasePackageRoot",
         "--workpath", "$buildWork",
         "--specpath", "$buildWork",

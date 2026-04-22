@@ -6,7 +6,7 @@ import {
   subscribeToChartDataVersionChange,
 } from "../../persistentChartCache";
 import {
-  buildDetailBatchBarsRequestPayload,
+  buildScopedDetailBatchBarsRequestPayload,
   postDetailBatchBarsRequest,
   type BatchBarsFramePayload,
   type BatchBarsRequestTimeframe,
@@ -40,11 +40,13 @@ type DetailChartPrefetchRequest = {
 type PrefetchOptions = {
   forceNetwork?: boolean;
   signal?: AbortSignal;
+  timeframes?: BatchBarsRequestTimeframe[];
 };
 
 type DetailChartPrefetchBatchResult = Record<string, ChartPrefetchFrames>;
 
 const CHART_PREFETCH_TTL_MS = 60_000;
+const DEFAULT_DETAIL_PREFETCH_TIMEFRAMES: BatchBarsRequestTimeframe[] = ["daily", "weekly", "monthly"];
 const chartPrefetchCache = new Map<string, ChartPrefetchEntry>();
 const chartPrefetchInFlight = new Map<string, Promise<ChartPrefetchFrames>>();
 const chartPrefetchBatchInFlight = new Map<string, Promise<DetailChartPrefetchBatchResult>>();
@@ -53,6 +55,23 @@ const chartPrefetchLastNetworkAt = new Map<string, number>();
 
 const normalizeAsof = (value?: string | null) =>
   typeof value === "string" && value.trim() ? value.trim() : null;
+
+const normalizePrefetchTimeframes = (
+  timeframes?: BatchBarsRequestTimeframe[]
+): BatchBarsRequestTimeframe[] => {
+  const candidate =
+    Array.isArray(timeframes) && timeframes.length > 0
+      ? timeframes
+      : DEFAULT_DETAIL_PREFETCH_TIMEFRAMES;
+  return Array.from(
+    new Set(
+      candidate.filter(
+        (timeframe): timeframe is BatchBarsRequestTimeframe =>
+          timeframe === "daily" || timeframe === "weekly" || timeframe === "monthly"
+      )
+    )
+  );
+};
 
 const emptyFramePayload = (): BatchBarsFramePayload => ({
   bars: [],
@@ -73,8 +92,10 @@ export const buildDetailPrefetchKey = (
   dailyLimit: number,
   weeklyLimit: number,
   monthlyLimit: number,
-  asof?: string | null
-) => `detail|${symbol}|${dailyLimit}|${weeklyLimit}|${monthlyLimit}|${normalizeAsof(asof) ?? ""}`;
+  asof?: string | null,
+  timeframes?: BatchBarsRequestTimeframe[]
+) =>
+  `detail|${symbol}|${dailyLimit}|${weeklyLimit}|${monthlyLimit}|frames:${normalizePrefetchTimeframes(timeframes).join(",")}|${normalizeAsof(asof) ?? ""}`;
 
 const registerPendingDetailPrefetch = (key: string, promise: Promise<ChartPrefetchFrames>) => {
   chartPrefetchPendingByKey.set(key, promise);
@@ -238,7 +259,8 @@ export const loadDetailChartPrefetch = async ({
   weeklyLimit,
   monthlyLimit,
   asof,
-}: DetailChartPrefetchRequest): Promise<ChartPrefetchFrames> => {
+}: DetailChartPrefetchRequest, timeframes?: BatchBarsRequestTimeframe[]): Promise<ChartPrefetchFrames> => {
+  const requestedTimeframes = normalizePrefetchTimeframes(timeframes);
   const memoryFrames = readDetailChartPrefetchSync({
     code,
     dailyLimit,
@@ -246,27 +268,36 @@ export const loadDetailChartPrefetch = async ({
     monthlyLimit,
     asof,
   });
-  if (memoryFrames.daily && memoryFrames.weekly && memoryFrames.monthly) {
+  if (hasCompleteDetailChartPrefetch(memoryFrames, requestedTimeframes)) {
     recordPerfEvent("detail_chart_seed_hit", {
       code,
       source: "memory",
     });
     return memoryFrames;
   }
-  const [daily, weekly, monthly] = await Promise.all([
-    memoryFrames.daily ?? loadFrameFromPersistentCache({ code, timeframe: "daily", limit: dailyLimit, asof }),
-    memoryFrames.weekly ?? loadFrameFromPersistentCache({ code, timeframe: "weekly", limit: weeklyLimit, asof }),
-    memoryFrames.monthly ?? loadFrameFromPersistentCache({ code, timeframe: "monthly", limit: monthlyLimit, asof }),
-  ]);
-  return {
-    daily,
-    weekly,
-    monthly,
+  const result: ChartPrefetchFrames = {
+    daily: memoryFrames.daily,
+    weekly: memoryFrames.weekly,
+    monthly: memoryFrames.monthly,
   };
+  await Promise.all(
+    requestedTimeframes.map(async (timeframe) => {
+      if (result[timeframe]) return;
+      const limit =
+        timeframe === "daily" ? dailyLimit : timeframe === "weekly" ? weeklyLimit : monthlyLimit;
+      result[timeframe] = await loadFrameFromPersistentCache({ code, timeframe, limit, asof });
+    })
+  );
+  return result;
 };
 
-export const hasCompleteDetailChartPrefetch = (frames?: Partial<ChartPrefetchFrames>) =>
-  frames?.daily != null && frames?.weekly != null && frames?.monthly != null;
+export const hasCompleteDetailChartPrefetch = (
+  frames?: Partial<ChartPrefetchFrames>,
+  timeframes?: BatchBarsRequestTimeframe[]
+) => {
+  if (!frames) return false;
+  return normalizePrefetchTimeframes(timeframes).every((timeframe) => frames[timeframe] != null);
+};
 
 export const extractDetailChartFrames = async ({
   code,
@@ -275,15 +306,19 @@ export const extractDetailChartFrames = async ({
   monthlyLimit,
   asof,
   response,
+  timeframes,
 }: DetailChartPrefetchRequest & {
   response: BatchBarsV3Response | null;
+  timeframes?: BatchBarsRequestTimeframe[];
 }): Promise<ChartPrefetchFrames> => {
+  const requestedTimeframes = normalizePrefetchTimeframes(timeframes);
   const fetchedAt = Date.now();
   const items = response?.items ?? {};
   const item = items[code] ?? {};
-  const dailyFrame = item.daily ?? emptyFramePayload();
-  const weeklyFrame = item.weekly ?? emptyFramePayload();
-  const monthlyFrame = item.monthly ?? emptyFramePayload();
+  const framePayloads: Partial<Record<BatchBarsRequestTimeframe, BatchBarsFramePayload>> = {};
+  requestedTimeframes.forEach((timeframe) => {
+    framePayloads[timeframe] = item[timeframe] ?? emptyFramePayload();
+  });
   const dataVersion =
     typeof response?.meta?.data_version === "string" && response.meta.data_version.trim()
       ? response.meta.data_version.trim()
@@ -295,76 +330,49 @@ export const extractDetailChartFrames = async ({
   recordPerfEvent("detail_chart_network_refresh", {
     code,
     dataVersion,
-    hasDaily: Array.isArray(dailyFrame.bars) && dailyFrame.bars.length > 0,
-    hasWeekly: Array.isArray(weeklyFrame.bars) && weeklyFrame.bars.length > 0,
-    hasMonthly: Array.isArray(monthlyFrame.bars) && monthlyFrame.bars.length > 0,
+    hasDaily: requestedTimeframes.includes("daily")
+      ? Array.isArray(framePayloads.daily?.bars) && framePayloads.daily.bars.length > 0
+      : null,
+    hasWeekly: requestedTimeframes.includes("weekly")
+      ? Array.isArray(framePayloads.weekly?.bars) && framePayloads.weekly.bars.length > 0
+      : null,
+    hasMonthly: requestedTimeframes.includes("monthly")
+      ? Array.isArray(framePayloads.monthly?.bars) && framePayloads.monthly.bars.length > 0
+      : null,
   });
 
-  writeMemoryChartPrefetch({
-    code,
-    timeframe: "daily",
-    limit: dailyLimit,
-    asof,
-    rows: Array.isArray(dailyFrame.bars) ? dailyFrame.bars : [],
-    boxes: [],
-    fetchedAt,
-    dataVersion,
-    provenance: dailyFrame.provenance ?? null,
-    cacheSource: "memory",
-  });
-  writeMemoryChartPrefetch({
-    code,
-    timeframe: "weekly",
-    limit: weeklyLimit,
-    asof,
-    rows: Array.isArray(weeklyFrame.bars) ? weeklyFrame.bars : [],
-    boxes: [],
-    fetchedAt,
-    dataVersion,
-    provenance: weeklyFrame.provenance ?? null,
-    cacheSource: "memory",
-  });
-  writeMemoryChartPrefetch({
-    code,
-    timeframe: "monthly",
-    limit: monthlyLimit,
-    asof,
-    rows: Array.isArray(monthlyFrame.bars) ? monthlyFrame.bars : [],
-    boxes: Array.isArray(monthlyFrame.boxes) ? monthlyFrame.boxes : [],
-    fetchedAt,
-    dataVersion,
-    provenance: monthlyFrame.provenance ?? null,
-    cacheSource: "memory",
+  requestedTimeframes.forEach((timeframe) => {
+    const payload = framePayloads[timeframe] ?? emptyFramePayload();
+    const limit =
+      timeframe === "daily" ? dailyLimit : timeframe === "weekly" ? weeklyLimit : monthlyLimit;
+    writeMemoryChartPrefetch({
+      code,
+      timeframe,
+      limit,
+      asof,
+      rows: Array.isArray(payload.bars) ? payload.bars : [],
+      boxes:
+        timeframe === "monthly" && Array.isArray(payload.boxes) ? payload.boxes : [],
+      fetchedAt,
+      dataVersion,
+      provenance: payload.provenance ?? null,
+      cacheSource: "memory",
+    });
   });
 
   await Promise.all([
-    persistFramePayload({
-      code,
-      timeframe: "daily",
-      limit: dailyLimit,
-      asof,
-      payload: dailyFrame,
-      fetchedAt,
-      dataVersion,
-    }),
-    persistFramePayload({
-      code,
-      timeframe: "weekly",
-      limit: weeklyLimit,
-      asof,
-      payload: weeklyFrame,
-      fetchedAt,
-      dataVersion,
-    }),
-    persistFramePayload({
-      code,
-      timeframe: "monthly",
-      limit: monthlyLimit,
-      asof,
-      payload: monthlyFrame,
-      fetchedAt,
-      dataVersion,
-    }),
+    ...requestedTimeframes.map((timeframe) =>
+      persistFramePayload({
+        code,
+        timeframe,
+        limit:
+          timeframe === "daily" ? dailyLimit : timeframe === "weekly" ? weeklyLimit : monthlyLimit,
+        asof,
+        payload: framePayloads[timeframe] ?? emptyFramePayload(),
+        fetchedAt,
+        dataVersion,
+      })
+    ),
   ]);
 
   return readDetailChartPrefetchSync({
@@ -380,17 +388,19 @@ export const prefetchDetailChartFrames = async (
   request: DetailChartPrefetchRequest,
   options?: PrefetchOptions
 ) => {
+  const requestedTimeframes = normalizePrefetchTimeframes(options?.timeframes);
   const key = buildDetailPrefetchKey(
     request.code,
     request.dailyLimit,
     request.weeklyLimit,
     request.monthlyLimit,
-    request.asof
+    request.asof,
+    requestedTimeframes
   );
-  const cached = await loadDetailChartPrefetch(request);
+  const cached = await loadDetailChartPrefetch(request, requestedTimeframes);
   const lastNetworkAt = chartPrefetchLastNetworkAt.get(key) ?? 0;
   if (
-    hasCompleteDetailChartPrefetch(cached) &&
+    hasCompleteDetailChartPrefetch(cached, requestedTimeframes) &&
     options?.forceNetwork !== true &&
     Date.now() - lastNetworkAt < CHART_PREFETCH_TTL_MS
   ) {
@@ -413,12 +423,14 @@ export const prefetchDetailChartFrames = async (
     return await inFlight;
   }
   const requestPromise = registerPendingDetailPrefetch(key, postDetailBatchBarsRequest(
-    buildDetailBatchBarsRequestPayload({
+    buildScopedDetailBatchBarsRequestPayload({
       code: request.code,
       dailyLimit: request.dailyLimit,
       weeklyLimit: request.weeklyLimit,
       monthlyLimit: request.monthlyLimit,
       asof: request.asof,
+      timeframes: requestedTimeframes,
+      includeBoxes: true,
     }),
     options?.signal
   )
@@ -426,6 +438,7 @@ export const prefetchDetailChartFrames = async (
       extractDetailChartFrames({
         ...request,
         response: res.data as BatchBarsV3Response | null,
+        timeframes: requestedTimeframes,
       })
     )
     .finally(() => {

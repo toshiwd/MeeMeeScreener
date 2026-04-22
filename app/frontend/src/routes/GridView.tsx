@@ -1,5 +1,5 @@
 ﻿// @ts-nocheck
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import {
   FixedSizeGrid as Grid,
   type FixedSizeGrid,
@@ -20,6 +20,7 @@ import Toast from "../components/Toast";
 import TopNav from "../components/TopNav";
 import IconButton from "../components/IconButton";
 import {
+  IconCamera,
   IconMessage,
   IconArrowsSort,
   IconLayoutGrid,
@@ -56,6 +57,7 @@ import {
   type TechnicalFilterState
 } from "../utils/technicalFilter";
 import { formatEventDateYmd, parseEventDateMs } from "../utils/events";
+import { downloadChartScreenshots } from "../utils/chartScreenshot";
 import {
   extractTxtUpdateJobId,
   formatTxtUpdateStatusLabel,
@@ -98,6 +100,10 @@ import {
   createDefaultWalkforwardParams,
   extractErrorDetail,
   gridPresetOptions,
+  buildVisibleRequestSignature,
+  isGridBarsDependentSortKey,
+  resolveGridFastSortValue,
+  resolveGridRefineWindow,
   mergeHealthStatus,
   normalizeHealthStatus,
   resolveGridRangeBars,
@@ -107,6 +113,102 @@ import {
   resolveGridSignalSortScore,
   toWalkforwardParams
 } from "./grid/gridHelpers";
+import { resolveListThumbnailMaSettings } from "../storeHelpers";
+import type { Ticker } from "../storeTypes";
+
+const SCREENSHOT_LIMIT = 10;
+
+type GridSortEntry = {
+  ticker: Ticker;
+  sortValue: string | number | null;
+  index: number;
+};
+
+const GRID_MA_SLOPE_LOOKBACK_BARS = 5;
+const EMPTY_TIMEFRAME_BARS_CACHE: Record<string, { bars?: number[][] } | undefined> = {};
+
+const normalizeVisibleCodesForRequest = (codes: string[]) =>
+  [...new Set(codes.map((code) => code.trim()).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b, "ja", { numeric: true, sensitivity: "base" })
+  );
+
+const computeGridMaDeviationPct = (bars: number[][] | undefined, period: number) => {
+  if (!bars?.length) return null;
+  const currentIndex = bars.length - 1;
+  const currentMa = computeMAAt(bars, currentIndex, period);
+  const latestClose = Number(bars[currentIndex]?.[4]);
+  if (
+    currentMa == null ||
+    !Number.isFinite(currentMa) ||
+    !Number.isFinite(latestClose) ||
+    Math.abs(currentMa) < 1e-9
+  ) {
+    return null;
+  }
+  return (latestClose - currentMa) / Math.abs(currentMa);
+};
+
+const computeGridMaSlopePct = (
+  bars: number[][] | undefined,
+  period: number,
+  lookbackBars = GRID_MA_SLOPE_LOOKBACK_BARS
+) => {
+  if (!bars?.length) return null;
+  const currentIndex = bars.length - 1;
+  const prevIndex = currentIndex - Math.max(1, Math.floor(lookbackBars));
+  if (prevIndex < period - 1) return null;
+  const currentMa = computeMAAt(bars, currentIndex, period);
+  const prevMa = computeMAAt(bars, prevIndex, period);
+  if (
+    currentMa == null ||
+    prevMa == null ||
+    !Number.isFinite(currentMa) ||
+    !Number.isFinite(prevMa) ||
+    Math.abs(prevMa) < 1e-9
+  ) {
+    return null;
+  }
+  return (currentMa - prevMa) / Math.abs(prevMa);
+};
+
+const resolveGridRefinedSortValue = (
+  ticker: Ticker,
+  sortKey: string,
+  performancePeriod: string,
+  timeframe: "monthly" | "weekly" | "daily",
+  bars: number[][] | undefined
+) => {
+  switch (sortKey) {
+    case "ma20Dev":
+      return computeGridMaDeviationPct(bars, 20);
+    case "ma60Dev":
+      return computeGridMaDeviationPct(bars, 60);
+    case "ma20Slope":
+      return computeGridMaSlopePct(bars, 20);
+    case "ma60Slope":
+      return computeGridMaSlopePct(bars, 60);
+    case "chg1D":
+      return resolveGridPrimaryChangeValue(ticker, timeframe, bars);
+    case "buySignalLatest":
+      if (!bars?.length) return resolveGridFastSortValue(ticker, sortKey, performancePeriod);
+      return resolveGridSignalSortScore(
+        computeSignalMetrics(bars),
+        ticker.liquidity20d,
+        "up"
+      );
+    case "sellSignalLatest":
+      if (!bars?.length) return resolveGridFastSortValue(ticker, sortKey, performancePeriod);
+      return resolveGridSignalSortScore(
+        computeSignalMetrics(bars),
+        ticker.liquidity20d,
+        "down"
+      );
+    case "volumeSurge":
+      return resolveGridVolumeSurgeRatio(bars, 20);
+    default:
+      return resolveGridFastSortValue(ticker, sortKey, performancePeriod);
+  }
+};
 
 export default function GridView() {
   const location = useLocation();
@@ -224,6 +326,11 @@ export default function GridView() {
   const [toastAction, setToastAction] = useState<ToastAction | null>(null);
   const toastKeyRef = useRef(0);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [visibleRange, setVisibleRange] = useState<{ start: number; stop: number } | null>(null);
+  const [refinedSortState, setRefinedSortState] = useState<{
+    key: string;
+    items: typeof tickers;
+  } | null>(null);
   const [consultVisible, setConsultVisible] = useState(false);
   const [consultExpanded, setConsultExpanded] = useState(false);
   const [consultTab, setConsultTab] = useState<"selection" | "position">("selection");
@@ -231,6 +338,7 @@ export default function GridView() {
   const [consultSort, setConsultSort] = useState<ConsultationSort>("score");
   const [consultBusy, setConsultBusy] = useState(false);
   const [consultMeta, setConsultMeta] = useState<{ omitted: number }>({ omitted: 0 });
+  const [screenshotBusy, setScreenshotBusy] = useState(false);
   const [undoInfo, setUndoInfo] = useState<{ code: string; trashToken?: string | null } | null>(
     null
   );
@@ -284,6 +392,7 @@ export default function GridView() {
   const lastVisibleRangeRef = useRef<{ start: number; stop: number } | null>(null);
   const lastVisibleSummarySignatureRef = useRef<string>("");
   const lastVisibleRequestKeyRef = useRef<string | null>(null);
+  const refinedSortSignatureRef = useRef<string | null>(null);
   const deferredVisibleRequestTimerRef = useRef<number | null>(null);
   const barsErrorRetryCooldownRef = useRef<Record<string, number>>({});
   const undoTimerRef = useRef<number | null>(null);
@@ -1061,137 +1170,24 @@ export default function GridView() {
     return ["ma20Dev", "ma60Dev", "ma20Slope", "ma60Slope"].includes(sortKey);
   }, [techFilterActive.conditions.length, sortKey]);
 
-  const scoredTickers = useMemo(() => {
-    return technicalFiltered.map((ticker, index) => {
-      const payload = barsCache[gridTimeframe][ticker.code];
-      const metrics = payload?.bars?.length ? computeSignalMetrics(payload.bars, 4) : null;
-      return { ticker, metrics, index };
-    });
-  }, [technicalFiltered, barsCache, gridTimeframe]);
-
   const collator = useMemo(
     () => new Intl.Collator("ja-JP", { numeric: true, sensitivity: "base" }),
     []
   );
+  const isBarsDependentSort = isGridBarsDependentSortKey(sortKey);
+  const timeframeBarsCache = barsCache[gridTimeframe] ?? EMPTY_TIMEFRAME_BARS_CACHE;
+  const normalizeVisibleCodes = useCallback(
+    (codes: string[]) => normalizeVisibleCodesForRequest(codes),
+    []
+  );
 
-  const sortedTickers = useMemo(() => {
-    const boxOrder: Record<string, number> = {
-      IN_BOX: 3,
-      JUST_BRAKOUT: 2,
-      BRAKOUT_UP: 2,
-      BRAKOUT_DOWN: 2,
-      NON: 0
-    };
-
+  const fastSortedTickers = useMemo(() => {
     const activeKey = sortKey;
 
     const isBuyStateSort = activeKey === "buyCandidate";
-
-    const resolveDeviation = (bars: number[][] | undefined, anchor: AnchorInfo | undefined, period: number) => {
-      if (!bars || !anchor) return null;
-      const close = resolveOperandValue(bars, anchor.index, { type: "field", field: "C" });
-      const ma = computeMAAt(bars, anchor.index, period);
-      if (close == null || ma == null || ma === 0) return null;
-      return (close - ma) / ma;
-    };
-    const resolveSlope = (bars: number[][] | undefined, anchor: AnchorInfo | undefined, period: number) => {
-      if (!bars || !anchor || anchor.prevIndex == null) return null;
-      const now = computeMAAt(bars, anchor.index, period);
-      const prev = computeMAAt(bars, anchor.prevIndex, period);
-      if (now == null || prev == null) return null;
-      return now - prev;
-    };
-
-    const items = scoredTickers.map((item) => {
-      const ticker = item.ticker;
-      const bars = barsCache[gridTimeframe][ticker.code]?.bars;
-      const anchor = listAnchorInfoByCode.get(ticker.code);
-      let sortValue: string | number | null = null;
-
-      // Calculate sort value based on activeKey
-      if ((activeKey === "upScore" || activeKey === "downScore") && ticker.statusLabel === "UNKNOWN") {
-        sortValue = null;
-      } else if (activeKey === "code") {
-        sortValue = ticker.code;
-      } else if (activeKey === "name") {
-        sortValue = ticker.name ?? "";
-      } else if (activeKey === "sector") {
-        sortValue = ticker.sector33Code ?? null;
-      } else if (activeKey === "ma20Dev") {
-        sortValue = resolveDeviation(bars, anchor, 20);
-      } else if (activeKey === "ma60Dev") {
-        sortValue = resolveDeviation(bars, anchor, 60);
-      } else if (activeKey === "ma20Slope") {
-        sortValue = resolveSlope(bars, anchor, 20);
-      } else if (activeKey === "ma60Slope") {
-        sortValue = resolveSlope(bars, anchor, 60);
-      } else if (activeKey === "chg1D") {
-        sortValue = resolveGridPrimaryChangeValue(ticker, gridTimeframe);
-      } else if (activeKey === "chg1W") {
-        sortValue = ticker.chg1W ?? null;
-      } else if (activeKey === "chg1M") {
-        sortValue = ticker.chg1M ?? null;
-      } else if (activeKey === "chg1Q") {
-        sortValue = ticker.chg1Q ?? null;
-      } else if (activeKey === "chg1Y") {
-        sortValue = ticker.chg1Y ?? null;
-      } else if (activeKey === "prevWeekChg") {
-        sortValue = ticker.prevWeekChg ?? null;
-      } else if (activeKey === "prevMonthChg") {
-        sortValue = ticker.prevMonthChg ?? null;
-      } else if (activeKey === "prevQuarterChg") {
-        sortValue = ticker.prevQuarterChg ?? null;
-      } else if (activeKey === "prevYearChg") {
-        sortValue = ticker.prevYearChg ?? null;
-      } else if (activeKey === "upScore") {
-        sortValue = ticker.scores?.upScore ?? null;
-      } else if (activeKey === "downScore") {
-        sortValue = ticker.scores?.downScore ?? null;
-      } else if (activeKey === "overheatUp") {
-        sortValue = ticker.scores?.overheatUp ?? null;
-      } else if (activeKey === "overheatDown") {
-        sortValue = ticker.scores?.overheatDown ?? null;
-      } else if (activeKey === "swingScore") {
-        sortValue = ticker.swingScore ?? ticker.swingLongScore ?? ticker.swingShortScore ?? null;
-      } else if (activeKey === "mlEv20Net") {
-        sortValue = ticker.mlEv20Net ?? null;
-      } else if (activeKey === "mlPUpShort") {
-        sortValue = ticker.mlPUpShort ?? ticker.mlPUp ?? null;
-      } else if (activeKey === "mlPDownShort") {
-        sortValue = ticker.mlPDownShort ?? ticker.mlPDown ?? null;
-      } else if (activeKey === "boxState") {
-        const state = ticker.boxState ?? "NON";
-        sortValue = boxOrder[state] ?? 0;
-      } else if (activeKey === "shortScore") {
-        sortValue = ticker.shortScore ?? null;
-      } else if (activeKey === "aScore") {
-        sortValue = ticker.aScore ?? null;
-      } else if (activeKey === "bScore") {
-        sortValue = ticker.bScore ?? null;
-      } else if (activeKey === "shortPriority") {
-        sortValue = ticker.shortPriorityScore ?? null;
-      } else if (activeKey === "entryPriority") {
-        sortValue = ticker.entryPriorityScore ?? null;
-      } else if (activeKey === "buySignalLatest") {
-        sortValue = resolveGridSignalSortScore(item.metrics, ticker.liquidity20d, "up");
-      } else if (activeKey === "sellSignalLatest") {
-        sortValue = resolveGridSignalSortScore(item.metrics, ticker.liquidity20d, "down");
-      } else if (activeKey === "volumeSurge") {
-        sortValue = resolveGridVolumeSurgeRatio(bars, 20);
-      } else if (activeKey === "performance") {
-        // Use selected performance period
-        switch (performancePeriod) {
-          case "1D": sortValue = ticker.chg1D ?? null; break;
-          case "1W": sortValue = ticker.chg1W ?? null; break;
-          case "1M": sortValue = ticker.chg1M ?? null; break;
-          case "1Q": sortValue = ticker.chg1Q ?? null; break;
-          case "1Y": sortValue = ticker.chg1Y ?? null; break;
-          default: sortValue = ticker.chg1M ?? null;
-        }
-      } else if (isBuyStateSort) {
-        sortValue = null;
-      }
-      return { ...item, sortValue };
+    const items: GridSortEntry[] = technicalFiltered.map((ticker, index) => {
+      const sortValue = resolveGridFastSortValue(ticker, activeKey, performancePeriod);
+      return { ticker, sortValue, index };
     });
 
     const compareNumeric = (av: number | null, bv: number | null, dir: SortDir) => {
@@ -1240,7 +1236,12 @@ export default function GridView() {
         bv === undefined ||
         (typeof bv === "number" && !Number.isFinite(bv)) ||
         (typeof bv === "string" && bv.trim() === "");
-      if (aMissing && bMissing) return a.ticker.code.localeCompare(b.ticker.code);
+      if (aMissing && bMissing) {
+        if (isBarsDependentSortKey(activeKey)) {
+          return a.index - b.index;
+        }
+        return a.ticker.code.localeCompare(b.ticker.code);
+      }
       if (aMissing) return 1;
       if (bMissing) return -1;
       let result = 0;
@@ -1268,21 +1269,137 @@ export default function GridView() {
     filteredItems.sort(compare);
     return filteredItems;
   }, [
-    scoredTickers,
+    technicalFiltered,
     sortKey,
     sortDir,
     collator,
-    barsCache,
-    gridTimeframe,
-    listAnchorInfoByCode,
     performancePeriod,
     buyStateFilter,
     shortTierAbOnly
   ]);
+  const fastSortedSignature = useMemo(
+    () =>
+      `${gridTimeframe}:${sortKey}:${sortDir}:${performancePeriod}:${buyStateFilter}:${shortTierAbOnly ? 1 : 0}:${fastSortedTickers
+        .map((item) => item.ticker.code)
+        .join(",")}`,
+    [buyStateFilter, fastSortedTickers, gridTimeframe, performancePeriod, shortTierAbOnly, sortDir, sortKey]
+  );
+  const sortedTickers =
+    refinedSortState?.key === fastSortedSignature ? refinedSortState.items : fastSortedTickers;
   const sortedCodes = useMemo(
     () => sortedTickers.map((item) => item.ticker.code),
     [sortedTickers]
   );
+
+  useEffect(() => {
+    if (!backendReady || !isBarsDependentSort) {
+      return;
+    }
+    const range = visibleRange ?? lastVisibleRangeRef.current;
+    const refineWindow = range
+      ? resolveGridRefineWindow(range.start, range.stop, fastSortedTickers.length, rows, columns)
+      : null;
+    if (!refineWindow || fastSortedTickers.length === 0) return;
+    const windowItems = fastSortedTickers.slice(refineWindow.start, refineWindow.stop + 1);
+    if (!windowItems.length) return;
+    const windowEntries: GridSortEntry[] = windowItems.map((item) => ({
+      ...item,
+      sortValue: resolveGridRefinedSortValue(
+        item.ticker,
+        sortKey,
+        performancePeriod,
+        gridTimeframe,
+        timeframeBarsCache[item.ticker.code]?.bars
+      )
+    }));
+
+    const compareNumeric = (av: number | null, bv: number | null, dir: SortDir) => {
+      const aMissing = av == null || !Number.isFinite(av);
+      const bMissing = bv == null || !Number.isFinite(bv);
+      if (aMissing && bMissing) return 0;
+      if (aMissing) return 1;
+      if (bMissing) return -1;
+      const diff = (av ?? 0) - (bv ?? 0);
+      return dir === "desc" ? -diff : diff;
+    };
+
+    const compareBuyState = (a: GridSortEntry, b: GridSortEntry) => {
+      const aRank = Number.isFinite(a.ticker.buyStateRank) ? (a.ticker.buyStateRank as number) : 0;
+      const bRank = Number.isFinite(b.ticker.buyStateRank) ? (b.ticker.buyStateRank as number) : 0;
+      const aScore = Number.isFinite(a.ticker.buyStateScore) ? (a.ticker.buyStateScore as number) : null;
+      const bScore = Number.isFinite(b.ticker.buyStateScore) ? (b.ticker.buyStateScore as number) : null;
+      const aRisk = Number.isFinite(a.ticker.buyRiskDistance) ? (a.ticker.buyRiskDistance as number) : null;
+      const bRisk = Number.isFinite(b.ticker.buyRiskDistance) ? (b.ticker.buyRiskDistance as number) : null;
+
+      if (aRank !== bRank) return bRank - aRank;
+      const scoreResult = compareNumeric(aScore, bScore, sortDir);
+      if (scoreResult !== 0) return scoreResult;
+      const riskResult = compareNumeric(aRisk, bRisk, "asc");
+      if (riskResult !== 0) return riskResult;
+      const totalResult = compareNumeric(a.ticker.score ?? null, b.ticker.score ?? null, "desc");
+      if (totalResult !== 0) return totalResult;
+      return a.ticker.code.localeCompare(b.ticker.code);
+    };
+
+    const compare = (a: GridSortEntry, b: GridSortEntry) => {
+      if (sortKey === "buyCandidate") {
+        return compareBuyState(a, b);
+      }
+      const av = a.sortValue;
+      const bv = b.sortValue;
+      const aMissing =
+        av === null ||
+        av === undefined ||
+        (typeof av === "number" && !Number.isFinite(av)) ||
+        (typeof av === "string" && av.trim() === "");
+      const bMissing =
+        bv === null ||
+        bv === undefined ||
+        (typeof bv === "number" && !Number.isFinite(bv)) ||
+        (typeof bv === "string" && bv.trim() === "");
+      if (aMissing && bMissing) {
+        return a.index - b.index;
+      }
+      if (aMissing) return 1;
+      if (bMissing) return -1;
+      let result = 0;
+      if (typeof av === "string" || typeof bv === "string") {
+        result = collator.compare(String(av), String(bv));
+      } else {
+        result = Number(av) - Number(bv);
+      }
+      if (result === 0) return a.ticker.code.localeCompare(b.ticker.code);
+      return sortDir === "desc" ? -result : result;
+    };
+
+    const nextWindowItems = [...windowEntries].sort(compare);
+    const nextItems = fastSortedTickers.slice();
+    for (let i = 0; i < nextWindowItems.length; i += 1) {
+      nextItems[refineWindow.start + i] = nextWindowItems[i];
+    }
+    const nextSignature = `${fastSortedSignature}:${refineWindow.start}:${refineWindow.stop}:${nextWindowItems
+      .map((item) => item.ticker.code)
+      .join(",")}`;
+    if (refinedSortSignatureRef.current === nextSignature) return;
+    refinedSortSignatureRef.current = nextSignature;
+    startTransition(() => {
+      setRefinedSortState({ key: fastSortedSignature, items: nextItems });
+    });
+  }, [
+    backendReady,
+    collator,
+    columns,
+    fastSortedSignature,
+    fastSortedTickers,
+    gridTimeframe,
+    isBarsDependentSort,
+    performancePeriod,
+    rows,
+    sortDir,
+    sortKey,
+    timeframeBarsCache,
+    visibleRange
+  ]);
 
   useEffect(() => {
     if (sortedTickers.length === 0) {
@@ -1343,8 +1460,7 @@ export default function GridView() {
   );
 
   const buildVisibleRequestKey = useCallback(
-    (codes: string[]) =>
-      `${gridTimeframe}:${listRangeBars}:${visibleMaSignature}:${codes.join(",")}`,
+    (codes: string[]) => buildVisibleRequestSignature(gridTimeframe, listRangeBars, visibleMaSignature, codes),
     [gridTimeframe, listRangeBars, visibleMaSignature]
   );
 
@@ -1399,14 +1515,18 @@ export default function GridView() {
       const item = sortedTickers[index];
       if (item) codes.push(item.ticker.code);
     }
-    lastVisibleCodesRef.current = codes;
+    const normalizedCodes = normalizeVisibleCodes(codes);
+    lastVisibleCodesRef.current = normalizedCodes;
     lastVisibleRangeRef.current = { start, stop };
-    const summarySignature = codes.join(",");
+    setVisibleRange((prev) =>
+      prev && prev.start === start && prev.stop === stop ? prev : { start, stop }
+    );
+    const summarySignature = normalizedCodes.join(",");
     if (summarySignature !== lastVisibleSummarySignatureRef.current) {
       lastVisibleSummarySignatureRef.current = summarySignature;
-      setTradexVisibleCodes(codes);
+      setTradexVisibleCodes(normalizedCodes);
     }
-    requestVisibleBars(codes, "scroll");
+    requestVisibleBars(normalizedCodes, "scroll");
   };
 
   useEffect(() => {
@@ -1422,15 +1542,29 @@ export default function GridView() {
       if (item) codes.push(item.ticker.code);
     }
     if (!codes.length) return;
-    lastVisibleCodesRef.current = codes;
+    const normalizedCodes = normalizeVisibleCodes(codes);
+    lastVisibleCodesRef.current = normalizedCodes;
     lastVisibleRangeRef.current = { start, stop };
-    const summarySignature = codes.join(",");
+    setVisibleRange((prev) =>
+      prev && prev.start === start && prev.stop === stop ? prev : { start, stop }
+    );
+    const summarySignature = normalizedCodes.join(",");
     if (summarySignature !== lastVisibleSummarySignatureRef.current) {
       lastVisibleSummarySignatureRef.current = summarySignature;
-      setTradexVisibleCodes(codes);
+      setTradexVisibleCodes(normalizedCodes);
     }
-    requestVisibleBars(codes, "initial-visible", "immediate");
-  }, [backendReady, columns, gridScrollTop, lastVisibleCodesRef, requestVisibleBars, rowCount, rowHeight, rows, sortedTickers]);
+    requestVisibleBars(normalizedCodes, "initial-visible", "immediate");
+  }, [
+    backendReady,
+    columns,
+    gridScrollTop,
+    normalizeVisibleCodes,
+    requestVisibleBars,
+    rowCount,
+    rowHeight,
+    rows,
+    sortedTickers
+  ]);
 
   useEffect(() => {
     if (!backendReady) return;
@@ -1483,8 +1617,8 @@ export default function GridView() {
       if (item) codes.push(item.ticker.code);
     }
     if (!codes.length) return;
-    requestVisibleBars(codes, "sort-change", "deferred");
-  }, [backendReady, sortedTickers, gridTimeframe, requestVisibleBars]);
+    requestVisibleBars(normalizeVisibleCodes(codes), "sort-change", "deferred");
+  }, [backendReady, normalizeVisibleCodes, sortedTickers, gridTimeframe, requestVisibleBars]);
 
   useEffect(() => {
     return () => {
@@ -1973,6 +2107,79 @@ export default function GridView() {
     const extra = Math.max(0, keepList.length - visible.length);
     return { visible, extra };
   }, [keepList]);
+
+  const resolvedGridMaSettings = useMemo(
+    () => resolveListThumbnailMaSettings(gridTimeframe, maSettings),
+    [gridTimeframe, maSettings]
+  );
+
+  const handleCreateScreenshots = useCallback(async () => {
+    if (!keepList.length) {
+      showToast("スクショ対象がありません。");
+      return;
+    }
+    const targets = keepList.slice(0, SCREENSHOT_LIMIT);
+    const omitted = Math.max(0, keepList.length - targets.length);
+    setScreenshotBusy(true);
+    try {
+      try {
+        await ensureBarsForVisible(gridTimeframe, targets, "chart-screenshot");
+      } catch {
+        // Use available cache even if fetch fails.
+      }
+      const itemsForShots = targets.map((code) => ({
+        code,
+        payload: barsCache[gridTimeframe][code] ?? null,
+        boxes: boxesCache[gridTimeframe][code] ?? [],
+        maSettings: resolvedGridMaSettings
+      }));
+      const result = await downloadChartScreenshots(itemsForShots, {
+        rangeBars: listRangeBars,
+        timeframeLabel: gridTimeframe,
+        showBoxes
+      });
+      if (!result.created) {
+        showToast("スクショを作成できませんでした。");
+        return;
+      }
+      const omittedLabel = omitted ? ` (残り${omitted}件は省略)` : "";
+      showToast(
+        `スクショを${result.created}件作成しました。${omittedLabel}`,
+        result.savedDir && window.pywebview?.api?.open_screenshot_dir
+          ? {
+              label: "フォルダ",
+              onClick: () => {
+                void window.pywebview?.api?.open_screenshot_dir?.();
+              }
+            }
+          : null
+      );
+    } finally {
+      setScreenshotBusy(false);
+    }
+  }, [
+    keepList,
+    ensureBarsForVisible,
+    gridTimeframe,
+    barsCache,
+    boxesCache,
+    resolvedGridMaSettings,
+    listRangeBars,
+    showBoxes,
+    showToast
+  ]);
+
+  const gridTopNavActions = (
+    <button
+      type="button"
+      className="help-button"
+      onClick={handleCreateScreenshots}
+      disabled={!keepList.length || screenshotBusy}
+    >
+      <IconCamera size={16} />
+      <span>{screenshotBusy ? "作成中..." : "スクショ"}</span>
+    </button>
+  );
 
   const handleUpdateTxt = useCallback(async () => {
     if (!backendReady) return;
@@ -2618,7 +2825,7 @@ export default function GridView() {
         <div className="list-header-row">
           <div className="header-row-top">
             <div className="header-row-left">
-              <TopNav />
+              <TopNav actions={gridTopNavActions} />
             </div>
             <div className="list-header-actions-wrapper">
               <div className="list-header-actions">
@@ -3967,8 +4174,22 @@ export default function GridView() {
               >
                 {consultBusy ? "作成中..." : "相談作成"}
               </button>
+              <button
+                type="button"
+                onClick={handleCreateScreenshots}
+                disabled={!keepList.length || screenshotBusy}
+              >
+                {screenshotBusy ? "作成中..." : "スクショ作成"}
+              </button>
               <button type="button" onClick={handleCopyConsult} disabled={!consultText}>
                 コピー
+              </button>
+              <button
+                type="button"
+                onClick={() => window.pywebview?.api?.open_screenshot_dir?.()}
+                disabled={!window.pywebview?.api?.open_screenshot_dir}
+              >
+                フォルダ
               </button>
               <button type="button" onClick={() => setConsultVisible(false)}>
                 閉じる
@@ -4004,8 +4225,22 @@ export default function GridView() {
                 >
                   {consultBusy ? "作成中..." : "相談作成"}
                 </button>
+                <button
+                  type="button"
+                  onClick={handleCreateScreenshots}
+                  disabled={!keepList.length || screenshotBusy}
+                >
+                  {screenshotBusy ? "作成中..." : "スクショ作成"}
+                </button>
                 <button type="button" onClick={handleCopyConsult} disabled={!consultText}>
                   コピー
+                </button>
+                <button
+                  type="button"
+                  onClick={() => window.pywebview?.api?.open_screenshot_dir?.()}
+                  disabled={!window.pywebview?.api?.open_screenshot_dir}
+                >
+                  フォルダ
                 </button>
                 <button type="button" onClick={() => setConsultVisible(false)}>
                   閉じる

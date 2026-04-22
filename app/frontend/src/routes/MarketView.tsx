@@ -24,11 +24,16 @@ import {
   resolveInitialMarketCursor,
   type StoredMarketViewState
 } from "./marketViewState";
+import {
+  clearMarketTimelineCache,
+  describeMarketTimelineSource,
+  readMarketTimelineCache,
+  writeMarketTimelineCache,
+  type MarketTimelineCacheSource,
+} from "./marketTimelineCache";
 import { openDetailWithPrefetch } from "./detail/openDetailWithPrefetch";
 import { recordPerfEvent } from "../perfDiagnostics";
 const TIMELINE_LIMIT = 180;
-const MARKET_TIMELINE_CACHE_VERSION = 1;
-const MARKET_TIMELINE_CACHE_PREFIX = "marketTimelineCache";
 
 const PERIOD_OPTIONS: { key: MarketPeriodKey; label: string }[] = [
   { key: "1d", label: "1日" },
@@ -55,48 +60,6 @@ const readStoredState = (): Partial<StoredMarketViewState> | null => {
   }
 };
 
-type MarketTimelineCacheEntry = {
-  cacheVersion: number;
-  period: MarketPeriodKey;
-  frames: MarketTimelineFrame[];
-};
-
-const buildMarketTimelineCacheKey = (period: MarketPeriodKey) =>
-  `${MARKET_TIMELINE_CACHE_PREFIX}:${period}:${TIMELINE_LIMIT}`;
-
-const readMarketTimelineCache = (period: MarketPeriodKey): MarketTimelineFrame[] | null => {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem(buildMarketTimelineCacheKey(period));
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<MarketTimelineCacheEntry>;
-    if (
-      parsed.cacheVersion !== MARKET_TIMELINE_CACHE_VERSION ||
-      parsed.period !== period ||
-      !Array.isArray(parsed.frames)
-    ) {
-      return null;
-    }
-    return parsed.frames as MarketTimelineFrame[];
-  } catch {
-    return null;
-  }
-};
-
-const writeMarketTimelineCache = (period: MarketPeriodKey, frames: MarketTimelineFrame[]) => {
-  if (typeof window === "undefined") return;
-  try {
-    const payload: MarketTimelineCacheEntry = {
-      cacheVersion: MARKET_TIMELINE_CACHE_VERSION,
-      period,
-      frames
-    };
-    window.localStorage.setItem(buildMarketTimelineCacheKey(period), JSON.stringify(payload));
-  } catch {
-    // ignore storage failures
-  }
-};
-
 const formatSelectedSummary = (item: MarketSectorViewItem | null) => {
   if (!item) return "未選択";
   return `${item.label} ${item.sector33_code}`;
@@ -117,6 +80,7 @@ export default function MarketView() {
   const [cursorIndex, setCursorIndex] = useState(stored?.cursorIndex ?? 0);
   const [cursorUserInteracted, setCursorUserInteracted] = useState(false);
   const [frames, setFrames] = useState<MarketTimelineFrame[]>([]);
+  const [timelineSource, setTimelineSource] = useState<MarketTimelineCacheSource | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const cursorInitializedPeriodRef = useRef<MarketPeriodKey | null>(null);
@@ -136,12 +100,16 @@ export default function MarketView() {
   useEffect(() => {
     let canceled = false;
     const load = async () => {
-      const cachedFrames = readMarketTimelineCache(period);
+      const storage = typeof window === "undefined" ? null : window.localStorage;
+      const cachedTimeline = storage ? readMarketTimelineCache(storage, period, TIMELINE_LIMIT) : null;
+      const cachedFrames = cachedTimeline?.frames ?? null;
+      setTimelineSource(cachedTimeline?.source ?? null);
       if (cachedFrames?.length) {
         setFrames(cachedFrames);
         recordPerfEvent("market_timeline_cache_hydrated", {
           period,
           frameCount: cachedFrames.length,
+          source: cachedTimeline?.source ?? "timeline",
         });
         if (cursorInitializedPeriodRef.current !== period) {
           const resolved = resolveInitialMarketCursor(cachedFrames, readStoredState());
@@ -165,7 +133,11 @@ export default function MarketView() {
         const hasItems = rawFrames.some((frame) => Array.isArray(frame.items) && frame.items.length > 0);
         if (rawFrames.length > 0 && hasItems) {
           setFrames(rawFrames);
-          writeMarketTimelineCache(period, rawFrames);
+          setTimelineSource("timeline");
+          if (storage) {
+            writeMarketTimelineCache(storage, period, "timeline", rawFrames, TIMELINE_LIMIT);
+            clearMarketTimelineCache(storage, period, "snapshot_fallback", TIMELINE_LIMIT);
+          }
           recordPerfEvent("market_timeline_fetch_end", {
             period,
             frameCount: rawFrames.length,
@@ -186,7 +158,10 @@ export default function MarketView() {
           items
         };
         setFrames([fallbackFrame]);
-        writeMarketTimelineCache(period, [fallbackFrame]);
+        setTimelineSource("snapshot_fallback");
+        if (storage) {
+          writeMarketTimelineCache(storage, period, "snapshot_fallback", [fallbackFrame], TIMELINE_LIMIT);
+        }
         recordPerfEvent("market_timeline_fallback_used", {
           period,
           itemCount: items.length,
@@ -209,6 +184,7 @@ export default function MarketView() {
         if (!cachedFrames?.length) {
           setError(message);
           setFrames([]);
+          setTimelineSource(null);
         }
       } finally {
         if (!canceled) {
@@ -296,6 +272,7 @@ export default function MarketView() {
   const timelineMax = Math.max(frames.length - 1, 0);
   const timelineLabel = activeFrame?.label ?? "";
   const selectedSummary = formatSelectedSummary(selectedSectorItem);
+  const timelineSourceNote = describeMarketTimelineSource(timelineSource);
 
   const selectSector = useCallback((item: MarketSectorViewItem) => {
     setSelectedSector(item.sector33_code);
@@ -487,6 +464,9 @@ export default function MarketView() {
       </main>
 
       <div className="market-summary-band">
+        {timelineSourceNote && (
+          <div className="market-global-note">{timelineSourceNote}</div>
+        )}
         {!loading && error && !allActiveItems.length && (
           <div className="market-global-note">{error}</div>
         )}

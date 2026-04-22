@@ -2,6 +2,7 @@ import { Suspense, useEffect, useLayoutEffect } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { BackendReadyProvider } from "./backendReady";
 import { AiExplainProvider } from "./features/aiExplain/AiExplainProvider";
+import GlobalTxtUpdateStatus from "./components/GlobalTxtUpdateStatus";
 import {
   installPerfDiagnosticsMainThreadMonitor,
   isPerfDiagnosticsEnabled,
@@ -146,6 +147,7 @@ export default function App() {
   return (
     <BackendReadyProvider>
       <AiExplainProvider>
+        <GlobalTxtUpdateStatus />
         <AppRoutes />
       </AiExplainProvider>
     </BackendReadyProvider>

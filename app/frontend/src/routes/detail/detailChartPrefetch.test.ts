@@ -27,6 +27,31 @@ vi.mock("./batchBarsRequest", () => ({
     includeBoxes: true,
     ...(asof ? { asof } : {}),
   }),
+  buildScopedDetailBatchBarsRequestPayload: ({
+    code,
+    dailyLimit,
+    weeklyLimit,
+    monthlyLimit,
+    asof,
+    timeframes,
+    includeBoxes,
+  }: any) => ({
+    codes: [code],
+    timeframes: timeframes ?? ["daily", "weekly", "monthly"],
+    limit: Math.max(
+      ...(timeframes ?? ["daily", "weekly", "monthly"]).map((timeframe: string) =>
+        timeframe === "daily" ? dailyLimit : timeframe === "weekly" ? weeklyLimit : monthlyLimit
+      )
+    ),
+    timeframeLimits: {
+      daily: dailyLimit,
+      weekly: weeklyLimit,
+      monthly: monthlyLimit,
+    },
+    includeProvisional: true,
+    includeBoxes: includeBoxes ?? true,
+    ...(asof ? { asof } : {}),
+  }),
   postDetailBatchBarsRequest,
 }));
 
@@ -101,5 +126,55 @@ describe("detailChartPrefetch", () => {
     expect(singleResult.daily?.rows).toEqual([[1, 1, 1, 1, 10]]);
     expect(singleResult.weekly?.rows).toEqual([[2, 2, 2, 2, 20]]);
     expect(singleResult.monthly?.rows).toEqual([[3, 3, 3, 3, 30]]);
+  });
+
+  it("allows compare prefetch to complete with daily and monthly frames only", async () => {
+    postDetailBatchBarsRequest.mockResolvedValue({
+      data: {
+        items: {
+          "7203": {
+            daily: { bars: [[1, 1, 1, 1, 10]] },
+            monthly: { bars: [[3, 3, 3, 3, 30]], boxes: [] },
+          },
+        },
+        meta: {
+          data_version: "v2",
+        },
+      },
+    });
+
+    const mod = await import("./detailChartPrefetch");
+    const request = {
+      code: "7203",
+      dailyLimit: 240,
+      weeklyLimit: 120,
+      monthlyLimit: 90,
+      asof: "2026-03-19",
+    };
+
+    const result = await mod.prefetchDetailChartFrames(request, {
+      timeframes: ["daily", "monthly"],
+    });
+
+    expect(postDetailBatchBarsRequest).toHaveBeenCalledWith(
+      {
+        codes: ["7203"],
+        timeframes: ["daily", "monthly"],
+        limit: 240,
+        timeframeLimits: {
+          daily: 240,
+          weekly: 120,
+          monthly: 90,
+        },
+        includeProvisional: true,
+        includeBoxes: true,
+        asof: "2026-03-19",
+      },
+      undefined
+    );
+    expect(mod.hasCompleteDetailChartPrefetch(result, ["daily", "monthly"])).toBe(true);
+    expect(result.daily?.rows).toEqual([[1, 1, 1, 1, 10]]);
+    expect(result.monthly?.rows).toEqual([[3, 3, 3, 3, 30]]);
+    expect(result.weekly).toBeNull();
   });
 });

@@ -17,6 +17,7 @@ import {
   ConsultationTimeframe
 } from "../utils/consultation";
 import { useConsultScreenshot } from "../hooks/useConsultScreenshot";
+import { resolveListThumbnailMaSettings } from "../storeHelpers";
 import { useVisibleCodesPrefetch } from "./list/useVisibleCodesPrefetch";
 import { openDetailWithPrefetch } from "./detail/openDetailWithPrefetch";
 
@@ -586,6 +587,10 @@ export default function CandidatesView() {
       : null;
 
   const isSingleDensity = columns === 1 && rows === 1;
+  const resolvedMaSettings = useMemo(
+    () => resolveListThumbnailMaSettings(listTimeframe, maSettings),
+    [listTimeframe, maSettings]
+  );
   const selectedChips = useMemo(() => {
     const limit = 6;
     const visible = consultTargets.slice(0, limit);
@@ -613,7 +618,7 @@ export default function CandidatesView() {
           name={item.name ?? item.code}
           payload={payload}
           status={status}
-          maSettings={maSettings}
+          maSettings={resolvedMaSettings}
           rangeBars={listRangeBars}
           eventEarningsDate={ticker?.eventEarningsDate ?? null}
           eventRightsDate={ticker?.eventRightsDate ?? null}
@@ -663,7 +668,7 @@ export default function CandidatesView() {
       densityKey,
       handleOpenDetail,
       listRangeBars,
-      maSettings,
+      resolvedMaSettings,
       removeKeep,
       signalMap,
       stateEvalMap,
@@ -730,7 +735,7 @@ export default function CandidatesView() {
                 name={item.name ?? item.code}
                 payload={payload}
                 status={status}
-                maSettings={maSettings}
+                maSettings={resolvedMaSettings}
                 rangeBars={listRangeBars}
                 eventEarningsDate={ticker?.eventEarningsDate ?? null}
                 eventRightsDate={ticker?.eventRightsDate ?? null}

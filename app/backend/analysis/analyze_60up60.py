@@ -6,19 +6,10 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 
-# Add project root to path
-try:
-    from app.core.config import config
-    DB_PATH = str(config.DB_PATH)
-except ImportError:
-    # Fallback or try alternate import
-    try:
-        from app.backend.config import config
-        DB_PATH = str(config.DB_PATH)
-    except Exception as e:
-        print(f"Config import failed: {e}")
-        # Default fallback
-        DB_PATH = "c:/work/meemee-screener/db/screener.duckdb"
+from app.backend.analysis._db_path import resolve_analysis_db_path
+
+
+DB_PATH = resolve_analysis_db_path()
 
 def compute_rsi(series, period=14):
     delta = series.diff()

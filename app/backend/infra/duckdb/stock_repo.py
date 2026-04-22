@@ -24,6 +24,9 @@ from app.db.session import get_conn_for_path
 
 logger = logging.getLogger(__name__)
 _SCHEMA_CACHE_TTL_SEC = max(5, int(os.getenv("MEEMEE_SCHEMA_CACHE_TTL_SEC", "60")))
+_MONTHLY_PATCH_DAILY_LIMIT = 45
+_MONTHLY_FALLBACK_DAILY_FACTOR = 25
+_MONTHLY_FALLBACK_DAILY_MIN = 260
 
 class StockRepository:
     _instance = None
@@ -135,6 +138,85 @@ class StockRepository:
             grouped[code] = self._maybe_fill_sparse_daily_history(code, trimmed_rows, limit=limit, asof_dt=asof_dt)
         return grouped
 
+    def get_weekly_bars_batch(
+        self,
+        codes: List[str],
+        limit: int = 120,
+        asof_dt: int | None = None,
+    ) -> Dict[str, List[Tuple]]:
+        unique_codes = [code for code in dict.fromkeys(str(code).strip() for code in codes) if code]
+        if not unique_codes:
+            return {}
+
+        placeholders = ",".join(["?"] * len(unique_codes))
+        normalized_day_expr = """
+            CASE
+                WHEN length(CAST(abs(date) AS VARCHAR)) = 8
+                    THEN CAST(epoch(strptime(CAST(date AS VARCHAR), '%Y%m%d')) AS BIGINT)
+                ELSE CAST(date AS BIGINT)
+            END
+        """
+        query = f"""
+            WITH normalized_daily AS (
+                SELECT
+                    code,
+                    {normalized_day_expr} AS day_ts,
+                    o,
+                    h,
+                    l,
+                    c,
+                    v
+                FROM daily_bars
+                WHERE code IN ({placeholders})
+        """
+        params: List[Any] = list(unique_codes)
+        if asof_dt is not None:
+            query += f" AND {normalized_day_expr} <= ?"
+            params.append(asof_dt)
+        query += """
+            ),
+            weekly_agg AS (
+                SELECT
+                    code,
+                    CAST(epoch(date_trunc('week', to_timestamp(day_ts))) AS BIGINT) AS week,
+                    arg_min(o, day_ts) AS o,
+                    max(h) AS h,
+                    min(l) AS l,
+                    arg_max(c, day_ts) AS c,
+                    sum(v) AS v
+                FROM normalized_daily
+                GROUP BY 1, 2
+            )
+            SELECT code, week, o, h, l, c, v
+            FROM (
+                SELECT
+                    code,
+                    week,
+                    o,
+                    h,
+                    l,
+                    c,
+                    v,
+                    ROW_NUMBER() OVER (PARTITION BY code ORDER BY week DESC) AS rn
+                FROM weekly_agg
+            )
+            WHERE rn <= ?
+            ORDER BY code, week
+        """
+        params.append(limit)
+
+        with self._get_read_conn() as conn:
+            rows = conn.execute(query, params).fetchall()
+
+        grouped: Dict[str, List[Tuple]] = {code: [] for code in unique_codes}
+        for row in rows:
+            code = str(row[0])
+            grouped.setdefault(code, []).append(tuple(row[1:]))
+        for code, code_rows in list(grouped.items()):
+            trimmed_rows = trim_to_latest_continuous_segment(code_rows)
+            grouped[code] = apply_split_gap_adjustment(trimmed_rows)
+        return grouped
+
     def _maybe_fill_sparse_daily_history(
         self,
         code: str,
@@ -198,39 +280,17 @@ class StockRepository:
         params.append(limit)
         with self._get_read_conn() as conn:
             rows = conn.execute(query, params).fetchall()
-            if not rows:
-                fallback_query = """
-                    SELECT
-                        CAST(epoch(date_trunc('month', to_timestamp(date))) AS BIGINT) AS month,
-                        arg_min(o, date) AS o,
-                        max(h) AS h,
-                        min(l) AS l,
-                        arg_max(c, date) AS c,
-                        sum(v) AS v
-                    FROM daily_bars
-                    WHERE code = ?
-                """
-                fallback_params: List[Any] = [code]
-                if asof_dt is not None:
-                    asof_ymd = int(datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y%m%d"))
-                    fallback_query += " AND date <= CASE WHEN date >= 1000000000 THEN ? ELSE ? END"
-                    fallback_params.extend([asof_dt, asof_ymd])
-                fallback_query += """
-                    GROUP BY 1
-                    ORDER BY 1 DESC
-                    LIMIT ?
-                """
-                fallback_params.append(limit)
-                rows = conn.execute(
-                    fallback_query,
-                    fallback_params,
-                ).fetchall()
         rows = sorted(rows, key=lambda x: x[0])
         recent_daily = (
             recent_daily_rows
             if recent_daily_rows is not None
-            else self.get_daily_bars(code, limit=max(limit * 25, 260), asof_dt=asof_dt)
+            else self.get_daily_bars(code, limit=_MONTHLY_PATCH_DAILY_LIMIT, asof_dt=asof_dt)
         )
+        trimmed_monthly = trim_to_latest_continuous_segment(rows)
+        needs_large_history = not trimmed_monthly or should_replace_monthly_with_daily(recent_daily, trimmed_monthly)
+        fallback_limit = max(limit * _MONTHLY_FALLBACK_DAILY_FACTOR, _MONTHLY_FALLBACK_DAILY_MIN)
+        if needs_large_history and len(recent_daily) < fallback_limit:
+            recent_daily = self.get_daily_bars(code, limit=fallback_limit, asof_dt=asof_dt)
         return self._finalize_monthly_rows(rows, recent_daily, limit=limit)
 
     def get_monthly_bars_batch(
@@ -281,67 +341,46 @@ class StockRepository:
 
         with self._get_read_conn() as conn:
             rows = conn.execute(query, params).fetchall()
-            grouped: Dict[str, List[Tuple]] = {code: [] for code in unique_codes}
-            for row in rows:
-                code = str(row[0])
-                grouped.setdefault(code, []).append(tuple(row[1:]))
+        grouped: Dict[str, List[Tuple]] = {code: [] for code in unique_codes}
+        for row in rows:
+            code = str(row[0])
+            grouped.setdefault(code, []).append(tuple(row[1:]))
 
-            missing_codes = [code for code, code_rows in grouped.items() if not code_rows]
-            if not missing_codes:
-                return grouped
-
-            fallback_placeholders = ",".join(["?"] * len(missing_codes))
-            fallback_query = f"""
-                WITH monthly_agg AS (
-                    SELECT
-                        code,
-                        CAST(epoch(date_trunc('month', to_timestamp(date))) AS BIGINT) AS month,
-                        arg_min(o, date) AS o,
-                        max(h) AS h,
-                        min(l) AS l,
-                        arg_max(c, date) AS c,
-                        sum(v) AS v
-                    FROM daily_bars
-                    WHERE code IN ({fallback_placeholders})
-            """
-            fallback_params: List[Any] = list(missing_codes)
-            if asof_dt is not None:
-                asof_ymd = int(datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y%m%d"))
-                fallback_query += " AND date <= CASE WHEN date >= 1000000000 THEN ? ELSE ? END"
-                fallback_params.extend([asof_dt, asof_ymd])
-            fallback_query += """
-                    GROUP BY 1, 2
+        recent_daily_map: Dict[str, List[Tuple]] = {
+            code: list(rows)
+            for code, rows in (recent_daily_rows_by_code or {}).items()
+            if code in grouped
+        }
+        codes_needing_patch_rows = [code for code in unique_codes if code not in recent_daily_map]
+        if codes_needing_patch_rows:
+            recent_daily_map.update(
+                self.get_daily_bars_batch(
+                    codes_needing_patch_rows,
+                    limit=_MONTHLY_PATCH_DAILY_LIMIT,
+                    asof_dt=asof_dt,
                 )
-                SELECT code, month, o, h, l, c, v
-                FROM (
-                    SELECT
-                        code,
-                        month,
-                        o,
-                        h,
-                        l,
-                        c,
-                        v,
-                        ROW_NUMBER() OVER (PARTITION BY code ORDER BY month DESC) AS rn
-                    FROM monthly_agg
-                )
-                WHERE rn <= ?
-                ORDER BY code, month
-            """
-            fallback_params.append(limit)
-            fallback_rows = conn.execute(fallback_query, fallback_params).fetchall()
-            for row in fallback_rows:
-                code = str(row[0])
-                grouped.setdefault(code, []).append(tuple(row[1:]))
-
-        if recent_daily_rows_by_code is None:
-            recent_daily_rows_by_code = self.get_daily_bars_batch(
-                unique_codes,
-                limit=max(limit * 25, 260),
-                asof_dt=asof_dt,
             )
+
+        fallback_limit = max(limit * _MONTHLY_FALLBACK_DAILY_FACTOR, _MONTHLY_FALLBACK_DAILY_MIN)
+        codes_needing_large_history: List[str] = []
+        for code, code_rows in grouped.items():
+            trimmed_monthly = trim_to_latest_continuous_segment(code_rows)
+            recent_daily = recent_daily_map.get(code, [])
+            if not trimmed_monthly or should_replace_monthly_with_daily(recent_daily, trimmed_monthly):
+                if len(recent_daily) < fallback_limit:
+                    codes_needing_large_history.append(code)
+
+        if codes_needing_large_history:
+            recent_daily_map.update(
+                self.get_daily_bars_batch(
+                    codes_needing_large_history,
+                    limit=fallback_limit,
+                    asof_dt=asof_dt,
+                )
+            )
+
         for code, code_rows in list(grouped.items()):
-            recent_daily = recent_daily_rows_by_code.get(code, [])
+            recent_daily = recent_daily_map.get(code, [])
             grouped[code] = self._finalize_monthly_rows(code_rows, recent_daily, limit=limit)
         return grouped
 

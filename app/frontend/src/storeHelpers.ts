@@ -264,6 +264,34 @@ export const loadSettings = (
   }
 };
 
+export const shouldFallbackWeeklyListMaSettings = (settings?: MaSetting[] | null) => {
+  if (!Array.isArray(settings) || settings.length !== DEFAULT_PERIODS.weekly.length) return false;
+  const defaults = makeDefaultSettings("weekly");
+  const matchesDefaultShape = settings.every((setting, index) => {
+    const fallback = defaults[index];
+    if (!fallback) return false;
+    return (
+      setting.period === fallback.period &&
+      setting.color === fallback.color &&
+      setting.lineWidth === fallback.lineWidth
+    );
+  });
+  if (!matchesDefaultShape) return false;
+  const visibleCount = settings.reduce((count, setting) => count + (setting.visible ? 1 : 0), 0);
+  return visibleCount <= 2;
+};
+
+export const resolveListThumbnailMaSettings = (
+  timeframe: MaTimeframe,
+  settings?: MaSetting[] | null
+): MaSetting[] => {
+  const normalized = normalizeSettings(timeframe, settings ?? null);
+  if (timeframe === "weekly" && shouldFallbackWeeklyListMaSettings(normalized)) {
+    return makeDefaultSettings("weekly");
+  }
+  return normalized;
+};
+
 export const persistSettings = (
   timeframe: MaTimeframe,
   settings: MaSetting[],
@@ -408,6 +436,7 @@ export const getInitialSortKey = (): SortKey => {
   const options: SortKey[] = [
     "code",
     "name",
+    "sector",
     "entryPriority",
     "buyCandidate",
     "buySignalLatest",
@@ -438,7 +467,8 @@ export const getInitialSortKey = (): SortKey => {
     "shortPriority",
     "shortScore",
     "aScore",
-    "bScore"
+    "bScore",
+    "performance"
   ];
   return options.includes(saved as SortKey) ? (saved as SortKey) : "code";
 };

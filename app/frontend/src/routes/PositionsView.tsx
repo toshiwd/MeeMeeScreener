@@ -16,6 +16,7 @@ import {
   ConsultationTimeframe
 } from "../utils/consultation";
 import { downloadChartScreenshots } from "../utils/chartScreenshot";
+import { resolveListThumbnailMaSettings } from "../storeHelpers";
 import { useVisibleCodesPrefetch } from "./list/useVisibleCodesPrefetch";
 import { openDetailWithPrefetch } from "./detail/openDetailWithPrefetch";
 import { formatIsoDateLabel } from "../utils/dateLabels";
@@ -519,6 +520,11 @@ export default function PositionsView() {
     }
   }, [consultText]);
 
+  const resolvedMaSettings = useMemo(
+    () => resolveListThumbnailMaSettings(listTimeframe, maSettings),
+    [listTimeframe, maSettings]
+  );
+
   const handleCreateScreenshots = useCallback(async () => {
     if (!consultTargets.length) {
       setToastMessage("スクショ対象がありません。");
@@ -537,7 +543,7 @@ export default function PositionsView() {
         code,
         payload: barsCache[code] ?? null,
         boxes: [],
-        maSettings
+        maSettings: resolvedMaSettings
       }));
       const result = await downloadChartScreenshots(itemsForShots, {
         rangeBars: listRangeBars,
@@ -557,7 +563,7 @@ export default function PositionsView() {
     ensureBarsForVisible,
     listTimeframe,
     barsCache,
-    maSettings,
+    resolvedMaSettings,
     listRangeBars
   ]);
 
@@ -663,7 +669,7 @@ export default function PositionsView() {
         name={`${displayName}${extraInfo}`}
         payload={payload}
         status={status}
-        maSettings={maSettings}
+        maSettings={resolvedMaSettings}
         rangeBars={listRangeBars}
         eventEarningsDate={ticker?.eventEarningsDate ?? null}
         eventRightsDate={ticker?.eventRightsDate ?? null}

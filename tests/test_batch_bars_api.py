@@ -18,6 +18,12 @@ class _FakeRepo:
         ]
         return {code: rows[-limit:] for code in codes}
 
+    def get_weekly_bars_batch(self, codes, limit, asof_dt=None):
+        rows = [
+            (1773014400, 100.0, 115.0, 95.0, 114.0, 3100.0),
+        ]
+        return {code: rows[-limit:] for code in codes}
+
     def get_monthly_bars_batch(self, codes, limit, asof_dt=None, recent_daily_rows_by_code=None):
         rows = [
             (202601, 90.0, 101.0, 88.0, 100.0, 10000.0),
@@ -36,12 +42,23 @@ class _ProvenanceRepo:
         ]
         return {code: rows[-limit:] for code in codes}
 
+    def get_weekly_bars_batch(self, codes, limit, asof_dt=None):
+        rows = [
+            (1775433600, 100.0, 115.0, 95.0, 114.0, 3100.0),
+        ]
+        return {code: rows[-limit:] for code in codes}
+
     def get_monthly_bars_batch(self, codes, limit, asof_dt=None, recent_daily_rows_by_code=None):
         rows = [
             (202603, 90.0, 101.0, 88.0, 100.0, 10000.0),
             (202604, 100.0, 115.0, 95.0, 114.0, 12000.0),
         ]
         return {code: rows[-limit:] for code in codes}
+
+
+def _clear_batch_bars_cache() -> None:
+    bars_module._batch_v3_cache.clear()
+    bars_module._batch_v3_inflight.clear()
 
 
 def _build_client() -> TestClient:
@@ -59,6 +76,7 @@ def test_batch_bars_v3_skips_monthly_box_detection_when_include_boxes_is_false(m
         return [{"startTime": 1, "endTime": 2}]
 
     monkeypatch.setattr(bars_module, "detect_boxes", _fail_if_called)
+    _clear_batch_bars_cache()
     client = _build_client()
 
     response = client.post(
@@ -87,6 +105,7 @@ def test_batch_bars_v3_returns_monthly_boxes_when_include_boxes_is_true(monkeypa
         return [{"startTime": 1, "endTime": 2}]
 
     monkeypatch.setattr(bars_module, "detect_boxes", _fake_detect_boxes)
+    _clear_batch_bars_cache()
     client = _build_client()
 
     response = client.post(
@@ -119,6 +138,7 @@ def test_batch_bars_v3_marks_live_provisional_data_version(monkeypatch, tmp_path
             return datetime(2026, 4, 13, 0, 0, 0, tzinfo=timezone.utc)
 
     monkeypatch.setattr(bars_module, "datetime", _FixedDatetime)
+    _clear_batch_bars_cache()
 
     client = _build_client()
     response = client.post(
@@ -154,8 +174,7 @@ def test_batch_bars_v3_exposes_chart_provenance_for_provisional_overlay(monkeypa
         "get_provisional_daily_rows_from_spark",
         lambda codes, prefer_chart_ohlc=True: {code: (1776297600, 116.0, 118.0, 114.0, 117.5, 1500.0) for code in codes},
     )
-    bars_module._batch_v3_cache.clear()
-    bars_module._batch_v3_inflight.clear()
+    _clear_batch_bars_cache()
 
     client = FastAPI()
     client.include_router(bars_module.router)
@@ -218,6 +237,12 @@ def test_batch_bars_v3_prefers_confirmed_overlapping_chart_gallery_data(monkeypa
             ]
             return {code: rows[-limit:] for code in codes}
 
+        def get_weekly_bars_batch(self, codes, limit, asof_dt=None):
+            rows = [
+                (1776038400, 100.0, 115.0, 95.0, 114.0, 3100.0),
+            ]
+            return {code: rows[-limit:] for code in codes}
+
         def get_monthly_bars_batch(self, codes, limit, asof_dt=None, recent_daily_rows_by_code=None):
             rows = [
                 (202603, 90.0, 101.0, 88.0, 100.0, 10000.0),
@@ -231,6 +256,7 @@ def test_batch_bars_v3_prefers_confirmed_overlapping_chart_gallery_data(monkeypa
         "get_provisional_daily_rows_from_spark",
         lambda codes, prefer_chart_ohlc=True: {code: (1776297600, 116.0, 118.0, 114.0, 117.5, 1500.0) for code in codes},
     )
+    _clear_batch_bars_cache()
 
     client = FastAPI()
     client.include_router(bars_module.router)
@@ -258,6 +284,149 @@ def test_batch_bars_v3_prefers_confirmed_overlapping_chart_gallery_data(monkeypa
     assert daily["provenance"]["display_basis_classification"] == "confirmed"
     assert daily["provenance"]["judgment_basis_classification"] == "confirmed"
     assert daily["provenance"]["overwrite_status"] == "provisional_replaced_by_confirmed"
+
+
+def test_batch_bars_v3_uses_direct_weekly_source_without_daily_fetch(monkeypatch) -> None:
+    class _WeeklyOnlyRepo:
+        def get_daily_bars_batch(self, codes, limit, asof_dt=None):  # pragma: no cover - guardrail
+            raise AssertionError("weekly-only request should not fetch daily bars without live patch")
+
+        def get_weekly_bars_batch(self, codes, limit, asof_dt=None):
+            rows = [
+                (1773014400, 100.0, 120.0, 95.0, 118.0, 4000.0),
+                (1773619200, 119.0, 125.0, 110.0, 123.0, 3500.0),
+            ]
+            return {code: rows[-limit:] for code in codes}
+
+        def get_monthly_bars_batch(self, codes, limit, asof_dt=None, recent_daily_rows_by_code=None):
+            raise AssertionError("monthly source should not be used")
+
+    _clear_batch_bars_cache()
+    client = FastAPI()
+    client.include_router(bars_module.router)
+    client.dependency_overrides[get_stock_repo] = lambda: _WeeklyOnlyRepo()
+    test_client = TestClient(client)
+
+    response = test_client.post(
+        "/api/batch_bars_v3",
+        json={
+            "codes": ["7203"],
+            "timeframes": ["weekly"],
+            "limit": 120,
+            "includeProvisional": False,
+            "includeBoxes": False,
+        },
+    )
+
+    assert response.status_code == 200
+    weekly = response.json()["items"]["7203"]["weekly"]["bars"]
+    assert len(weekly) == 2
+    assert weekly[-1][4] == 123.0
+
+
+def test_batch_bars_v3_patches_current_week_with_daily_tail(monkeypatch) -> None:
+    class _WeeklyPatchRepo:
+        def get_daily_bars_batch(self, codes, limit, asof_dt=None):
+            rows = [
+                (20260413, 100.0, 110.0, 95.0, 106.0, 1000.0),
+                (20260414, 107.0, 112.0, 104.0, 110.0, 1200.0),
+            ]
+            return {code: rows[-limit:] for code in codes}
+
+        def get_weekly_bars_batch(self, codes, limit, asof_dt=None):
+            rows = [
+                (1776038400, 100.0, 112.0, 95.0, 110.0, 2200.0),
+            ]
+            return {code: rows[-limit:] for code in codes}
+
+        def get_monthly_bars_batch(self, codes, limit, asof_dt=None, recent_daily_rows_by_code=None):
+            raise AssertionError("monthly source should not be used")
+
+    class _FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):  # type: ignore[override]
+            return datetime(2026, 4, 15, 12, 0, 0, tzinfo=timezone.utc)
+
+    monkeypatch.setattr(bars_module, "datetime", _FixedDatetime)
+    monkeypatch.setattr(
+        bars_module,
+        "get_provisional_daily_rows_from_spark",
+        lambda codes, prefer_chart_ohlc=True: {code: (20260415, 109.0, 118.0, 103.0, 117.0, 1500.0) for code in codes},
+    )
+    _clear_batch_bars_cache()
+    client = FastAPI()
+    client.include_router(bars_module.router)
+    client.dependency_overrides[get_stock_repo] = lambda: _WeeklyPatchRepo()
+    test_client = TestClient(client)
+
+    response = test_client.post(
+        "/api/batch_bars_v3",
+        json={
+            "codes": ["7203"],
+            "timeframes": ["weekly"],
+            "limit": 120,
+            "includeProvisional": True,
+            "includeBoxes": False,
+        },
+    )
+
+    assert response.status_code == 200
+    weekly = response.json()["items"]["7203"]["weekly"]
+    assert weekly["bars"][-1] == [1776038400, 100.0, 118.0, 95.0, 117.0, 3700.0]
+    assert weekly["provenance"]["chart_aggregation_source"] == "derived"
+
+
+def test_batch_bars_v3_uses_timeframe_specific_sources(monkeypatch) -> None:
+    calls: list[tuple[str, tuple[str, ...], int]] = []
+
+    class _MixedSourceRepo:
+        def get_daily_bars_batch(self, codes, limit, asof_dt=None):
+            calls.append(("daily", tuple(codes), limit))
+            rows = [
+                (20260401, 100.0, 110.0, 95.0, 105.0, 1000.0),
+                (20260402, 106.0, 112.0, 101.0, 111.0, 1200.0),
+            ]
+            return {code: rows[-limit:] for code in codes}
+
+        def get_weekly_bars_batch(self, codes, limit, asof_dt=None):
+            calls.append(("weekly", tuple(codes), limit))
+            rows = [
+                (1775433600, 100.0, 115.0, 95.0, 114.0, 3100.0),
+            ]
+            return {code: rows[-limit:] for code in codes}
+
+        def get_monthly_bars_batch(self, codes, limit, asof_dt=None, recent_daily_rows_by_code=None):
+            calls.append(("monthly", tuple(codes), limit))
+            rows = [
+                (202603, 90.0, 101.0, 88.0, 100.0, 10000.0),
+                (202604, 100.0, 115.0, 95.0, 114.0, 12000.0),
+            ]
+            return {code: rows[-limit:] for code in codes}
+
+    _clear_batch_bars_cache()
+    client = FastAPI()
+    client.include_router(bars_module.router)
+    client.dependency_overrides[get_stock_repo] = lambda: _MixedSourceRepo()
+    test_client = TestClient(client)
+
+    response = test_client.post(
+        "/api/batch_bars_v3",
+        json={
+            "codes": ["7203"],
+            "timeframes": ["daily", "weekly", "monthly"],
+            "limit": 120,
+            "timeframeLimits": {"daily": 5, "weekly": 40, "monthly": 12},
+            "includeProvisional": False,
+            "includeBoxes": False,
+        },
+    )
+
+    assert response.status_code == 200
+    assert calls == [
+        ("daily", ("7203",), 5),
+        ("weekly", ("7203",), 40),
+        ("monthly", ("7203",), 12),
+    ]
 
 
 def test_batch_bars_v3_omits_live_bucket_for_historical_asof(monkeypatch, tmp_path) -> None:

@@ -3,8 +3,10 @@ import duckdb
 import pandas as pd
 import numpy as np
 
+from app.backend.analysis._db_path import resolve_analysis_db_path
 
-DB_PATH = "C:/Users/enish/AppData/Local/MeeMeeScreener/data/stocks.duckdb"
+
+DB_PATH = resolve_analysis_db_path()
 
 def run_analysis():
     print(f"Connecting to DB at {DB_PATH}")

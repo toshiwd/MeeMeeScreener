@@ -182,12 +182,55 @@ declare global {
                     fileName?: string;
                     error?: string;
                 }>;
+                save_perf_diagnostic_artifact: (dataUri: string, filename: string) => Promise<{
+                    success: boolean;
+                    savedPath?: string;
+                    savedDir?: string;
+                    fileName?: string;
+                    error?: string;
+                }>;
                 open_path: (path: string) => Promise<boolean>;
                 open_screenshot_dir: () => Promise<boolean>;
             };
         };
     }
 }
+
+const blobToDataUri = async (blob: Blob): Promise<string> => {
+    return await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.readAsDataURL(blob);
+    });
+};
+
+const saveBlobViaPywebview = async (
+    blob: Blob,
+    filename: string,
+    method: "save_screenshot" | "save_perf_diagnostic_artifact"
+): Promise<{
+    success: boolean;
+    savedPath?: string;
+    savedDir?: string;
+    fileName?: string;
+    error?: string;
+} | null> => {
+    if (!window.pywebview) {
+        return null;
+    }
+    try {
+        const dataUri = await blobToDataUri(blob);
+        const api = window.pywebview.api;
+        const saver = api?.[method];
+        if (!saver) {
+            return null;
+        }
+        return await saver(dataUri, filename);
+    } catch (e) {
+        console.error("Backend save failed:", e);
+        return null;
+    }
+};
 
 /**
  * Save a Blob to file via backend (preferred) or download
@@ -200,18 +243,9 @@ export const saveBlobToFile = async (blob: Blob, filename: string): Promise<{
     error?: string;
 }> => {
     // 1. Try pywebview backend first
-    if (window.pywebview) {
-        try {
-            const dataUri = await new Promise<string>((resolve) => {
-                const reader = new FileReader();
-                reader.onloadend = () => resolve(reader.result as string);
-                reader.readAsDataURL(blob);
-            });
-            return await window.pywebview.api.save_screenshot(dataUri, filename);
-        } catch (e) {
-            console.error("Backend save failed:", e);
-            // Fallthrough to download
-        }
+    const backendResult = await saveBlobViaPywebview(blob, filename, "save_screenshot");
+    if (backendResult) {
+        return backendResult;
     }
 
     // 2. Fallback: trigger download
@@ -228,6 +262,37 @@ export const saveBlobToFile = async (blob: Blob, filename: string): Promise<{
         return { success: true, fileName: filename };
     } catch {
         return { success: false, error: "保存に失敗しました" };
+    }
+};
+
+/**
+ * Save a Blob into the diagnostics directory via backend (preferred) or download fallback
+ */
+export const saveBlobToPerfDiagnostics = async (blob: Blob, filename: string): Promise<{
+    success: boolean;
+    savedPath?: string;
+    savedDir?: string;
+    fileName?: string;
+    error?: string;
+}> => {
+    const backendResult = await saveBlobViaPywebview(blob, filename, "save_perf_diagnostic_artifact");
+    if (backendResult) {
+        return backendResult;
+    }
+
+    try {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = filename;
+        link.style.display = "none";
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        return { success: true, fileName: filename };
+    } catch {
+        return { success: false, error: "菫晏ｭ倥↓螟ｱ謨励＠縺ｾ縺励◆" };
     }
 };
 

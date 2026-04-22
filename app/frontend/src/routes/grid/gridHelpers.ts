@@ -4,6 +4,7 @@ import { DENSITY_PRESET_OPTIONS, densityPresetToBars } from "../../density";
 import { getSignalDirectionSummary, type SignalMetrics } from "../../utils/signals";
 import type { TechnicalFilterState } from "../../utils/technicalFilter";
 import type { HealthStatus, Timeframe, WalkforwardParams } from "./gridTypes";
+import type { Ticker } from "../../storeTypes";
 
 export const GRID_GAP = 12;
 export const KP_LIMIT = 24;
@@ -61,10 +62,155 @@ export const resolveGridVolumeSurgeRatio = (bars: number[][] | undefined, window
   return latest / avg;
 };
 
+const GRID_BARS_DEPENDENT_SORT_KEYS = [
+  "ma20Dev",
+  "ma60Dev",
+  "ma20Slope",
+  "ma60Slope",
+  "chg1D",
+  "buySignalLatest",
+  "sellSignalLatest",
+  "volumeSurge"
+] as const;
+
+const normalizeVisibleCodes = (codes: string[]) =>
+  [...new Set(codes.map((code) => code.trim()).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b, "ja", { numeric: true, sensitivity: "base" })
+  );
+
+export const isGridBarsDependentSortKey = (key: string) =>
+  GRID_BARS_DEPENDENT_SORT_KEYS.includes(key as (typeof GRID_BARS_DEPENDENT_SORT_KEYS)[number]);
+
+export const buildVisibleRequestSignature = (
+  timeframe: Timeframe,
+  rangeBars: number,
+  visibleMaSignature: string,
+  codes: string[]
+) => {
+  const normalizedCodes = normalizeVisibleCodes(codes);
+  return `${timeframe}:${rangeBars}:${visibleMaSignature}:${normalizedCodes.join(",")}`;
+};
+
+export const resolveGridRefineWindow = (
+  visibleStart: number,
+  visibleStop: number,
+  totalCount: number,
+  rows: number,
+  columns: number
+) => {
+  if (!Number.isFinite(visibleStart) || !Number.isFinite(visibleStop) || totalCount <= 0) {
+    return null;
+  }
+  const viewportSize = Math.max(1, Math.floor(rows) * Math.floor(columns));
+  const start = Math.max(0, Math.floor(visibleStart) - viewportSize);
+  const stop = Math.min(totalCount - 1, Math.floor(visibleStop) + viewportSize);
+  if (start > stop) return null;
+  return { start, stop };
+};
+
+export const resolveGridFastSortValue = (
+  ticker: Ticker,
+  sortKey: string,
+  performancePeriod: string
+) => {
+  switch (sortKey) {
+    case "code":
+      return ticker.code;
+    case "name":
+      return ticker.name ?? "";
+    case "sector":
+      return ticker.sector33Code ?? null;
+    case "chg1D":
+      return ticker.chg1D ?? null;
+    case "chg1W":
+      return ticker.chg1W ?? null;
+    case "chg1M":
+      return ticker.chg1M ?? null;
+    case "chg1Q":
+      return ticker.chg1Q ?? null;
+    case "chg1Y":
+      return ticker.chg1Y ?? null;
+    case "prevWeekChg":
+      return ticker.prevWeekChg ?? null;
+    case "prevMonthChg":
+      return ticker.prevMonthChg ?? null;
+    case "prevQuarterChg":
+      return ticker.prevQuarterChg ?? null;
+    case "prevYearChg":
+      return ticker.prevYearChg ?? null;
+    case "upScore":
+      return ticker.scores?.upScore ?? null;
+    case "downScore":
+      return ticker.scores?.downScore ?? null;
+    case "overheatUp":
+      return ticker.scores?.overheatUp ?? null;
+    case "overheatDown":
+      return ticker.scores?.overheatDown ?? null;
+    case "swingScore":
+      return ticker.swingScore ?? ticker.swingLongScore ?? ticker.swingShortScore ?? null;
+    case "mlEv20Net":
+      return ticker.mlEv20Net ?? null;
+    case "mlPUpShort":
+      return ticker.mlPUpShort ?? ticker.mlPUp ?? null;
+    case "mlPDownShort":
+      return ticker.mlPDownShort ?? ticker.mlPDown ?? null;
+    case "boxState": {
+      const boxOrder: Record<string, number> = {
+        IN_BOX: 3,
+        JUST_BRAKOUT: 2,
+        BRAKOUT_UP: 2,
+        BRAKOUT_DOWN: 2,
+        NON: 0
+      };
+      const state = ticker.boxState ?? "NON";
+      return boxOrder[state] ?? 0;
+    }
+    case "shortScore":
+      return ticker.shortScore ?? null;
+    case "aScore":
+      return ticker.aScore ?? null;
+    case "bScore":
+      return ticker.bScore ?? null;
+    case "shortPriority":
+      return ticker.shortPriorityScore ?? null;
+    case "entryPriority":
+      return ticker.entryPriorityScore ?? null;
+    case "buySignalLatest":
+      return ticker.buyStateScore ?? ticker.scores?.upScore ?? null;
+    case "sellSignalLatest":
+      return ticker.shortPriorityScore ?? ticker.scores?.downScore ?? null;
+    case "performance":
+      switch (performancePeriod) {
+        case "1D":
+          return ticker.chg1D ?? null;
+        case "1W":
+          return ticker.chg1W ?? null;
+        case "1M":
+          return ticker.chg1M ?? null;
+        case "1Q":
+          return ticker.chg1Q ?? null;
+        case "1Y":
+          return ticker.chg1Y ?? null;
+        default:
+          return ticker.chg1M ?? null;
+      }
+    default:
+      return null;
+  }
+};
+
 export const resolveGridPrimaryChangeValue = (
   ticker: { chg1D?: number | null; chg1W?: number | null; chg1M?: number | null },
-  timeframe: Timeframe
+  timeframe: Timeframe,
+  bars?: number[][] | undefined
 ) => {
+  if (bars?.length && bars.length > 1) {
+    const latestClose = Number(bars[bars.length - 1]?.[4]);
+    const prevClose = Number(bars[bars.length - 2]?.[4]);
+    if (Number.isFinite(latestClose) && Number.isFinite(prevClose) && prevClose !== 0) {
+      return (latestClose - prevClose) / prevClose;
+    }
+  }
   if (timeframe === "daily") return ticker.chg1D ?? null;
   if (timeframe === "weekly") return ticker.chg1W ?? null;
   return ticker.chg1M ?? null;

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { AxiosError } from "axios";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { IconHeart, IconHeartFilled } from "@tabler/icons-react";
+import { IconCamera, IconHeart, IconHeartFilled } from "@tabler/icons-react";
 import { shallow } from "zustand/shallow";
 import { api } from "../api";
 import { useBackendReadyState } from "../backendReady";
@@ -15,7 +15,8 @@ import VirtualizedCardGrid from "../components/VirtualizedCardGrid";
 import TradexShadowReadout from "../components/TradexShadowReadout";
 import AiExplainDock from "../features/aiExplain/AiExplainDock";
 import { buildAiExplainImages } from "../features/aiExplain/aiExplainImages";
-import { MaSetting, useStore } from "../store";
+import { useStore } from "../store";
+import { resolveListThumbnailMaSettings } from "../storeHelpers";
 import { formatEventBadgeDate } from "../utils/events";
 import { computeSignalMetrics, getSignalDirectionSummary } from "../utils/signals";
 import {
@@ -23,7 +24,8 @@ import {
   ConsultationSort,
   ConsultationTimeframe
 } from "../utils/consultation";
-import { useConsultScreenshot } from "../hooks/useConsultScreenshot";
+import { downloadChartScreenshots } from "../utils/chartScreenshot";
+import { captureWindowBlob, getScreenType, saveBlobToFile } from "../utils/windowScreenshot";
 import { openDetailWithPrefetch } from "./detail/openDetailWithPrefetch";
 import { buildTradexListSummaryKey } from "./list/tradexSummary";
 import { TradexListSummaryMount } from "./list/TradexListSummaryMount";
@@ -259,6 +261,7 @@ const RANK_VIEW_STATE_VERSION = 6;
 const RANK_FETCH_CACHE_VERSION = 2;
 const RANK_FETCH_CACHE_PREFIX = "rankingFetchCache";
 const RANK_LIMIT = 50;
+const SCREENSHOT_LIMIT = 10;
 const RANK_FETCH_TIMEOUT_MS = 60000;
 const TIMEFRAME_LABELS: Record<RankTimeframe, string> = {
   D: "日足",
@@ -316,13 +319,6 @@ const buildRankExplainSnapshotItem = (item: RankItem, rank: number) => ({
   recommendedHoldDays: item.recommendedHoldDays ?? null
 });
 
-const RANK_MA_SETTINGS: MaSetting[] = [
-  { key: "ma1", label: "MA1", period: 7, visible: true, color: "#ef4444", lineWidth: 1 },
-  { key: "ma2", label: "MA2", period: 20, visible: true, color: "#22c55e", lineWidth: 1 },
-  { key: "ma3", label: "MA3", period: 60, visible: true, color: "#3b82f6", lineWidth: 1 },
-  { key: "ma4", label: "MA4", period: 100, visible: true, color: "#a855f7", lineWidth: 1 },
-  { key: "ma5", label: "MA5", period: 200, visible: true, color: "#f59e0b", lineWidth: 1 }
-];
 const MTF_WEIGHTS: Record<RankTimeframe, number> = { D: 0.5, W: 0.3, M: 0.2 };
 const MTF_MIN_QUALIFIED_COUNT_STRICT = 2;
 const MTF_SCORE_RELAX_GATE = 0.86;
@@ -743,6 +739,7 @@ export default function RankingView() {
   const [consultSort, setConsultSort] = useState<ConsultationSort>("score");
   const [consultBusy, setConsultBusy] = useState(false);
   const [consultMeta, setConsultMeta] = useState<{ omitted: number }>({ omitted: 0 });
+  const [screenshotBusy, setScreenshotBusy] = useState(false);
   const consultBarsCount = 60;
   const consultPaddingClass = consultVisible
     ? consultExpanded
@@ -768,9 +765,6 @@ export default function RankingView() {
     },
     [favoriteCodeSet]
   );
-
-  // Use the screenshot hook
-  const { generateScreenshots, isProcessing: screenshotBusy } = useConsultScreenshot();
 
   useEffect(() => {
     itemsRef.current = items;
@@ -815,7 +809,10 @@ export default function RankingView() {
     } as CSSProperties),
     [columns, rows]
   );
-  const resolvedMaSettings = maSettings ?? RANK_MA_SETTINGS;
+  const resolvedMaSettings = useMemo(
+    () => resolveListThumbnailMaSettings(listTimeframe, maSettings),
+    [listTimeframe, maSettings]
+  );
 
   /*
   const timeframeButtons = useMemo(
@@ -1614,20 +1611,37 @@ export default function RankingView() {
 
   const handleCreateScreenshots = useCallback(async () => {
     if (selectedCodes.length === 0) {
-      setToastMessage("スクリーンショット対象がありません。");
+      setToastAction(null);
+      setToastMessage("スクショ対象がありません。");
       return;
     }
-
-    // Check setting for Consult mode (Use new method)
-    // The user requirement says "Replace" so we just use the new one.
-
-    setToastMessage("スクリーンショットを生成しています…");
-
-    const result = await generateScreenshots(selectedCodes);
-
-    if (result.success) {
-      setToastMessage(`${result.count}件のスクリーンショットを保存しました`);
-      if (result.success && window.pywebview?.api?.open_screenshot_dir) {
+    const targets = selectedCodes.slice(0, SCREENSHOT_LIMIT);
+    const omitted = Math.max(0, selectedCodes.length - targets.length);
+    setScreenshotBusy(true);
+    setToastAction(null);
+    try {
+      try {
+        await ensureBarsForVisible(listTimeframe, targets, "chart-screenshot");
+      } catch {
+        // Use available cache even if fetch fails.
+      }
+      const itemsForShots = targets.map((code) => ({
+        code,
+        payload: barsCache[code] ?? null,
+        boxes: [],
+        maSettings: resolvedMaSettings
+      }));
+      const result = await downloadChartScreenshots(itemsForShots, {
+        rangeBars: listRangeBars,
+        timeframeLabel: listTimeframe
+      });
+      if (!result.created) {
+        setToastMessage("スクショを作成できませんでした。");
+        return;
+      }
+      const omittedLabel = omitted ? ` (残り${omitted}件は省略)` : "";
+      setToastMessage(`スクショを${result.created}件作成しました。${omittedLabel}`);
+      if (result.savedDir && window.pywebview?.api?.open_screenshot_dir) {
         setToastAction({
           label: "フォルダを開く",
           onClick: async () => {
@@ -1635,10 +1649,65 @@ export default function RankingView() {
           }
         });
       }
-    } else {
-      setToastMessage(`保存に失敗: ${result.error || "不明なエラー"}`);
+    } finally {
+      setScreenshotBusy(false);
     }
-  }, [selectedCodes, generateScreenshots]);
+  }, [
+    selectedCodes,
+    ensureBarsForVisible,
+    listTimeframe,
+    barsCache,
+    resolvedMaSettings,
+    listRangeBars
+  ]);
+
+  const handleCaptureScreen = useCallback(async () => {
+    if (screenshotBusy) {
+      return;
+    }
+    setScreenshotBusy(true);
+    setToastAction(null);
+    try {
+      const screenType = getScreenType(location.pathname);
+      const captureResult = await captureWindowBlob({
+        screenType,
+        code: "screen"
+      });
+      if (!captureResult.success || !captureResult.blob || !captureResult.filename) {
+        setToastMessage(captureResult.error ?? "スクショを作成できませんでした。");
+        return;
+      }
+      const saveResult = await saveBlobToFile(captureResult.blob, captureResult.filename);
+      if (!saveResult.success) {
+        setToastMessage(saveResult.error ?? "スクショの保存に失敗しました。");
+        return;
+      }
+      setToastMessage("画面スクショを保存しました。");
+      const targetPath = saveResult.savedPath || saveResult.savedDir;
+      if (targetPath && window.pywebview?.api?.open_path) {
+        setToastAction({
+          label: "保存先を開く",
+          onClick: async () => {
+            await window.pywebview!.api.open_path(targetPath);
+          }
+        });
+      }
+    } finally {
+      setScreenshotBusy(false);
+    }
+  }, [location.pathname, screenshotBusy]);
+
+  const rankingTopNavActions = (
+    <button
+      type="button"
+      className="help-button"
+      onClick={handleCaptureScreen}
+      disabled={screenshotBusy}
+    >
+      <IconCamera size={16} />
+      <span>{screenshotBusy ? "作成中..." : "スクショ"}</span>
+    </button>
+  );
 
   const handleCopyConsult = useCallback(async () => {
     if (!consultText) {
@@ -1697,11 +1766,40 @@ export default function RankingView() {
                 phaseLate={ticker?.lateScore ?? null}
                 phaseN={ticker?.phaseN ?? null}
                 annotation={
-                  selectedSet.has(item.code) ? (
-                    <TradexListSummary
-                      summary={tradexSummary}
-                      loading={tradexListSummaryState.loading && !tradexSummary}
-                    />
+                  (rightsLabel ||
+                    earningsLabel ||
+                    item.researchPatternTag ||
+                    Number.isFinite(item.researchPriorBonus ?? NaN) ||
+                    selectedSet.has(item.code)) ? (
+                    <>
+                      {(rightsLabel || earningsLabel || item.researchPatternTag || Number.isFinite(item.researchPriorBonus ?? NaN)) && (
+                        <div className="rank-card-meta-row">
+                          {(rightsLabel || earningsLabel) && (
+                            <span className="event-badges rank-header-event-badges">
+                              {rightsLabel && (
+                                <span className="event-badge event-rights">権利 {rightsLabel}</span>
+                              )}
+                              {earningsLabel && (
+                                <span className="event-badge event-earnings">
+                                  決算 {earningsLabel}
+                                </span>
+                              )}
+                            </span>
+                          )}
+                          <ResearchPatternBadges
+                            researchPatternTag={item.researchPatternTag}
+                            researchPriorBonus={item.researchPriorBonus}
+                            formatPct={formatPct}
+                          />
+                        </div>
+                      )}
+                      {selectedSet.has(item.code) ? (
+                        <TradexListSummary
+                          summary={tradexSummary}
+                          loading={tradexListSummaryState.loading && !tradexSummary}
+                        />
+                      ) : null}
+                    </>
                   ) : null
                 }
                 headerLeft={
@@ -1737,23 +1835,6 @@ export default function RankingView() {
                         {formatTradeStrengthCaption(dir === "up" ? "買い" : "短期売り", resolveRankSummaryScore(item))}
                     </span>
                     ) : null}
-                    {(rightsLabel || earningsLabel) && (
-                      <span className="event-badges rank-header-event-badges">
-                        {rightsLabel && (
-                          <span className="event-badge event-rights">権利 {rightsLabel}</span>
-                        )}
-                        {earningsLabel && (
-                          <span className="event-badge event-earnings">
-                            決算 {earningsLabel}
-                          </span>
-                        )}
-                      </span>
-                    )}
-                    <ResearchPatternBadges
-                      researchPatternTag={item.researchPatternTag}
-                      researchPriorBonus={item.researchPriorBonus}
-                      formatPct={formatPct}
-                    />
                     <Link
                       className="rank-tracking-link"
                       to={`/ranking/tracking?view=ranking&dir=${dir === "down" ? "down" : "up"}&ranking_logic_version=latest&q=${encodeURIComponent(item.code)}`}
@@ -1823,6 +1904,18 @@ export default function RankingView() {
       : tradeSummary?.dominant_direction === "down"
         ? "短期売り優位"
         : "中立";
+  const hasProvisionalSession =
+    rankMode === "trade" &&
+    rankSession?.is_provisional === true &&
+    (rankSession?.provisional_freshness_state === "fresh" ||
+      rankSession?.provisional_freshness_state === "partial") &&
+    provisionalItems.length > 0;
+  const showOverviewPanel =
+    rankingFreshness?.state === "stale" ||
+    qualificationFilterRelaxed ||
+    mtfStrictFilterRelaxed ||
+    (rankMode === "trade" && Boolean(tradeSummary)) ||
+    (rankMode === "trade" && Boolean(rankSession));
   return (
     <div className="app-shell list-view">
       <UnifiedListHeader
@@ -1837,22 +1930,19 @@ export default function RankingView() {
         sortOptions={[]}
         onSortChange={() => {}}
         topRowLeftExtra={
-          <div className="rank-target-stack">
-            <div className="rank-target-switch">
-              <div className="segmented segmented-compact">
-                {(["up", "down"] as const).map((key) => (
-                  <button
-                    key={key}
-                    type="button"
-                    className={dir === key ? "active" : ""}
-                    onClick={() => setDir(key)}
-                  >
-                    {key === "up" ? "買い" : "短期売り"}
-                  </button>
-                ))}
-              </div>
+          <div className="rank-target-switch">
+            <div className="segmented segmented-compact">
+              {(["up", "down"] as const).map((key) => (
+                <button
+                  key={key}
+                  type="button"
+                  className={dir === key ? "active" : ""}
+                  onClick={() => setDir(key)}
+                >
+                  {key === "up" ? "買い" : "短期売り"}
+                </button>
+              ))}
             </div>
-            <TradexShadowReadout variant="ranking" />
           </div>
         }
         columns={columns}
@@ -1861,151 +1951,116 @@ export default function RankingView() {
         onRowsChange={setRows}
         filterItems={filterItems}
         helpLabel="選択"
+        topNavActions={rankingTopNavActions}
         onHelpClick={() => {
           setConsultVisible(true);
           setConsultExpanded(false);
           setConsultTab("selection");
         }}
       />
-      {rankingFreshness?.state === "stale" && (
-        <div
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            gap: "8px",
-            alignItems: "center",
-            padding: "6px 16px",
-            borderBottom: "1px solid var(--theme-border)",
-            background: "var(--theme-bg-secondary)"
-          }}
-        >
-          <div className="rank-top-summary is-warn">
-            {`ランキングは古いスナップショットです${rankingFreshness.snapshotAsOf ? ` (asOf=${rankingFreshness.snapshotAsOf})` : ""}${rankingFreshness.days != null ? ` / ${rankingFreshness.days}日経過` : ""}`}
-          </div>
-        </div>
-      )}
-      {(qualificationFilterRelaxed || mtfStrictFilterRelaxed) && (
-        <div
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            gap: "8px",
-            alignItems: "center",
-            padding: "6px 16px",
-            borderBottom: "1px solid var(--theme-border)",
-            background: "var(--theme-bg-secondary)"
-          }}
-        >
-          {qualificationFilterRelaxed && (
-            <div className="rank-top-summary is-warn">
-              厳選通過が0件のため、未通過を含む候補を表示しています。
+      {showOverviewPanel && (
+        <div className="rank-overview-panel">
+          {(rankingFreshness?.state === "stale" || qualificationFilterRelaxed || mtfStrictFilterRelaxed) && (
+            <div className="rank-overview-row">
+              <span className="rank-overview-section-title">状態</span>
+              {rankingFreshness?.state === "stale" && (
+                <div className="rank-top-summary is-warn">
+                  {`ランキングは古いスナップショットです${rankingFreshness.snapshotAsOf ? ` (asOf=${rankingFreshness.snapshotAsOf})` : ""}${rankingFreshness.days != null ? ` / ${rankingFreshness.days}日経過` : ""}`}
+                </div>
+              )}
+              {qualificationFilterRelaxed && (
+                <div className="rank-top-summary is-warn">
+                  厳選通過が0件のため、未通過を含む候補を表示しています。
+                </div>
+              )}
+              {mtfStrictFilterRelaxed && (
+                <div className="rank-top-summary is-warn">
+                  {`統一条件(一致${mtfStrictRule.minQualified}/3+ かつ 勝率${(mtfStrictGateApplied * 100).toFixed(1)}%以上)では0件のため、条件を自動緩和しています。`}
+                </div>
+              )}
             </div>
           )}
-          {mtfStrictFilterRelaxed && (
-            <div className="rank-top-summary is-warn">
-              {`統一条件(一致${mtfStrictRule.minQualified}/3+ かつ 勝率${(mtfStrictGateApplied * 100).toFixed(1)}%以上)では0件のため、条件を自動緩和しています。`}
+          {rankMode === "trade" && tradeSummary && (
+            <div className="rank-overview-row">
+              <span className="rank-overview-section-title">売買</span>
+              <div className="rank-top-summary">
+                売買優勢 {tradeDirectionLabel} / 差分 {formatPct(tradeSummary.difference_score ?? null)}
+              </div>
+              <div className="rank-top-summary">
+                買い {tradeSummary.actionable_buy?.count ?? 0}件 / 平均 {formatTradeStrengthPoints(tradeSummary.actionable_buy?.avg_trade_priority_score ?? null)} / 期待値 {formatPct(tradeSummary.actionable_buy?.avg_profit_expectancy ?? null)} / 的中 {formatPct(tradeSummary.actionable_buy?.avg_hit_score ?? null)}
+              </div>
+              <div className="rank-top-summary">
+                短期売り {tradeSummary.actionable_short?.count ?? 0}件 / 平均 {formatTradeStrengthPoints(tradeSummary.actionable_short?.avg_trade_priority_score ?? null)} / 期待値 {formatPct(tradeSummary.actionable_short?.avg_profit_expectancy ?? null)} / 的中 {formatPct(tradeSummary.actionable_short?.avg_hit_score ?? null)}
+              </div>
+              <div className="rank-top-summary">
+                注意/監視 {tradeSummary.caution_watch?.count ?? 0}件
+              </div>
+              <div className="rank-overview-actions">
+                <TradexShadowReadout variant="ranking" />
+                <Link
+                  className="rank-top-tracking-link"
+                  to={`/ranking/tracking?view=ranking&dir=${dir === "down" ? "down" : "up"}&ranking_logic_version=latest`}
+                >
+                  追跡を開く
+                </Link>
+              </div>
             </div>
           )}
-        </div>
-      )}
-      {rankMode === "trade" && tradeSummary && (
-        <div
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            gap: "8px",
-            alignItems: "center",
-            padding: "8px 16px",
-            borderBottom: "1px solid var(--theme-border)",
-            background: "var(--theme-bg-secondary)"
-          }}
-        >
-          <div className="rank-top-summary">
-            売買優勢 {tradeDirectionLabel} / 差分 {formatPct(tradeSummary.difference_score ?? null)}
-          </div>
-          <div className="rank-top-summary">
-            買い {tradeSummary.actionable_buy?.count ?? 0}件 / 平均 {formatTradeStrengthPoints(tradeSummary.actionable_buy?.avg_trade_priority_score ?? null)} / 期待値 {formatPct(tradeSummary.actionable_buy?.avg_profit_expectancy ?? null)} / 的中 {formatPct(tradeSummary.actionable_buy?.avg_hit_score ?? null)}
-          </div>
-          <div className="rank-top-summary">
-            短期売り {tradeSummary.actionable_short?.count ?? 0}件 / 平均 {formatTradeStrengthPoints(tradeSummary.actionable_short?.avg_trade_priority_score ?? null)} / 期待値 {formatPct(tradeSummary.actionable_short?.avg_profit_expectancy ?? null)} / 的中 {formatPct(tradeSummary.actionable_short?.avg_hit_score ?? null)}
-          </div>
-          <div className="rank-top-summary">
-            注意/監視 {tradeSummary.caution_watch?.count ?? 0}件
-          </div>
-          <Link
-            className="rank-top-tracking-link"
-            to={`/ranking/tracking?view=ranking&dir=${dir === "down" ? "down" : "up"}&ranking_logic_version=latest`}
-          >
-            追跡を開く
-          </Link>
-        </div>
-      )}
-      {rankMode === "trade" && rankSession && (
-        <div
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            gap: "8px",
-            alignItems: "center",
-            padding: "8px 16px",
-            borderBottom: "1px solid var(--theme-border)",
-            background: "linear-gradient(180deg, rgba(245,158,11,0.08), rgba(245,158,11,0.03))"
-          }}
-        >
-          <div className="rank-top-summary">
-            暫定 / provisional
-          </div>
-          <div className="rank-top-summary">
-            Yahoo更新 {formatDateTimeLabel(rankSession.provisional_fetched_at ?? null)}
-          </div>
-          <div className="rank-top-summary">
-            確認 asOf {rankSession.confirmed_snapshot_as_of ?? "--"} / 暫定 asOf {rankSession.provisional_snapshot_as_of ?? "--"}
-          </div>
-          <div className={`rank-top-summary ${rankSession.provisional_freshness_state === "fresh" || rankSession.provisional_freshness_state === "partial" ? "" : "is-warn"}`}>
-            {`暫定状態 ${rankSession.provisional_freshness_state ?? "unavailable"}`}
-          </div>
-          <div className="rank-top-summary">
-            {`暫定カバレッジ ${rankSession.provisional_covered_symbols ?? 0}/${rankSession.provisional_requested_symbols ?? 0}`}
-            {typeof rankSession.provisional_coverage_ratio === "number" ? ` (${Math.round(rankSession.provisional_coverage_ratio * 1000) / 10}%)` : ""}
-          </div>
-          <div className="rank-top-summary">
-            {`未取得 ${rankSession.provisional_missing_symbols ?? 0} / 完全OHLCV ${rankSession.provisional_complete_ohlcv_symbols ?? 0}`}
-          </div>
-          <div className="rank-top-summary">
-            {`同日 ${rankSession.provisional_same_day_symbols ?? 0}/${rankSession.provisional_covered_symbols ?? 0}`}
-            {typeof rankSession.provisional_same_day_ratio === "number" ? ` (${Math.round(rankSession.provisional_same_day_ratio * 1000) / 10}%)` : ""}
-            {typeof rankSession.provisional_min_same_day_ratio === "number" ? ` / 閾値 ${Math.round(rankSession.provisional_min_same_day_ratio * 1000) / 10}%` : ""}
-          </div>
-        </div>
-      )}
-      {rankMode === "trade" && rankSession?.is_provisional === true && (rankSession?.provisional_freshness_state === "fresh" || rankSession?.provisional_freshness_state === "partial") && provisionalItems.length > 0 && (
-        <div
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            gap: "8px",
-            alignItems: "center",
-            padding: "8px 16px",
-            borderBottom: "1px solid var(--theme-border)",
-            background: "var(--theme-bg-secondary)"
-          }}
-        >
-          <div className="rank-top-summary">
-            暫定候補 {provisionalItems.length}件
-          </div>
-          <div className="rank-top-summary">
-            買い {rankSession.provisional_trade_summary?.actionable_buy?.count ?? 0}件 / 短期売り {rankSession.provisional_trade_summary?.actionable_short?.count ?? 0}件 / 注意 {rankSession.provisional_trade_summary?.caution_watch?.count ?? 0}件
-          </div>
+          {rankMode === "trade" && rankSession && (
+            <div className="rank-overview-row">
+              <span className="rank-overview-section-title">暫定 / provisional</span>
+              <div className="rank-top-summary">Yahoo更新 {formatDateTimeLabel(rankSession.provisional_fetched_at ?? null)}</div>
+              <div className="rank-top-summary">
+                確認 asOf {rankSession.confirmed_snapshot_as_of ?? "--"} / 暫定 asOf {rankSession.provisional_snapshot_as_of ?? "--"}
+              </div>
+              <div
+                className={`rank-top-summary ${
+                  rankSession.provisional_freshness_state === "fresh" ||
+                  rankSession.provisional_freshness_state === "partial"
+                    ? ""
+                    : "is-warn"
+                }`}
+              >
+                {`暫定状態 ${rankSession.provisional_freshness_state ?? "unavailable"}`}
+              </div>
+              <div className="rank-top-summary">
+                {`暫定カバレッジ ${rankSession.provisional_covered_symbols ?? 0}/${rankSession.provisional_requested_symbols ?? 0}`}
+                {typeof rankSession.provisional_coverage_ratio === "number"
+                  ? ` (${Math.round(rankSession.provisional_coverage_ratio * 1000) / 10}%)`
+                  : ""}
+              </div>
+              <div className="rank-top-summary">
+                {`未取得 ${rankSession.provisional_missing_symbols ?? 0} / 完全OHLCV ${rankSession.provisional_complete_ohlcv_symbols ?? 0}`}
+              </div>
+              <div className="rank-top-summary">
+                {`同日 ${rankSession.provisional_same_day_symbols ?? 0}/${rankSession.provisional_covered_symbols ?? 0}`}
+                {typeof rankSession.provisional_same_day_ratio === "number"
+                  ? ` (${Math.round(rankSession.provisional_same_day_ratio * 1000) / 10}%)`
+                  : ""}
+                {typeof rankSession.provisional_min_same_day_ratio === "number"
+                  ? ` / 閾値 ${Math.round(rankSession.provisional_min_same_day_ratio * 1000) / 10}%`
+                  : ""}
+              </div>
+              {hasProvisionalSession && (
+                <div className="rank-top-summary">
+                  暫定候補 {provisionalItems.length}件 / 買い {rankSession.provisional_trade_summary?.actionable_buy?.count ?? 0}件 / 短期売り {rankSession.provisional_trade_summary?.actionable_short?.count ?? 0}件 / 注意 {rankSession.provisional_trade_summary?.caution_watch?.count ?? 0}件
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
       <div
         className={`rank-shell list-shell${isSingleDensity ? " is-single" : ""} ${consultPaddingClass}`}
         style={listStyles}
       >
-        {rankMode === "trade" && rankSession?.is_provisional === true && (rankSession?.provisional_freshness_state === "fresh" || rankSession?.provisional_freshness_state === "partial") && provisionalItems.length > 0 && (
-          <div style={{ marginBottom: "12px" }}>
-            <div className="rank-status" style={{ marginBottom: "8px" }}>
-              暫定ランキングは confirmed の上に Yahoo intraday を重ねた session view です。未取得シンボルは confirmed fallback として残ります。
+        {hasProvisionalSession && (
+          <div className="rank-subsection">
+            <div className="rank-subsection-head">
+              <div className="rank-subsection-title">暫定ランキング</div>
+              <div className="rank-subsection-note">
+                confirmed の上に Yahoo intraday を重ねた session view です。未取得シンボルは confirmed fallback として残ります。
+              </div>
             </div>
             <VirtualizedCardGrid
               items={provisionalItems}

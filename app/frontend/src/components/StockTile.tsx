@@ -5,6 +5,7 @@ import { IconHeart, IconHeartFilled } from "@tabler/icons-react";
 import { api } from "../api";
 import { useBackendReadyState } from "../backendReady";
 import { Ticker, useStore } from "../store";
+import { resolveListThumbnailMaSettings } from "../storeHelpers";
 import { formatEventBadgeDate, parseEventDateMs } from "../utils/events";
 import { formatCompactDateLabel } from "../utils/dateLabels";
 import ThumbnailCanvas from "./ThumbnailCanvas";
@@ -68,12 +69,23 @@ const StockTile = memo(function StockTile({
       ? map.weekly ?? []
       : map.monthly ?? [];
   });
+  const resolvedMaSettings = resolveListThumbnailMaSettings(timeframe, maSettings);
   const showBoxes = useStore((state) => state.settings.showBoxes);
-  const cacheKey = buildThumbnailCacheKey(ticker.code, timeframe, showBoxes, maSettings, theme ?? "dark");
+  const cacheKey = buildThumbnailCacheKey(
+    ticker.code,
+    timeframe,
+    showBoxes,
+    resolvedMaSettings,
+    theme ?? "dark"
+  );
   const cachedThumb = getThumbnailCache(cacheKey);
   const earningsLabel = formatEventBadgeDate(ticker.eventEarningsDate);
   const rightsLabel = formatEventBadgeDate(ticker.eventRightsDate);
   const bars = barsPayload?.bars ?? [];
+  const hasLiveBars = bars.length > 0;
+  const hasCachedThumb = Boolean(cachedThumb);
+  const hasRenderableVisual = hasLiveBars || hasCachedThumb;
+  const isRevalidating = barsStatus === "loading" && hasRenderableVisual;
   const latestBar = bars.length ? bars[bars.length - 1] : null;
   const prevBar = bars.length > 1 ? bars[bars.length - 2] : null;
   const latestBarTime = Number.isFinite(latestBar?.[0]) ? Number(latestBar[0]) : null;
@@ -251,19 +263,19 @@ const StockTile = memo(function StockTile({
         </div>
       )}
       {annotation ? <div className="tile-annotation-row">{annotation}</div> : null}
-      <div className="tile-chart">
-        {barsPayload && barsPayload.bars?.length ? (
+      <div className={`tile-chart${isRevalidating ? " is-revalidating" : ""}`}>
+        {hasLiveBars ? (
           <ThumbnailCanvas
             payload={barsPayload}
             boxes={boxes}
             showBoxes={showBoxes}
-            maSettings={maSettings}
+            maSettings={resolvedMaSettings}
             cacheKey={cacheKey}
             maxBars={maxBars}
             showAxes
             theme={theme}
           />
-        ) : cachedThumb ? (
+        ) : hasCachedThumb ? (
           <div className="thumb-canvas">
             <img className="thumb-canvas-image" src={cachedThumb} alt="" />
           </div>
@@ -276,6 +288,7 @@ const StockTile = memo(function StockTile({
               : null}
           </div>
         )}
+        {isRevalidating && <div className="tile-loading-overlay">更新中</div>}
       </div>
     </div>
   );
