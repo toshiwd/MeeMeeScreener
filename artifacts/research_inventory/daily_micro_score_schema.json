@@ -1,0 +1,122 @@
+{
+  "action_set": [
+    "enter_long",
+    "enter_short",
+    "exit_long",
+    "exit_short",
+    "hold",
+    "no_trade"
+  ],
+  "authoritative_sources": {
+    "sample_parquet": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\action_precision_multitimeframe_samples.parquet",
+    "signal_decision_daily": "C:\\Users\\enish\\AppData\\Local\\MeeMeeScreener\\data\\stocks.duckdb"
+  },
+  "decision_rules": {
+    "enter_long": "long_entry_score - no_trade_penalty >= threshold and long_entry_score > short_entry_score",
+    "enter_short": "short_entry_score - no_trade_penalty >= threshold and short_entry_score > long_entry_score",
+    "exit_long": "long_exit_score >= exit_threshold",
+    "exit_short": "short_exit_score >= exit_threshold",
+    "hold": "scores are inconclusive but regime is tradable",
+    "no_trade": "no_trade_penalty dominates or regime is blocked"
+  },
+  "execution_contract": {
+    "evaluation_horizon_days": 20,
+    "execution_time": "next trading day open",
+    "feature_time": "confirmed end-of-day bar",
+    "same_day_close_execution": "research_fallback_only"
+  },
+  "feature_weights": {
+    "long_entry_score": {
+      "body_atr_band": 1,
+      "close_pos_high": 1,
+      "daily_bull_context": 3,
+      "gap_down_penalty": -5,
+      "gap_up_followthrough": 4,
+      "lose_ma20_penalty": -5,
+      "lower_wick_support": 2,
+      "ma20_reclaim": 2,
+      "small_body_drift": 1,
+      "trend_up_regime": 4,
+      "volume_expansion": 1,
+      "weekly_change_day_penalty": -4
+    },
+    "long_exit_score": {
+      "daily_change_day": 1,
+      "daily_top_warning": 3,
+      "lose_ma20": 4,
+      "upper_wick_exhaustion": 1,
+      "weekly_change_day": 3
+    },
+    "no_trade_penalty": {
+      "blocked_regime": 2,
+      "body_atr_extreme": 1,
+      "daily_change_day": 1,
+      "lose_ma20": 3,
+      "low_volume": 1,
+      "monthly_change_day": 1,
+      "weekly_change_day": 2
+    },
+    "short_entry_score": {
+      "body_atr_band": 1,
+      "close_pos_low": 1,
+      "daily_bear_context": 3,
+      "gap_down_followthrough": 4,
+      "gap_up_penalty": -4,
+      "ma20_loss": 2,
+      "non_trend_regime": 3,
+      "reclaim_ma20_penalty": -5,
+      "upper_wick_rejection": 1,
+      "volume_expansion": 1,
+      "weekly_change_day_penalty": -4
+    },
+    "short_exit_score": {
+      "daily_change_day": 1,
+      "daily_top_warning": 3,
+      "lower_wick_exhaustion": 1,
+      "reclaim_ma20": 4,
+      "weekly_change_day": 3
+    }
+  },
+  "generated_at": "2026-04-23T03:40:48.574069+00:00",
+  "note": "stage-1 empirical scorer; weights are heuristics derived from the empirical bucket study, not a trained model.",
+  "regime_gates": {
+    "long_blocked": [
+      "daily_down_mid",
+      "daily_down_bottom_warning",
+      "weekly_change_day",
+      "lose_ma20"
+    ],
+    "long_preferred": [
+      "trend_up",
+      "monthly_up_mid",
+      "weekly_up_mid",
+      "daily_up_mid"
+    ],
+    "short_blocked": [
+      "trend_up",
+      "monthly_up_top_warning",
+      "daily_reclaim_ma20"
+    ],
+    "short_preferred": [
+      "mixed",
+      "range",
+      "monthly_down_bottom_warning",
+      "weekly_down_mid",
+      "daily_down_bottom_warning"
+    ]
+  },
+  "schema_version": "daily_micro_score_schema_v1",
+  "score_outputs": [
+    "long_entry_score",
+    "short_entry_score",
+    "long_exit_score",
+    "short_exit_score",
+    "no_trade_penalty"
+  ],
+  "status": "provisional",
+  "thresholds": {
+    "entry_threshold": 9.0,
+    "exit_threshold": 6.0,
+    "no_trade_threshold": 5.0
+  }
+}
