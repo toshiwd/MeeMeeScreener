@@ -1,0 +1,41 @@
+{
+  "authoritative_rollup_decision": "hold",
+  "authoritative_sources": {
+    "action_reason_rollup": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\daily_micro_action_reason_rollup.json",
+    "bucket_table": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\daily_micro_empirical_bucket_table.json",
+    "feature_family_effect": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\daily_micro_feature_family_effect.json",
+    "policy_compare": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\daily_micro_policy_replay_compare.json",
+    "regime_slice_report": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\daily_micro_regime_slice_report.json"
+  },
+  "candidate_local_decision": "hold",
+  "family_judgments": {
+    "long_entry": "keep",
+    "long_exit": "keep",
+    "no_trade_filters": "keep",
+    "short_entry": "hold",
+    "short_exit": "hold"
+  },
+  "generated_at": "2026-04-23T03:40:48.584066+00:00",
+  "noise_behaviors": [
+    "weekly_change_day across both sides",
+    "daily_lose_ma20 in long-side trend_up",
+    "reclaim_ma20 inside mixed slices without regime support",
+    "wide-body exhaustion rows without supporting regime"
+  ],
+  "overall_reason": "daily micro candle + MA interaction is promising and improves long validation selection modestly, but short-side breadth remains thin and the compare is still a selection-proxy rather than a full stateful replay.",
+  "promotable_behaviors": [
+    "gap_up_followthrough in trend_up or monthly_up_mid",
+    "lower_wick support near moving-average reclaim in bullish regimes",
+    "small-body continuation in trend_up / mixed",
+    "lose_ma20 / weekly_change_day / daily_change_day as block or exit filters",
+    "gap_down + ma20 loss as short-supporting behavior in mixed or range regimes"
+  ],
+  "residual_risks": [
+    "short-side sample count is still much smaller than long-side sample count",
+    "policy compare is a ranking/replay proxy rather than a fully stateful portfolio replay",
+    "some bucket effects are regime-scoped and can invert outside the allowed slice"
+  ],
+  "schema_version": "daily_micro_keep_drop_hold_decision_v1",
+  "session_aggregate_decision": "hold",
+  "status": "confirmed"
+}
