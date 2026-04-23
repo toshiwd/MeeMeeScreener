@@ -22,6 +22,7 @@ import duckdb
 
 from app.core.config import config as app_config
 from app.backend.infra.files.config_repo import ConfigRepository
+from app.backend.services import codex_bridge_service
 from app.backend.services import rankings_cache
 from app.backend.services.meemee_artifact_boundary import (
     BLOCKED_HOLD_ARTIFACT_FILENAMES,
@@ -197,33 +198,7 @@ def _runtime_stock_db_freshness_state(latest_global_date: int | None) -> dict[st
 
 
 def get_runtime_stock_db_status() -> dict[str, Any]:
-    selection = resolve_runtime_stock_db_selection()
-    runtime_db_path = Path(selection["runtime_db_path"]).expanduser().resolve(strict=False)
-    inspection = inspect_runtime_stock_db(runtime_db_path=runtime_db_path)
-    table_dates = _inspect_latest_table_dates(runtime_db_path)
-    freshness = _runtime_stock_db_freshness_state(inspection.get("latest_available_global_date"))
-    latest_global_date = inspection.get("latest_available_global_date")
-    return {
-        "confirmed": True,
-        "selected_runtime_db_path": str(runtime_db_path),
-        "resolution_source": selection["resolution_source"],
-        "resolution_reason": selection["resolution_reason"],
-        "validated": bool(selection["validated"]),
-        "db_exists": bool(selection["db_exists"]),
-        "daily_bars_rows": selection.get("daily_bars_rows"),
-        "market_regime_daily_rows": selection.get("market_regime_daily_rows"),
-        "latest_available_global_date": latest_global_date,
-        "latest_available_global_date_iso": inspection.get("latest_available_global_date_iso"),
-        "latest_daily_bars_date": table_dates["daily_bars"],
-        "latest_daily_bars_date_iso": _ymd_to_iso(table_dates["daily_bars"]),
-        "latest_feature_snapshot_daily_date": table_dates["feature_snapshot_daily"],
-        "latest_feature_snapshot_daily_date_iso": _ymd_to_iso(table_dates["feature_snapshot_daily"]),
-        "latest_ml_pred_20d_date": table_dates["ml_pred_20d"],
-        "latest_ml_pred_20d_date_iso": _ymd_to_iso(table_dates["ml_pred_20d"]),
-        "source_freshness_status": inspection.get("source_freshness_status"),
-        "freshness_blocked": bool(inspection.get("freshness_blocked")),
-        **freshness,
-    }
+    return codex_bridge_service.get_runtime_stock_db_status()
 
 
 def get_rankings_freshness(
@@ -235,39 +210,14 @@ def get_rankings_freshness(
     risk_mode: str = "balanced",
     limit: int = 50,
 ) -> dict[str, Any]:
-    tf = str(tf or "D").upper()
-    which = str(which or "latest").lower()
-    direction = str(direction or "up").lower()
-    mode = str(mode or "trade").lower()
-    risk_mode = str(risk_mode or "balanced").lower()
-    payload = rankings_cache.get_rankings(tf, which, direction, int(limit), mode=mode, risk_mode=risk_mode)
-    runtime_db = get_runtime_stock_db_status()
-    note = None
-    if runtime_db.get("stale"):
-        note = "runtime DB freshness is stale; rankings reflect stale local data"
-    elif payload.get("stale"):
-        note = "rankings cache is stale even though runtime DB is fresh"
-    return {
-        "confirmed": True,
-        "ranking_endpoint_source_path": "app/backend/api/routers/rankings.py",
-        "rankings_cache_contract_path": "app/backend/services/ml/rankings_cache.py",
-        "tf": tf,
-        "which": which,
-        "direction": direction,
-        "mode": mode,
-        "risk_mode": risk_mode,
-        "limit": int(limit),
-        "snapshot_as_of": payload.get("snapshot_as_of"),
-        "freshness_state": payload.get("freshness_state"),
-        "freshness_days": payload.get("freshness_days"),
-        "stale": bool(payload.get("stale")),
-        "current_candidate_available": bool(payload.get("current_candidate_available")),
-        "freshness_threshold_days": _freshness_threshold_days(),
-        "runtime_db_path": runtime_db.get("selected_runtime_db_path"),
-        "runtime_db_freshness_state": runtime_db.get("freshness_state"),
-        "runtime_db_freshness_days": runtime_db.get("freshness_days"),
-        "note": note,
-    }
+    return codex_bridge_service.get_rankings_freshness(
+        tf=tf,
+        which=which,
+        direction=direction,
+        mode=mode,
+        risk_mode=risk_mode,
+        limit=limit,
+    )
 
 
 def get_publish_runtime_state(*, config_data_dir: str | Path | None = None, db_path: str | Path | None = None) -> dict[str, Any]:
@@ -455,6 +405,37 @@ def _tool_schema() -> dict[str, Any]:
     }
 
 
+def _tool_schema_with_properties(
+    *,
+    properties: dict[str, Any],
+    required: list[str] | None = None,
+    one_of: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    schema: dict[str, Any] = {
+        "type": "object",
+        "properties": properties,
+        "additionalProperties": False,
+    }
+    if required:
+        schema["required"] = required
+    if one_of:
+        schema["oneOf"] = one_of
+    return schema
+
+
+def _strict_arguments(arguments: dict[str, Any], *, allowed: set[str], required: set[str] | None = None) -> dict[str, Any]:
+    if not isinstance(arguments, dict):
+        raise ValueError("arguments must be an object")
+    unexpected = sorted(set(arguments) - allowed)
+    if unexpected:
+        raise ValueError(f"unexpected arguments: {', '.join(unexpected)}")
+    if required:
+        missing = sorted(name for name in required if name not in arguments)
+        if missing:
+            raise ValueError(f"missing required arguments: {', '.join(missing)}")
+    return dict(arguments)
+
+
 def _wrap_tool_handler(func: Callable[[], dict[str, Any]]) -> Callable[[dict[str, Any]], dict[str, Any]]:
     def _handler(arguments: dict[str, Any]) -> dict[str, Any]:
         if arguments:
@@ -462,6 +443,39 @@ def _wrap_tool_handler(func: Callable[[], dict[str, Any]]) -> Callable[[dict[str
         return func()
 
     return _handler
+
+
+def _wrap_argument_tool_handler(
+    func: Callable[[dict[str, Any]], dict[str, Any]],
+) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    def _handler(arguments: dict[str, Any]) -> dict[str, Any]:
+        return func(dict(arguments or {}))
+
+    return _handler
+
+
+def _call_stock_analysis_bundle(arguments: dict[str, Any]) -> dict[str, Any]:
+    args = _strict_arguments(arguments, allowed={"code", "asof", "risk_mode"})
+    return codex_bridge_service.build_stock_analysis_bundle(
+        code=args.get("code"),
+        asof=args.get("asof"),
+        risk_mode=args.get("risk_mode", "balanced"),
+    )
+
+
+def _call_screening_review_bundle(arguments: dict[str, Any]) -> dict[str, Any]:
+    args = _strict_arguments(
+        arguments,
+        allowed={"asof", "top_n", "codes", "side", "risk_mode", "include_near_boundary"},
+    )
+    return codex_bridge_service.build_screening_review_bundle(
+        asof=args.get("asof"),
+        top_n=args.get("top_n"),
+        codes=args.get("codes"),
+        side=args.get("side", "both"),
+        risk_mode=args.get("risk_mode", "balanced"),
+        include_near_boundary=args.get("include_near_boundary", False),
+    )
 
 
 TOOLS: dict[str, ToolDefinition] = {
@@ -494,6 +508,35 @@ TOOLS: dict[str, ToolDefinition] = {
         description="Inspect the latest known local release outputs and bundled safe artifacts.",
         handler=_wrap_tool_handler(get_release_build_status),
         input_schema=_tool_schema(),
+    ),
+    "get_stock_analysis_bundle": ToolDefinition(
+        name="get_stock_analysis_bundle",
+        description="Return a read-only MeeMee/TRADEX consultation bundle for a single stock code.",
+        handler=_wrap_argument_tool_handler(_call_stock_analysis_bundle),
+        input_schema=_tool_schema_with_properties(
+            properties={
+                "code": {"type": "string"},
+                "asof": {"type": ["string", "integer"], "description": "YYYY-MM-DD or YYYYMMDD"},
+                "risk_mode": {"type": "string", "enum": ["defensive", "balanced", "aggressive"]},
+            },
+            required=["code"],
+        ),
+    ),
+    "get_screening_review_bundle": ToolDefinition(
+        name="get_screening_review_bundle",
+        description="Return a read-only screening review bundle for ranking candidates.",
+        handler=_wrap_argument_tool_handler(_call_screening_review_bundle),
+        input_schema=_tool_schema_with_properties(
+            properties={
+                "asof": {"type": ["string", "integer"], "description": "YYYY-MM-DD or YYYYMMDD"},
+                "top_n": {"type": "integer", "minimum": 1, "maximum": 20},
+                "codes": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 20},
+                "side": {"type": "string", "enum": ["long", "short", "both"]},
+                "risk_mode": {"type": "string", "enum": ["defensive", "balanced", "aggressive"]},
+                "include_near_boundary": {"type": "boolean"},
+            },
+            required=["asof"],
+        ),
     ),
 }
 
@@ -605,6 +648,8 @@ def _handle_request(message: dict[str, Any]) -> dict[str, Any] | None:
         try:
             return _jsonrpc_result(request_id, call_tool(str(name), arguments))
         except KeyError as exc:
+            return _jsonrpc_error(request_id, -32602, str(exc))
+        except ValueError as exc:
             return _jsonrpc_error(request_id, -32602, str(exc))
         except Exception as exc:
             return _jsonrpc_error(request_id, -32603, "tool execution failed", str(exc))

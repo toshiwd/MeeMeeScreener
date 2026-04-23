@@ -177,4 +177,18 @@ describe("detailChartPrefetch", () => {
     expect(result.monthly?.rows).toEqual([[3, 3, 3, 3, 30]]);
     expect(result.weekly).toBeNull();
   });
+
+  it("rejects malformed cached frames without rows", async () => {
+    const mod = await import("./detailChartPrefetch");
+    expect(
+      mod.hasCompleteDetailChartPrefetch(
+        {
+          daily: { boxes: [], fetchedAt: Date.now(), dataVersion: null, provenance: null, cacheSource: "memory" } as any,
+          weekly: null,
+          monthly: null,
+        },
+        ["daily"]
+      )
+    ).toBe(false);
+  });
 });

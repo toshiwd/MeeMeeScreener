@@ -46,6 +46,7 @@ export default function GlobalTxtUpdateStatus() {
   const location = useLocation();
   const [job, setJob] = useState<JobStatusPayload | null>(null);
   const [polling, setPolling] = useState(false);
+  const isDetailRoute = location.pathname.startsWith("/detail/");
 
   const statusLabel = useMemo(() => {
     if (!job) return null;
@@ -139,7 +140,13 @@ export default function GlobalTxtUpdateStatus() {
     };
   }, [backendReady, polling, job?.id]);
 
-  if (location.pathname === "/" || !job || !job.id || TERMINAL_JOB_STATUS.has(job.status ?? "")) {
+  if (
+    location.pathname === "/" ||
+    isDetailRoute ||
+    !job ||
+    !job.id ||
+    TERMINAL_JOB_STATUS.has(job.status ?? "")
+  ) {
     return null;
   }
 

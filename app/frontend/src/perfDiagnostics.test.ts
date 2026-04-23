@@ -12,6 +12,7 @@ describe("perfDiagnostics", () => {
   beforeEach(async () => {
     window.localStorage.setItem("meemeePerfDiagnosticsEnabled", "1");
     await clearPerfDiagnostics();
+    delete (window as Window & Record<string, unknown>).pywebview;
   });
 
   it("drops the oldest events when the ring buffer overflows", () => {
@@ -22,6 +23,29 @@ describe("perfDiagnostics", () => {
     expect(events).toHaveLength(4000);
     expect(events[0]?.payload).toMatchObject({ index: 105 });
     expect(events.at(-1)?.payload).toMatchObject({ index: 4104 });
+  });
+
+  it("merges extra files into the exported diagnostics payload", async () => {
+    const exportPerfDiagnosticsApi = vi.fn().mockResolvedValue({ success: true });
+    (window as Window & Record<string, unknown>).pywebview = {
+      api: {
+        export_perf_diagnostics: exportPerfDiagnosticsApi,
+      },
+    };
+
+    const { exportPerfDiagnostics } = await import("./perfDiagnostics");
+    await exportPerfDiagnostics({
+      files: [
+        {
+          name: "frontend-fatal-test.json",
+          content: { ok: true },
+        },
+      ],
+    });
+
+    expect(exportPerfDiagnosticsApi).toHaveBeenCalledTimes(1);
+    const payload = exportPerfDiagnosticsApi.mock.calls[0]?.[0] as { files?: Array<{ name?: string }> };
+    expect(payload?.files?.some((entry) => entry.name === "frontend-fatal-test.json")).toBe(true);
   });
 });
 

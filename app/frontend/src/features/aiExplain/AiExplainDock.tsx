@@ -22,6 +22,7 @@ type AiExplainDockProps = {
   images?: string[];
   compareLabel?: string | null;
   bottomOffsetPx?: number;
+  inline?: boolean;
   className?: string;
 };
 
@@ -57,6 +58,7 @@ export default function AiExplainDock({
   images = [],
   compareLabel = null,
   bottomOffsetPx = 18,
+  inline = false,
   className,
 }: AiExplainDockProps) {
   const { canShowUi, canUse, settings } = useAiExplain();
@@ -212,8 +214,8 @@ export default function AiExplainDock({
 
   return (
     <div
-      className={["ai-explain-dock", open ? "is-open" : "is-closed", className].filter(Boolean).join(" ")}
-      style={{ bottom: `${bottomOffsetPx}px` } as CSSProperties}
+      className={["ai-explain-dock", inline ? "is-inline" : open ? "is-open" : "is-closed", className].filter(Boolean).join(" ")}
+      style={(inline ? undefined : ({ bottom: `${bottomOffsetPx}px` } as CSSProperties)) as CSSProperties | undefined}
     >
       <button
         type="button"

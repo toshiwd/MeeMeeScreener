@@ -38,7 +38,7 @@ import { Box, MaSetting, useStore } from "../store";
 import { computeSignalMetrics } from "../utils/signals";
 import type { TradeEvent, CurrentPosition, DailyPosition } from "../utils/positions";
 import { buildCurrentPositions, buildDailyPositions, buildPositionLedger } from "../utils/positions";
-import { captureAndCopyScreenshot, saveBlobToFile, getScreenType } from "../utils/windowScreenshot";
+import { captureAndCopyScreenshot, getScreenType } from "../utils/windowScreenshot";
 import { formatEventBadgeDate, parseEventDateMs } from "../utils/events";
 import DailyMemoPanel from "../components/DailyMemoPanel";
 import { buildConsultCopyText, copyToClipboard as copyConsultToClipboard } from "../utils/consultCopy";
@@ -113,6 +113,7 @@ import {
   ANALYSIS_DECISION_WINDOW_BARS,
   buildMonthBoundaries,
   buildYearBoundaries,
+  buildPeriodTerminalDateMap,
   MIN_WEEKLY_RATIO,
   MIN_MONTHLY_RATIO,
   MAX_EVENT_OFFSET_SEC,
@@ -181,6 +182,9 @@ const DETAIL_DAILY_ROW_RATIO = 0.72;
 const DETAIL_DEFAULT_WEEKLY_RATIO = 0.64;
 const DETAIL_TAB_CHUNK_PRELOAD_TIMEOUT_MS = 4000;
 const COMPARE_DETAIL_PREFETCH_TIMEFRAMES: Timeframe[] = ["daily", "monthly"];
+const DETAIL_CHROME_DAILY = { timeframe: "daily" as const };
+const DETAIL_CHROME_WEEKLY = { timeframe: "weekly" as const };
+const DETAIL_CHROME_MONTHLY = { timeframe: "monthly" as const };
 
 type DetailFrameOverwriteObservability = {
   cacheSource: "memory" | "indexeddb" | null;
@@ -630,12 +634,16 @@ export default function DetailView() {
     const dailySeed = seed?.daily ?? null;
     const weeklySeed = seed?.weekly ?? null;
     const monthlySeed = seed?.monthly ?? null;
+    const dailyRows = Array.isArray(dailySeed?.rows) ? dailySeed.rows : [];
+    const weeklyRows = Array.isArray(weeklySeed?.rows) ? weeklySeed.rows : [];
+    const monthlyRows = Array.isArray(monthlySeed?.rows) ? monthlySeed.rows : [];
+    const monthlyBoxes = Array.isArray(monthlySeed?.boxes) ? monthlySeed.boxes : [];
     setDailyLimit(nextDailyLimit);
     setMonthlyLimit(nextMonthlyLimit);
-    setDailyData(dailySeed?.rows ?? []);
-    setWeeklyData(weeklySeed?.rows ?? []);
-    setMonthlyData(monthlySeed?.rows ?? []);
-    setBoxes(monthlySeed?.boxes ?? []);
+    setDailyData(dailyRows);
+    setWeeklyData(weeklyRows);
+    setMonthlyData(monthlyRows);
+    setBoxes(monthlyBoxes);
     setDailyErrors([]);
     setWeeklyErrors([]);
     setMonthlyErrors([]);
@@ -643,23 +651,23 @@ export default function DetailView() {
     setMonthlyBarsMeta(null);
     setDailyFetch({
       status: dailySeed ? "success" : "idle",
-      responseCount: dailySeed?.rows.length ?? 0,
+      responseCount: dailyRows.length,
       errorMessage: null,
     });
     setWeeklyFetch({
       status: weeklySeed ? "success" : "idle",
-      responseCount: weeklySeed?.rows.length ?? 0,
+      responseCount: weeklyRows.length,
       errorMessage: null,
     });
     setMonthlyFetch({
       status: monthlySeed ? "success" : "idle",
-      responseCount: monthlySeed?.rows.length ?? 0,
+      responseCount: monthlyRows.length,
       errorMessage: null,
     });
     setLoadingDaily(false);
     setLoadingMonthly(false);
-    setHasMoreDaily(dailySeed ? dailySeed.rows.length >= nextDailyLimit : false);
-    setHasMoreMonthly(monthlySeed ? monthlySeed.rows.length >= nextMonthlyLimit : false);
+    setHasMoreDaily(dailyRows.length >= nextDailyLimit);
+    setHasMoreMonthly(monthlyRows.length >= nextMonthlyLimit);
     setMainChartOverwriteObservability(
       summarizeDetailOverwriteObservability(seed ?? null, "daily", null)
     );
@@ -667,14 +675,17 @@ export default function DetailView() {
   const resetCompareChartState = useCallback((seed?: Partial<ChartPrefetchFrames>) => {
     const dailySeed = seed?.daily ?? null;
     const monthlySeed = seed?.monthly ?? null;
+    const dailyRows = Array.isArray(dailySeed?.rows) ? dailySeed.rows : [];
+    const monthlyRows = Array.isArray(monthlySeed?.rows) ? monthlySeed.rows : [];
+    const monthlyBoxes = Array.isArray(monthlySeed?.boxes) ? monthlySeed.boxes : [];
     setCompareDailyLimit(DEFAULT_LIMITS.daily);
-    setCompareMonthlyData(monthlySeed?.rows ?? []);
+    setCompareMonthlyData(monthlyRows);
     setCompareMonthlyErrors([]);
     setCompareLoading(false);
-    setCompareDailyData(dailySeed?.rows ?? []);
+    setCompareDailyData(dailyRows);
     setCompareDailyErrors([]);
     setCompareDailyLoading(false);
-    setCompareBoxes(monthlySeed?.boxes ?? []);
+    setCompareBoxes(monthlyBoxes);
     setCompareTrades([]);
   }, []);
   const compareCode = useMemo(() => {
@@ -881,9 +892,21 @@ export default function DetailView() {
     return normalizeTickerName(tickerByCode.get(compareCode)?.name);
   }, [tickerByCode, compareCode]);
   const sharedDailyParse = useMemo(() => buildCandlesWithStats(dailyData), [dailyData]);
+  const latestSharedDailyAsOfTime = useMemo(() => {
+    return sharedDailyParse.candles.reduce<number | null>((maxValue, candle) => {
+      if (!candle || typeof candle.time !== "number") return maxValue;
+      if (maxValue == null || candle.time > maxValue) return candle.time;
+      return maxValue;
+    }, null);
+  }, [sharedDailyParse.candles]);
+  const chartAsOfTime = useMemo(() => {
+    if (latestSharedDailyAsOfTime == null) return mainAsOfTime;
+    if (mainAsOfTime == null) return latestSharedDailyAsOfTime;
+    return Math.min(mainAsOfTime, latestSharedDailyAsOfTime);
+  }, [latestSharedDailyAsOfTime, mainAsOfTime]);
   const analysisPrefetchCandles = useMemo(
-    () => filterCandlesByAsOf(sharedDailyParse.candles, mainAsOfTime),
-    [sharedDailyParse.candles, mainAsOfTime]
+    () => filterCandlesByAsOf(sharedDailyParse.candles, chartAsOfTime),
+    [chartAsOfTime, sharedDailyParse.candles]
   );
   const analysisPrefetchAsofs = useMemo(() => {
     if (!cursorMode || selectedBarIndex == null) return [];
@@ -2274,6 +2297,10 @@ export default function DetailView() {
     };
     const applyFrames = (frames: ChartPrefetchFrames) => {
       if (!hasCompleteDetailChartPrefetch(frames)) return false;
+      const dailyRows = Array.isArray(frames.daily?.rows) ? frames.daily.rows : [];
+      const weeklyRows = Array.isArray(frames.weekly?.rows) ? frames.weekly.rows : [];
+      const monthlyRows = Array.isArray(frames.monthly?.rows) ? frames.monthly.rows : [];
+      const monthlyBoxes = Array.isArray(frames.monthly?.boxes) ? frames.monthly.boxes : [];
       setLoadingDaily(false);
       setLoadingMonthly(false);
       setMainChartPendingSwap(false);
@@ -2285,25 +2312,25 @@ export default function DetailView() {
       setMonthlyErrors([]);
       setDailyBarsMeta(null);
       setMonthlyBarsMeta(null);
-      setDailyData(frames.daily.rows);
-      setWeeklyData(frames.weekly.rows);
-      setMonthlyData(frames.monthly.rows);
-      setBoxes(frames.monthly.boxes);
-      setHasMoreDaily(frames.daily.rows.length >= dailyLimit);
-      setHasMoreMonthly(frames.monthly.rows.length >= monthlyLimit);
+      setDailyData(dailyRows);
+      setWeeklyData(weeklyRows);
+      setMonthlyData(monthlyRows);
+      setBoxes(monthlyBoxes);
+      setHasMoreDaily(dailyRows.length >= dailyLimit);
+      setHasMoreMonthly(monthlyRows.length >= monthlyLimit);
       setDailyFetch({
         status: "success",
-        responseCount: frames.daily.rows.length,
+        responseCount: dailyRows.length,
         errorMessage: null,
       });
       setWeeklyFetch({
         status: "success",
-        responseCount: frames.weekly.rows.length,
+        responseCount: weeklyRows.length,
         errorMessage: null,
       });
       setMonthlyFetch({
         status: "success",
-        responseCount: frames.monthly.rows.length,
+        responseCount: monthlyRows.length,
         errorMessage: null,
       });
       setMainChartOverwriteObservability(
@@ -2713,8 +2740,8 @@ export default function DetailView() {
     [compareMonthlyData]
   );
   const dailyCandles = useMemo(
-    () => filterCandlesByAsOf(dailyParse.candles, mainAsOfTime),
-    [dailyParse.candles, mainAsOfTime]
+    () => filterCandlesByAsOf(dailyParse.candles, chartAsOfTime),
+    [chartAsOfTime, dailyParse.candles]
   );
   const detailMarkerRange = useMemo(() => {
     if (!dailyCandles.length) return null;
@@ -2773,12 +2800,12 @@ export default function DetailView() {
     };
   }, [analysisFetchEnabled, backendReady, code, detailMarkerRange, mainChartPendingSwap, secondaryFetchStableReady]);
   const monthlyCandles = useMemo(
-    () => filterCandlesByAsOf(monthlyParse.candles, mainAsOfTime),
-    [monthlyParse.candles, mainAsOfTime]
+    () => filterCandlesByAsOf(monthlyParse.candles, chartAsOfTime),
+    [chartAsOfTime, monthlyParse.candles]
   );
   const weeklyCandles = useMemo(
-    () => filterCandlesByAsOf(weeklyParse.candles, mainAsOfTime),
-    [weeklyParse.candles, mainAsOfTime]
+    () => filterCandlesByAsOf(weeklyParse.candles, chartAsOfTime),
+    [chartAsOfTime, weeklyParse.candles]
   );
   const compareDailyCandles = useMemo(
     () => compareDailyParse.candles,
@@ -2788,17 +2815,29 @@ export default function DetailView() {
     () => compareMonthlyParse.candles,
     [compareMonthlyParse.candles]
   );
+  const weeklyChromeTerminalDates = useMemo(
+    () => buildPeriodTerminalDateMap(dailyCandles, "weekly"),
+    [dailyCandles]
+  );
+  const monthlyChromeTerminalDates = useMemo(
+    () => buildPeriodTerminalDateMap(dailyCandles, "monthly"),
+    [dailyCandles]
+  );
+  const compareMonthlyChromeTerminalDates = useMemo(
+    () => buildPeriodTerminalDateMap(compareDailyCandles, "monthly"),
+    [compareDailyCandles]
+  );
   const dailyVolume = useMemo(
-    () => filterVolumeByAsOf(buildVolume(dailyData), mainAsOfTime),
-    [dailyData, mainAsOfTime]
+    () => filterVolumeByAsOf(buildVolume(dailyData), chartAsOfTime),
+    [chartAsOfTime, dailyData]
   );
   const weeklyVolume = useMemo(
-    () => filterVolumeByAsOf(buildVolume(weeklyData), mainAsOfTime),
-    [weeklyData, mainAsOfTime]
+    () => filterVolumeByAsOf(buildVolume(weeklyData), chartAsOfTime),
+    [chartAsOfTime, weeklyData]
   );
   const monthlyVolume = useMemo(
-    () => filterVolumeByAsOf(buildVolume(monthlyData), mainAsOfTime),
-    [monthlyData, mainAsOfTime]
+    () => filterVolumeByAsOf(buildVolume(monthlyData), chartAsOfTime),
+    [chartAsOfTime, monthlyData]
   );
   const compareDailyVolume = useMemo(
     () => buildVolume(compareDailyData),
@@ -3502,12 +3541,12 @@ export default function DetailView() {
   };
 
   const mainDailyTargetRange = useMemo(
-    () => (rangeMonths ? buildRangeFromEndTime(rangeMonths, mainAsOfTime) : null),
-    [rangeMonths, mainAsOfTime]
+    () => (rangeMonths ? buildRangeFromEndTime(rangeMonths, chartAsOfTime) : null),
+    [chartAsOfTime, rangeMonths]
   );
   const mainMonthlyTargetRange = useMemo(
-    () => (rangeMonths ? buildRangeFromEndTime(rangeMonths, mainAsOfTime) : null),
-    [rangeMonths, mainAsOfTime]
+    () => (rangeMonths ? buildRangeFromEndTime(rangeMonths, chartAsOfTime) : null),
+    [chartAsOfTime, rangeMonths]
   );
   const dailyVisibleRange = useMemo(() => {
     if (!rangeMonths) return null;
@@ -3522,11 +3561,11 @@ export default function DetailView() {
   );
   const monthlyVisibleRange = useMemo(() => {
     if (!rangeMonths) return null;
-    if (mainAsOfTime) {
-      return buildRangeEndingAt(monthlyCandles, rangeMonths, mainAsOfTime);
+    if (chartAsOfTime) {
+      return buildRangeEndingAt(monthlyCandles, rangeMonths, chartAsOfTime);
     }
     return buildRange(monthlyCandles, rangeMonths);
-  }, [monthlyCandles, rangeMonths, mainAsOfTime]);
+  }, [chartAsOfTime, monthlyCandles, rangeMonths]);
   const resolvedDailyVisibleRange = rangeMonths ? dailyVisibleRange : manualDailyRangeRef.current;
   const resolvedWeeklyVisibleRange = rangeMonths ? weeklyVisibleRange : manualWeeklyRangeRef.current;
   const resolvedMonthlyVisibleRange = rangeMonths ? monthlyVisibleRange : manualMonthlyRangeRef.current;
@@ -5219,55 +5258,14 @@ export default function DetailView() {
             return;
           }
 
-          const handleSaveSuccess = (saveResult: { success: boolean, savedPath?: string, savedDir?: string, error?: string }) => {
-            if (saveResult.savedPath || saveResult.savedDir) {
-              setToastMessage("スクショを保存しました");
-              setToastAction({
-                label: "フォルダを開く",
-                onClick: async () => {
-                  if (window.pywebview?.api?.open_path) {
-                    const target = saveResult.savedPath || saveResult.savedDir;
-                    if (target) {
-                      await window.pywebview.api.open_path(target);
-                    }
-                  }
-                }
-              });
-            } else {
-              setToastMessage("スクショを保存しました（保存のみ）");
-              setToastAction(null);
-            }
-          };
-
-          if (result.copied) {
-            const blob = result.blob!;
-            const filename = result.filename!;
-            setToastMessage("スクショをクリップボードにコピーしました");
-            setToastAction({
-              label: "保存...",
-              onClick: async () => {
-                const saveResult = await saveBlobToFile(blob, filename);
-                if (saveResult.success) {
-                  handleSaveSuccess(saveResult);
-                } else {
-                  setToastMessage(saveResult.error || "保存に失敗しました");
-                  setToastAction(null);
-                }
-              },
-            });
-          } else {
-            setToastMessage("クリップボードにコピーできなかったため保存しました");
+          if (!result.copied) {
+            setToastMessage("Screenshot clipboard write failed");
             setToastAction(null);
-            if (result.blob && result.filename) {
-              const saveResult = await saveBlobToFile(result.blob, result.filename);
-              if (saveResult.success) {
-                handleSaveSuccess(saveResult);
-              } else {
-                setToastMessage(saveResult.error || "保存に失敗しました");
-                setToastAction(null);
-              }
-            }
+            return;
           }
+
+          setToastMessage("Screenshot copied to clipboard");
+          setToastAction(null);
         } finally {
           setScreenshotBusy(false);
         }
@@ -5606,6 +5604,8 @@ export default function DetailView() {
                       drawBoxes={monthlyDrawings.drawBoxes}
                       horizontalLines={monthlyDrawings.horizontalLines}
                       showPriceBands
+                      meeMeeDetailChrome={DETAIL_CHROME_MONTHLY}
+                      meeMeeDetailChromeTerminalDates={monthlyChromeTerminalDates}
                       activeTool={activeDrawTool}
                       activeDrawColor={activeDrawColor}
                       activeLineOpacity={activeLineOpacity}
@@ -5657,6 +5657,8 @@ export default function DetailView() {
                         drawBoxes={compareMonthlyDrawings.drawBoxes}
                         horizontalLines={compareMonthlyDrawings.horizontalLines}
                         showPriceBands
+                        meeMeeDetailChrome={DETAIL_CHROME_MONTHLY}
+                        meeMeeDetailChromeTerminalDates={compareMonthlyChromeTerminalDates}
                         activeTool={activeDrawTool}
                         activeDrawColor={activeDrawColor}
                         activeLineOpacity={activeLineOpacity}
@@ -5715,6 +5717,7 @@ export default function DetailView() {
                         drawBoxes={dailyDrawings.drawBoxes}
                         horizontalLines={dailyDrawings.horizontalLines}
                         showPriceBands
+                        meeMeeDetailChrome={DETAIL_CHROME_DAILY}
                         activeTool={activeDrawTool}
                         activeDrawColor={activeDrawColor}
                         activeLineOpacity={activeLineOpacity}
@@ -5781,6 +5784,7 @@ export default function DetailView() {
                         drawBoxes={compareDailyDrawings.drawBoxes}
                         horizontalLines={compareDailyDrawings.horizontalLines}
                         showPriceBands
+                        meeMeeDetailChrome={DETAIL_CHROME_DAILY}
                         activeTool={activeDrawTool}
                         activeDrawColor={activeDrawColor}
                         activeLineOpacity={activeLineOpacity}
@@ -5852,6 +5856,7 @@ export default function DetailView() {
                       drawBoxes={dailyDrawings.drawBoxes}
                       horizontalLines={dailyDrawings.horizontalLines}
                       showPriceBands
+                      meeMeeDetailChrome={DETAIL_CHROME_DAILY}
                       activeTool={activeDrawTool}
                       activeDrawColor={activeDrawColor}
                       activeLineOpacity={activeLineOpacity}
@@ -5903,6 +5908,8 @@ export default function DetailView() {
                     drawBoxes={weeklyDrawings.drawBoxes}
                     horizontalLines={weeklyDrawings.horizontalLines}
                     showPriceBands
+                    meeMeeDetailChrome={DETAIL_CHROME_WEEKLY}
+                    meeMeeDetailChromeTerminalDates={weeklyChromeTerminalDates}
                     activeTool={activeDrawTool}
                     activeDrawColor={activeDrawColor}
                     activeLineOpacity={activeLineOpacity}
@@ -5953,6 +5960,8 @@ export default function DetailView() {
                     drawBoxes={monthlyDrawings.drawBoxes}
                     horizontalLines={monthlyDrawings.horizontalLines}
                     showPriceBands
+                    meeMeeDetailChrome={DETAIL_CHROME_MONTHLY}
+                    meeMeeDetailChromeTerminalDates={monthlyChromeTerminalDates}
                     activeTool={activeDrawTool}
                     activeDrawColor={activeDrawColor}
                     activeLineOpacity={activeLineOpacity}
@@ -6033,6 +6042,7 @@ export default function DetailView() {
                       drawBoxes={dailyDrawings.drawBoxes}
                       horizontalLines={dailyDrawings.horizontalLines}
                       showPriceBands
+                      meeMeeDetailChrome={DETAIL_CHROME_DAILY}
                       activeTool={activeDrawTool}
                       activeDrawColor={activeDrawColor}
                       activeLineOpacity={activeLineOpacity}
@@ -6103,6 +6113,8 @@ export default function DetailView() {
                         drawBoxes={weeklyDrawings.drawBoxes}
                         horizontalLines={weeklyDrawings.horizontalLines}
                         showPriceBands
+                        meeMeeDetailChrome={DETAIL_CHROME_WEEKLY}
+                        meeMeeDetailChromeTerminalDates={weeklyChromeTerminalDates}
                         activeTool={activeDrawTool}
                         activeDrawColor={activeDrawColor}
                         activeLineOpacity={activeLineOpacity}
@@ -6161,6 +6173,8 @@ export default function DetailView() {
                         drawBoxes={monthlyDrawings.drawBoxes}
                         horizontalLines={monthlyDrawings.horizontalLines}
                         showPriceBands
+                        meeMeeDetailChrome={DETAIL_CHROME_MONTHLY}
+                        meeMeeDetailChromeTerminalDates={monthlyChromeTerminalDates}
                         activeTool={activeDrawTool}
                         activeDrawColor={activeDrawColor}
                         activeLineOpacity={activeLineOpacity}
@@ -6318,17 +6332,62 @@ export default function DetailView() {
         </Suspense>
       )}
       {!focusPanel && (
-        <div className="detail-footer">
+        <div className="detail-footer" data-testid="detail-footer">
           <div className="detail-footer-left">
             <button className="load-more" onClick={loadMoreDailyAndMonthly} disabled={loadMoreDisabled}>
               {loadMoreLabel}
             </button>
           </div>
-          <div className="detail-hint">
-            Daily {dailyCandles.length} bars | Weekly {weeklyCandles.length} bars | Monthly {monthlyCandles.length} bars
+          <div className="detail-footer-right">
+            <div className="detail-hint">
+              Daily {dailyCandles.length} bars | Weekly {weeklyCandles.length} bars | Monthly {monthlyCandles.length} bars
+            </div>
+            {aiExplainDockMounted && (
+              <Suspense fallback={null}>
+                <LazyAiExplainDock
+                  screenType={compareCode ? "compare" : "detail"}
+                  targetLabel={compareCode ? `${code ?? ""} vs ${compareCode}` : `${code ?? ""} ${tickerName}`.trim()}
+                  compareLabel={compareCode ? `${compareCode}${compareTickerName ? ` ${compareTickerName}` : ""}` : null}
+                  snapshot={aiExplainSnapshot}
+                  images={aiExplainImages}
+                  inline
+                />
+              </Suspense>
+            )}
           </div>
         </div>
       )}
+      <div className="detail-bottom-tools">
+        <DetailDebugBanner
+          hasIssues={hasIssues}
+          bannerTone={bannerTone}
+          bannerTitle={bannerTitle}
+          debugSummary={debugSummary}
+          debugOpen={debugOpen}
+          showInfoDetails={showInfoDetails}
+          debugLines={debugLines}
+          copyFallbackText={copyFallbackText}
+          inline
+          onToggleOpen={() => setDebugOpen((prev) => !prev)}
+          onCopy={handleCopyDebug}
+          onToggleInfoDetails={() => setShowInfoDetails((prev) => !prev)}
+          onClose={() => setDebugOpen(false)}
+        />
+        {overwriteLiveValidationMode && mainChartOverwriteObservability != null && (
+          <div className="detail-debug-banner info is-inline" data-testid="detail-overwrite-observability">
+            <div className="detail-debug-panel">
+              <div className="detail-debug-header">
+                <div className="detail-debug-title">Overwrite Observability</div>
+              </div>
+              <div className="detail-debug-lines">
+                <pre style={{ margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+{JSON.stringify(mainChartOverwriteObservability, null, 2)}
+                </pre>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
       <DetailPositionLedgerSheet
         isOpen={showPositionLedger}
         expanded={positionLedgerExpanded}
@@ -6343,34 +6402,6 @@ export default function DetailView() {
         formatNumber={formatNumber}
         formatSignedNumber={formatSignedNumber}
       />
-      <DetailDebugBanner
-        hasIssues={hasIssues}
-        bannerTone={bannerTone}
-        bannerTitle={bannerTitle}
-        debugSummary={debugSummary}
-        debugOpen={debugOpen}
-        showInfoDetails={showInfoDetails}
-        debugLines={debugLines}
-        copyFallbackText={copyFallbackText}
-        onToggleOpen={() => setDebugOpen((prev) => !prev)}
-        onCopy={handleCopyDebug}
-        onToggleInfoDetails={() => setShowInfoDetails((prev) => !prev)}
-        onClose={() => setDebugOpen(false)}
-      />
-      {overwriteLiveValidationMode && mainChartOverwriteObservability != null && (
-        <div className="detail-debug-banner info" data-testid="detail-overwrite-observability">
-          <div className="detail-debug-panel">
-            <div className="detail-debug-header">
-              <div className="detail-debug-title">Overwrite Observability</div>
-            </div>
-            <div className="detail-debug-lines">
-              <pre style={{ margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-{JSON.stringify(mainChartOverwriteObservability, null, 2)}
-              </pre>
-            </div>
-          </div>
-        </div>
-      )}
       {showIndicators && (
         <Suspense fallback={null}>
           <LazyDetailIndicatorOverlay
@@ -6397,18 +6428,6 @@ export default function DetailView() {
             isOpen={showSimilar}
             onClose={() => setShowSimilar(false)}
             queryTicker={code ?? null}
-          />
-        </Suspense>
-      )}
-      {aiExplainDockMounted && (
-        <Suspense fallback={null}>
-          <LazyAiExplainDock
-            screenType={compareCode ? "compare" : "detail"}
-            targetLabel={compareCode ? `${code ?? ""} vs ${compareCode}` : `${code ?? ""} ${tickerName}`.trim()}
-            compareLabel={compareCode ? `${compareCode}${compareTickerName ? ` ${compareTickerName}` : ""}` : null}
-            snapshot={aiExplainSnapshot}
-            images={aiExplainImages}
-            bottomOffsetPx={debugOpen ? 324 : hasIssues ? 96 : 18}
           />
         </Suspense>
       )}

@@ -13,6 +13,7 @@ import {
   getHitKindsForTool
 } from "../utils/drawingInteraction";
 import { getDomTheme, type Theme } from "../utils/theme";
+import { formatCompactDateLabel } from "../utils/dateLabels";
 import PositionOverlay from "./PositionOverlay";
 
 type Candle = {
@@ -120,6 +121,10 @@ type ContextBarState = {
   y: number;
 };
 
+type MeeMeeDetailChromeConfig = {
+  timeframe: "daily" | "weekly" | "monthly";
+};
+
 const useStableCallback = <T extends (...args: any[]) => any>(callback: T): T => {
   const callbackRef = useRef(callback);
   useLayoutEffect(() => {
@@ -167,6 +172,7 @@ type DetailChartProps = {
   horizontalLines?: HorizontalLine[];
   showPriceBands?: boolean;
   gapBands?: GapBand[];
+  meeMeeDetailChromeTerminalDates?: Record<number, number> | null;
   drawingEnabled?: boolean;
   activeTool?: DrawTool | null;
   activeDrawColor?: string;
@@ -189,6 +195,7 @@ type DetailChartProps = {
   onVisibleRangeChange?: (range: { from: number; to: number } | null) => void;
   onChartClick?: (time: number | null) => void;
   theme?: "dark" | "light";
+  meeMeeDetailChrome?: MeeMeeDetailChromeConfig | null;
 };
 
 const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function DetailChart(
@@ -210,6 +217,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     horizontalLines,
     showPriceBands,
     gapBands,
+    meeMeeDetailChromeTerminalDates,
     drawingEnabled,
     activeTool,
     activeDrawColor,
@@ -231,13 +239,16 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     onCrosshairMove,
     onVisibleRangeChange,
     onChartClick,
-    theme
+    theme,
+    meeMeeDetailChrome
   },
   ref
 ) {
   const [observedTheme, setObservedTheme] = useState<Theme>(() => getDomTheme());
   const resolvedTheme = theme ?? observedTheme;
   const isDrawingEnabled = drawingEnabled !== false;
+  const detailChromeEnabled = meeMeeDetailChrome != null;
+  const detailChromeTimeframe = meeMeeDetailChrome?.timeframe ?? null;
   const containerRef = useRef<HTMLDivElement | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const overlayRef = useRef<HTMLCanvasElement | null>(null);
@@ -265,6 +276,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     cursorTime
   });
   const visibleRangeRef = useRef<DetailChartProps["visibleRange"]>(visibleRange);
+  const currentVisibleRangeRef = useRef<{ from: number; to: number } | null>(visibleRange ?? null);
   const hasAppliedVisibleRangeRef = useRef(false);
   const candlesRef = useRef<Candle[]>(candles);
   const boxesRef = useRef<Box[]>(boxes);
@@ -331,7 +343,29 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
   const lastAppliedShowVolumeRef = useRef<boolean | null>(null);
   const lastAppliedMaDataRef = useRef<Array<{ time: number; value: number }[] | undefined>>([]);
   const lastAppliedScaleModeRef = useRef<boolean | null>(null);
-  const lastAppliedLineOptionsRef = useRef<Array<{ color: string; visible: boolean; lineWidth: number }>>([]);
+  const lastAppliedLineOptionsRef = useRef<Array<{
+    color: string;
+    visible: boolean;
+    lineWidth: number;
+    lastValueVisible: boolean;
+  }>>([]);
+  const detailChromeEnabledRef = useRef(detailChromeEnabled);
+  const detailChromeTimeframeRef = useRef<MeeMeeDetailChromeConfig["timeframe"] | null>(
+    detailChromeTimeframe
+  );
+  const detailChromeTerminalDatesRef = useRef<Record<number, number> | null>(
+    meeMeeDetailChromeTerminalDates ?? null
+  );
+  const [chromeTick, setChromeTick] = useState(0);
+  const [detailChromeSnapshot, setDetailChromeSnapshot] = useState<{
+    chipLabel: string;
+    legendLabel?: string;
+    legendClose?: string;
+    legendValues: Array<{ key: string; label: string; value: string }>;
+  }>({
+    chipLabel: "--",
+    legendValues: []
+  });
 
   const readChartColors = () => {
     const styles = getComputedStyle(document.documentElement);
@@ -354,6 +388,10 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
       gapBandFill: pick(
         "--theme-gap-band-fill",
         resolvedTheme === "light" ? "rgba(100, 116, 139, 0.10)" : "rgba(148, 163, 184, 0.12)"
+      ),
+      gapBandStroke: pick(
+        "--theme-gap-band-stroke",
+        resolvedTheme === "light" ? "rgba(100, 116, 139, 0.30)" : "rgba(148, 163, 184, 0.26)"
       )
     };
   };
@@ -411,6 +449,12 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     drawingEnabledRef.current = drawingEnabled !== false;
   }, [drawingEnabled]);
 
+  useEffect(() => {
+    detailChromeEnabledRef.current = detailChromeEnabled;
+    detailChromeTimeframeRef.current = detailChromeTimeframe;
+    detailChromeTerminalDatesRef.current = meeMeeDetailChromeTerminalDates ?? null;
+  }, [detailChromeEnabled, detailChromeTimeframe, meeMeeDetailChromeTerminalDates]);
+
   const emitSelectionStable = useStableCallback(emitSelection);
   const clearDraftStateStable = useStableCallback(clearDraftState);
 
@@ -441,6 +485,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
   const HORIZONTAL_LINE_COLOR = "rgba(51, 65, 85, 0.8)";
   const CONTEXT_COLOR_PALETTE = ["#ef4444", "#22c55e", "#0ea5e9", "#f59e0b", "#64748b"];
   const GAP_BAND_MAX_VISIBLE = 2;
+  const DETAIL_CHROME_RIGHT_PRICE_SCALE_MIN_WIDTH = 72;
 
   const buildVolumeSeriesData = (bars: Candle[], points: VolumePoint[]) => {
     if (!points.length) return [];
@@ -507,6 +552,100 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     if (typeof value === "number" && Number.isFinite(value)) return value;
     return null;
   };
+
+  const findLastCandleAtOrBefore = (bars: Candle[], time: number | null) => {
+    if (!bars.length || time == null) return null;
+    let left = 0;
+    let right = bars.length - 1;
+    while (left <= right) {
+      const mid = Math.floor((left + right) / 2);
+      const midTime = bars[mid]?.time;
+      if (midTime === time) return bars[mid] ?? null;
+      if (midTime < time) {
+        left = mid + 1;
+      } else {
+        right = mid - 1;
+      }
+    }
+    return bars[Math.max(0, Math.min(bars.length - 1, right))] ?? null;
+  };
+
+  const formatDetailChromeDate = (
+    time: number,
+    timeframe: MeeMeeDetailChromeConfig["timeframe"]
+  ) => {
+    const resolvedTime =
+      detailChromeTerminalDatesRef.current?.[time] ?? time;
+    const date = new Date(resolvedTime * 1000);
+    if (!Number.isFinite(date.getTime())) return "--";
+    return formatCompactDateLabel(Math.floor(date.getTime() / 1000));
+  };
+
+  const formatDetailChromePrice = (value: number | null | undefined) => {
+    if (typeof value !== "number" || !Number.isFinite(value)) return "--";
+    return value.toLocaleString("ja-JP", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2
+    });
+  };
+
+  const buildDetailChromeSnapshot = () => {
+    if (!detailChromeEnabledRef.current) {
+      return null;
+    }
+    const timeframe = detailChromeTimeframeRef.current ?? "daily";
+    const candleSource = candlesRef.current ?? [];
+    if (!candleSource.length) {
+      return {
+        chipLabel: "--",
+        legendLabel: undefined,
+        legendClose: undefined,
+        legendValues: []
+      };
+    }
+    const visibleRange = currentVisibleRangeRef.current;
+    const rightBoundary =
+      visibleRange && Number.isFinite(visibleRange.to) ? visibleRange.to : candleSource[candleSource.length - 1]?.time ?? null;
+    const chipCandle = findLastCandleAtOrBefore(candleSource, rightBoundary ?? null) ?? candleSource[candleSource.length - 1] ?? null;
+    const legendAnchorTime = cursorTimeRef.current ?? chipCandle?.time ?? null;
+    const legendCandle = findLastCandleAtOrBefore(candleSource, legendAnchorTime);
+    const activeCandle = legendCandle ?? chipCandle ?? candleSource[candleSource.length - 1] ?? null;
+    const chartMaLines = dataRef.current.maLines ?? [];
+    const legendValues = chartMaLines
+      .filter((line) => line.visible)
+      .map((line) => {
+        const lineData = (line.chartData ?? line.data ?? []).filter(
+          (point) => Number.isFinite(point.time) && Number.isFinite(point.value)
+        );
+        let value: number | null = null;
+        if (lineData.length) {
+          const anchorTime = legendCandle?.time ?? chipCandle?.time ?? lineData[lineData.length - 1].time;
+          for (let index = lineData.length - 1; index >= 0; index -= 1) {
+            if (lineData[index].time <= anchorTime) {
+              value = lineData[index].value;
+              break;
+            }
+          }
+          if (value == null) {
+            value = lineData[lineData.length - 1].value;
+          }
+        }
+        return {
+          key: line.key,
+          label: line.label ?? `MA${line.period ?? ""}`,
+          value: formatDetailChromePrice(value)
+        };
+      });
+    return {
+      chipLabel: formatDetailChromeDate(chipCandle?.time ?? candleSource[candleSource.length - 1].time, timeframe),
+      legendLabel: legendCandle
+        ? formatDetailChromeDate(legendCandle.time, timeframe)
+        : formatDetailChromeDate(chipCandle?.time ?? candleSource[candleSource.length - 1].time, timeframe),
+      legendClose: formatDetailChromePrice(activeCandle?.close ?? chipCandle?.close ?? null),
+      legendValues
+    };
+  };
+  const buildDetailChromeSnapshotStable = useStableCallback(buildDetailChromeSnapshot);
 
   const HANDLE_RADIUS = 8;
   const isNear = (a: number, b: number, radius = HANDLE_RADIUS) => Math.abs(a - b) <= radius;
@@ -1154,6 +1293,16 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
         typeof timeScale.getVisibleRange === "function" ? timeScale.getVisibleRange() : null;
       const visibleFrom = visibleRange ? normalizeRangeTime(visibleRange.from) : null;
       const visibleTo = visibleRange ? normalizeRangeTime(visibleRange.to) : null;
+      const rightPriceScale =
+        typeof chart.priceScale === "function" ? chart.priceScale("right") : null;
+      const rightPriceScaleWidth =
+        rightPriceScale && typeof rightPriceScale.width === "function"
+          ? rightPriceScale.width()
+          : 0;
+      const plotRight = Math.max(0, width - rightPriceScaleWidth);
+      if (plotRight <= 0) {
+        return;
+      }
       const sortedByRecent = [...gapsToDraw].sort((a, b) => b.createdAt - a.createdAt);
       const inViewport =
         visibleTo != null
@@ -1163,14 +1312,53 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
         0,
         GAP_BAND_MAX_VISIBLE
       );
+      const unresolved = limited.filter((gap) => {
+        const fillRatio = Number.isFinite(gap.fillRatio ?? NaN) ? Number(gap.fillRatio) : 0;
+        return fillRatio < 1 && gap.filledAt == null;
+      });
+      const drawBandRect = (
+        left: number,
+        right: number,
+        top: number,
+        bottom: number,
+        fillOpacity: number,
+        strokeOpacity: number
+      ) => {
+        const rectX = Math.max(0, Math.min(plotRight, left));
+        const rectRight = Math.max(0, Math.min(plotRight, right));
+        if (rectRight <= rectX) return;
+        const rectY = Math.min(top, bottom);
+        const rectH = Math.max(1, Math.abs(bottom - top));
+        ctx.save();
+        ctx.fillStyle = applyAlpha(colors.gapBandFill, fillOpacity);
+        ctx.strokeStyle = applyAlpha(colors.gapBandStroke, strokeOpacity);
+        ctx.fillRect(rectX, rectY, rectRight - rectX, rectH);
+        ctx.strokeRect(rectX, rectY, rectRight - rectX, rectH);
+        ctx.restore();
+      };
+
       ctx.save();
-      ctx.fillStyle = colors.gapBandFill;
-      limited.forEach((gap) => {
+      ctx.beginPath();
+      ctx.rect(0, 0, plotRight, height);
+      ctx.clip();
+      unresolved.forEach((gap) => {
         if (!Number.isFinite(gap.topPrice) || !Number.isFinite(gap.bottomPrice)) return;
-        const y1 = series.priceToCoordinate(gap.topPrice);
-        const y2 = series.priceToCoordinate(gap.bottomPrice);
-        if (y1 == null || y2 == null) return;
         if (visibleTo != null && gap.createdAt > visibleTo) return;
+        const originalTop = gap.topPrice;
+        const originalBottom = gap.bottomPrice;
+        const currentTop =
+          typeof gap.remainingTopPrice === "number" && Number.isFinite(gap.remainingTopPrice)
+            ? gap.remainingTopPrice
+            : originalTop;
+        const currentBottom =
+          typeof gap.remainingBottomPrice === "number" && Number.isFinite(gap.remainingBottomPrice)
+            ? gap.remainingBottomPrice
+            : originalBottom;
+        const y1 = series.priceToCoordinate(originalTop);
+        const y2 = series.priceToCoordinate(originalBottom);
+        const currentY1 = series.priceToCoordinate(currentTop);
+        const currentY2 = series.priceToCoordinate(currentBottom);
+        if (y1 == null || y2 == null || currentY1 == null || currentY2 == null) return;
         let xStart = timeScale.timeToCoordinate(gap.createdAt as Time);
         if (xStart == null || !Number.isFinite(xStart)) {
           if (visibleFrom != null && gap.createdAt <= visibleFrom) {
@@ -1179,13 +1367,26 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
             return;
           }
         }
-        const rectY = Math.min(y1, y2);
-        const rectH = Math.max(1, Math.abs(y2 - y1));
-        const rectX = Math.max(0, Math.min(width, xStart));
-        const rectRight = width;
-        if (rectRight <= rectX) return;
-        const rectW = Math.max(1, rectRight - rectX);
-        ctx.fillRect(rectX, rectY, rectW, rectH);
+        const xEnd = plotRight;
+        if (xEnd <= xStart) return;
+        const isFilled = gap.filledAt != null || (gap.fillRatio ?? 0) >= 1;
+        const originalOpacity = isFilled ? 0.05 : 0.12;
+        const originalStrokeOpacity = isFilled ? 0.18 : 0.34;
+        drawBandRect(xStart, xEnd, y1, y2, originalOpacity, originalStrokeOpacity);
+
+        const hasRemainingGap = Math.abs(currentY2 - currentY1) > 0.5;
+        const isDifferentRange =
+          Math.abs(currentTop - originalTop) > 1e-8 || Math.abs(currentBottom - originalBottom) > 1e-8;
+        if (hasRemainingGap && isDifferentRange) {
+          drawBandRect(
+            xStart,
+            xEnd,
+            currentY1,
+            currentY2,
+            isFilled ? 0.14 : 0.18,
+            isFilled ? 0.28 : 0.36
+          );
+        }
       });
       ctx.restore();
     }
@@ -1543,6 +1744,13 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
       if (next.fit && !visibleRangeRef.current) {
         suppressVisibleRangeEvents();
         chart.timeScale().fitContent();
+        currentVisibleRangeRef.current =
+          typeof chart.timeScale().getVisibleRange === "function"
+            ? (chart.timeScale().getVisibleRange() ?? null)
+            : null;
+        if (detailChromeEnabledRef.current) {
+          setChromeTick((tick) => tick + 1);
+        }
       }
     });
   };
@@ -1566,7 +1774,8 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
             color: line.color,
             lineWidth: line.lineWidth,
             priceLineVisible: false,
-            crosshairMarkerVisible: false
+            crosshairMarkerVisible: false,
+            lastValueVisible: !detailChromeEnabledRef.current
           })
         );
       }
@@ -1585,7 +1794,12 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     if (chart && lastAppliedScaleModeRef.current !== next.showVolume) {
       chart.applyOptions({
         rightPriceScale: {
-          scaleMargins: { top: 0.08, bottom: next.showVolume ? 0.25 : 0.12 }
+          scaleMargins: { top: 0.08, bottom: next.showVolume ? 0.25 : 0.12 },
+          borderVisible: detailChromeEnabledRef.current,
+          borderColor: readChartColorsStable().grid,
+          textColor: readChartColorsStable().muted,
+          alignLabels: true,
+          minimumWidth: detailChromeEnabledRef.current ? DETAIL_CHROME_RIGHT_PRICE_SCALE_MIN_WIDTH : 0
         }
       });
       chart.priceScale("volume").applyOptions({
@@ -1617,14 +1831,16 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
       const nextLineOptions = {
         color: line.color,
         visible: line.visible,
-        lineWidth: line.lineWidth
+        lineWidth: line.lineWidth,
+        lastValueVisible: !detailChromeEnabledRef.current
       };
       const prevLineOptions = lastAppliedLineOptionsRef.current[index];
       if (
         !prevLineOptions ||
         prevLineOptions.color !== nextLineOptions.color ||
         prevLineOptions.visible !== nextLineOptions.visible ||
-        prevLineOptions.lineWidth !== nextLineOptions.lineWidth
+        prevLineOptions.lineWidth !== nextLineOptions.lineWidth ||
+        prevLineOptions.lastValueVisible !== nextLineOptions.lastValueVisible
       ) {
         series.applyOptions({
           ...nextLineOptions,
@@ -1690,6 +1906,10 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
       const chart = chartRef.current;
       if (!chart) return;
       if (!candlesRef.current.length) return;
+      currentVisibleRangeRef.current = range;
+      if (detailChromeEnabledRef.current) {
+        setChromeTick((tick) => tick + 1);
+      }
       if (!isValidVisibleRange(range)) {
         suppressVisibleRangeEvents();
         chart.timeScale().fitContent();
@@ -1703,7 +1923,16 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
       }
     },
     fitContent: () => {
-      chartRef.current?.timeScale().fitContent();
+      const chart = chartRef.current;
+      if (!chart) return;
+      chart.timeScale().fitContent();
+      currentVisibleRangeRef.current =
+          typeof chart.timeScale().getVisibleRange === "function"
+            ? (chart.timeScale().getVisibleRange() ?? null)
+            : null;
+      if (detailChromeEnabledRef.current) {
+        setChromeTick((tick) => tick + 1);
+      }
     },
     setCrosshair: (time, point) => {
       const chart = chartRef.current as ChartWithCrosshairApi | null;
@@ -1775,6 +2004,9 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
       showBoxes,
       cursorTime: cursorTime ?? null
     };
+    if (detailChromeEnabledRef.current) {
+      setChromeTick((tick) => tick + 1);
+    }
     drawOverlayStable();
   }, [boxes, showBoxes, cursorTime, partialTimes, eventMarkers, drawOverlayStable]);
 
@@ -1803,6 +2035,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
 
   useEffect(() => {
     visibleRangeRef.current = visibleRange ?? null;
+    currentVisibleRangeRef.current = visibleRange ?? null;
     const chart = chartRef.current;
     if (!chart) return;
     if (!candlesRef.current.length) return;
@@ -1821,7 +2054,30 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     } catch {
       chart.timeScale().fitContent();
     }
+    currentVisibleRangeRef.current = visibleRange ?? null;
+    if (detailChromeEnabledRef.current) {
+      setChromeTick((tick) => tick + 1);
+    }
   }, [visibleRange]);
+
+  useEffect(() => {
+    if (!detailChromeEnabled) {
+      setDetailChromeSnapshot({ chipLabel: "--", legendValues: [] });
+      return;
+    }
+    setDetailChromeSnapshot(
+      buildDetailChromeSnapshotStable() ?? { chipLabel: "--", legendValues: [] }
+    );
+  }, [
+    chromeTick,
+    candles,
+    maLines,
+    cursorTime,
+    detailChromeEnabled,
+    detailChromeTimeframe,
+    meeMeeDetailChromeTerminalDates,
+    buildDetailChromeSnapshotStable
+  ]);
 
   useEffect(() => {
     if (gapBands) return;
@@ -1930,6 +2186,41 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     });
   }, [isDrawingEnabled]);
 
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    const colors = readChartColorsStable();
+    chart.applyOptions({
+      rightPriceScale: {
+        borderVisible: detailChromeEnabled,
+        borderColor: colors.grid,
+        textColor: colors.muted,
+        alignLabels: true,
+        minimumWidth: detailChromeEnabled ? DETAIL_CHROME_RIGHT_PRICE_SCALE_MIN_WIDTH : 0,
+        scaleMargins: { top: 0.08, bottom: showVolume ? 0.25 : 0.12 }
+      }
+    });
+    lineSeriesRef.current.forEach((series, index) => {
+      if (!series) return;
+      const prev = lastAppliedLineOptionsRef.current[index];
+      const next = {
+        color: prev?.color ?? dataRef.current.maLines[index]?.color ?? colors.text,
+        visible: prev?.visible ?? dataRef.current.maLines[index]?.visible ?? true,
+        lineWidth: prev?.lineWidth ?? dataRef.current.maLines[index]?.lineWidth ?? 1,
+        lastValueVisible: !detailChromeEnabled
+      };
+      series.applyOptions({
+        color: next.color,
+        lineWidth: next.lineWidth,
+        visible: next.visible,
+        lastValueVisible: next.lastValueVisible,
+        crosshairMarkerVisible: false
+      });
+      lastAppliedLineOptionsRef.current[index] = next;
+    });
+    drawOverlayStable();
+  }, [detailChromeEnabled, readChartColorsStable, resolvedTheme, showVolume, drawOverlayStable]);
+
   useLayoutEffect(() => {
     if (!containerRef.current || chartRef.current) return;
     const element = containerRef.current;
@@ -1966,12 +2257,20 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
         handleScale: !drawingEnabledRef.current,
         rightPriceScale: {
           visible: true,
-          borderVisible: false,
+          borderVisible: detailChromeEnabledRef.current,
+          borderColor: baseColors.grid,
+          textColor: baseColors.muted,
+          alignLabels: true,
+          minimumWidth: detailChromeEnabledRef.current ? DETAIL_CHROME_RIGHT_PRICE_SCALE_MIN_WIDTH : 0,
           scaleMargins: { top: 0.08, bottom: 0.25 }
         },
         timeScale: {
           borderVisible: false,
-          tickMarkFormatter: formatChartDate
+          tickMarkFormatter: formatChartDate,
+          rightOffset: 0,
+          fixRightEdge: true,
+          lockVisibleTimeRangeOnResize: true,
+          rightBarStaysOnScroll: true
         }
       });
 
@@ -2001,7 +2300,8 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
           color: line.color,
           lineWidth: line.lineWidth,
           priceLineVisible: false,
-          crosshairMarkerVisible: false
+          crosshairMarkerVisible: false,
+          lastValueVisible: !detailChromeEnabledRef.current
         })
       );
 
@@ -2044,9 +2344,13 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
         pendingVisibleRangeRef.current = typeof timeScale.getVisibleRange === "function"
           ? timeScale.getVisibleRange()
           : null;
+        currentVisibleRangeRef.current = pendingVisibleRangeRef.current;
         if (visibleRangeRafRef.current !== null) return;
         visibleRangeRafRef.current = window.requestAnimationFrame(() => {
           visibleRangeRafRef.current = null;
+          if (detailChromeEnabledRef.current) {
+            setChromeTick((tick) => tick + 1);
+          }
           renderOverlay();
           if (Date.now() < suppressVisibleRangeUntilRef.current) return;
           const handler = onVisibleRangeChangeRef.current;
@@ -2163,6 +2467,9 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
       : selectedContextShape?.kind === "timeZone"
         ? timeZonesRef.current[selectedContextShape.index]?.color ?? BUY_ZONE_COLOR
         : null;
+  const showDetailChromeDateChip = false;
+  const showDetailChromeLegend =
+    detailChromeEnabled && detailChromeTimeframe !== "daily" && !positionOverlay;
 
   return (
     <div
@@ -2538,6 +2845,34 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     >
       <div className="detail-chart-inner" ref={containerRef} />
       <canvas className="detail-chart-overlay" ref={overlayRef} />
+      {showDetailChromeDateChip && (
+        <div
+          className="chart-info-panel detail-chart-date-chip"
+          data-testid="detail-chart-date-chip"
+        >
+          <span className="chart-info-label">Date</span>
+          <span className="chart-info-value">{detailChromeSnapshot.chipLabel}</span>
+        </div>
+      )}
+      {showDetailChromeLegend && (
+        <div
+          className="chart-info-panel detail-chart-chrome-legend"
+          data-testid="detail-chart-legend"
+        >
+          <span className="chart-info-label">Date</span>
+          <span className="chart-info-value">{detailChromeSnapshot.legendLabel ?? "--"}</span>
+          <span className="chart-info-label">Close</span>
+          <span className="chart-info-value">{detailChromeSnapshot.legendClose ?? "--"}</span>
+          {detailChromeSnapshot.legendValues.flatMap((entry) => [
+            <span className="chart-info-label" key={`${entry.key}-label`}>
+              {entry.label}
+            </span>,
+            <span className="chart-info-value" key={`${entry.key}-value`}>
+              {entry.value}
+            </span>
+          ])}
+        </div>
+      )}
       {contextBarState.open && selectedContextShape && (
         <div
           className="detail-chart-context-anchor"

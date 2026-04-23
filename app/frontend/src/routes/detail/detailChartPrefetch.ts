@@ -121,6 +121,10 @@ const readMemoryChartPrefetch = (
   const key = buildChartPrefetchKey(symbol, timeframe, limit, includeBoxes, asof);
   const cached = chartPrefetchCache.get(key);
   if (!cached) return null;
+  if (!Array.isArray(cached.rows)) {
+    chartPrefetchCache.delete(key);
+    return null;
+  }
   if (Date.now() - cached.fetchedAt > CHART_PREFETCH_TTL_MS) {
     chartPrefetchCache.delete(key);
     return null;
@@ -296,7 +300,9 @@ export const hasCompleteDetailChartPrefetch = (
   timeframes?: BatchBarsRequestTimeframe[]
 ) => {
   if (!frames) return false;
-  return normalizePrefetchTimeframes(timeframes).every((timeframe) => frames[timeframe] != null);
+  return normalizePrefetchTimeframes(timeframes).every(
+    (timeframe) => frames[timeframe] != null && Array.isArray(frames[timeframe]?.rows)
+  );
 };
 
 export const extractDetailChartFrames = async ({

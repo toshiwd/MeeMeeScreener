@@ -2465,6 +2465,26 @@ body {
   pointer-events: none;
 }
 
+.detail-chart-date-chip {
+  top: auto;
+  right: 12px;
+  bottom: 12px;
+  left: auto;
+  min-width: 140px;
+  max-width: calc(100% - 24px);
+  box-shadow: 0 8px 20px rgba(2, 6, 23, 0.22);
+}
+
+.detail-chart-chrome-legend {
+  top: 12px;
+  right: auto;
+  bottom: auto;
+  left: 12px;
+  min-width: 164px;
+  max-width: min(280px, calc(100% - 24px));
+  box-shadow: 0 8px 20px rgba(2, 6, 23, 0.22);
+}
+
 .chart-info-label {
   color: #94a3b8;
 }
@@ -3706,6 +3726,17 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  flex-wrap: wrap;
+}
+
+.detail-footer-right {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-left: auto;
   flex-wrap: wrap;
 }
 
@@ -5067,6 +5098,17 @@ body {
 .detail-hint {
   font-size: 12px;
   color: #94a3b8;
+  text-align: right;
+}
+
+.detail-bottom-tools {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.detail-bottom-tools > * {
+  width: 100%;
 }
 
 .detail-debug-banner {
@@ -5078,6 +5120,16 @@ body {
   flex-direction: column;
   gap: 8px;
   max-width: min(520px, calc(100vw - 32px));
+}
+
+.detail-debug-banner.is-inline {
+  position: static;
+  right: auto;
+  bottom: auto;
+  z-index: auto;
+  max-width: none;
+  width: 100%;
+  pointer-events: auto;
 }
 
 .detail-debug-banner.warning .detail-debug-toggle {
@@ -5093,6 +5145,7 @@ body {
 }
 
 .detail-debug-toggle {
+  pointer-events: auto;
   border: 1px solid rgba(148, 163, 184, 0.4);
   background: rgba(15, 23, 42, 0.85);
   color: #e2e8f0;
@@ -5112,6 +5165,14 @@ body {
   font-size: 12px;
   color: #e2e8f0;
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
+}
+
+.detail-debug-banner.is-inline .detail-debug-toggle {
+  width: 100%;
+}
+
+.detail-debug-banner.is-inline .detail-debug-panel {
+  width: 100%;
 }
 
 .detail-debug-header {
@@ -7162,6 +7223,15 @@ body {
   pointer-events: none;
 }
 
+.ai-explain-dock.is-inline {
+  position: static;
+  right: auto;
+  z-index: auto;
+  width: auto;
+  align-items: flex-start;
+  pointer-events: auto;
+}
+
 .ai-explain-fab {
   pointer-events: auto;
   display: inline-flex;
@@ -7180,6 +7250,10 @@ body {
 
 .ai-explain-fab:hover {
   background: color-mix(in srgb, var(--bg-surface) 72%, var(--surface-soft) 28%);
+}
+
+.ai-explain-dock.is-inline .ai-explain-fab {
+  width: fit-content;
 }
 
 .ai-explain-panel {
@@ -7202,6 +7276,20 @@ body {
   right: 12px;
   width: min(520px, calc(100vw - 24px));
   z-index: 220;
+}
+
+.ai-explain-dock.is-inline .ai-explain-panel {
+  position: static;
+  top: auto;
+  right: auto;
+  bottom: auto;
+  left: auto;
+  width: min(520px, calc(100vw - 48px));
+  height: auto;
+  max-height: min(60vh, 560px);
+  border-radius: 20px;
+  box-shadow: none;
+  margin-top: 8px;
 }
 
 .ai-explain-close,

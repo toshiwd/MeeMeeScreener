@@ -64,6 +64,31 @@ describe("openDetailWithPrefetch", () => {
     expect(navigate).toHaveBeenCalledWith("/detail/7203", { state: { from: "/ranking" } });
   });
 
+  it("tolerates missing list codes and still navigates", async () => {
+    const { openDetailWithPrefetch } = await import("./openDetailWithPrefetch");
+    const navigate = vi.fn();
+
+    await openDetailWithPrefetch({
+      navigate,
+      code: "7203",
+      backPath: "/ranking",
+      backendReady: true,
+      prefetchWaitMs: 0,
+    });
+
+    expect(sessionStorage.getItem("detailListCodes")).toBe(JSON.stringify([]));
+    expect(prefetchDetailChartFramesBatch).toHaveBeenCalledWith([
+      {
+        code: "7203",
+        dailyLimit: 2000,
+        weeklyLimit: 520,
+        monthlyLimit: 240,
+        asof: undefined,
+      },
+    ]);
+    expect(navigate).toHaveBeenCalledWith("/detail/7203", { state: { from: "/ranking" } });
+  });
+
   it("waits for the configured prefetch budget before navigating when prefetch is still pending", async () => {
     vi.useFakeTimers();
     const { openDetailWithPrefetch } = await import("./openDetailWithPrefetch");

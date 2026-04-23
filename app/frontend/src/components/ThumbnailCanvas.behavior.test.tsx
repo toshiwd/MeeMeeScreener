@@ -231,7 +231,7 @@ describe("ThumbnailCanvas", () => {
     expect(getThumbnailCache("thumbnail")).toBe("data:image/png;base64,600x300");
   });
 
-  it("defers redraw while scrolling and redraws after idle", async () => {
+  it("keeps drawing while scrolling but defers snapshot refresh until idle", async () => {
     const firstPayload = makePayload();
     renderCanvas(firstPayload);
 
@@ -265,10 +265,10 @@ describe("ThumbnailCanvas", () => {
       await vi.advanceTimersByTimeAsync(80);
     });
 
-    expect(canvasMock?.ctx.fillRect.mock.calls.length).toBe(initialFillCount);
+    expect(canvasMock?.ctx.fillRect.mock.calls.length).toBeGreaterThan(initialFillCount);
     expect(canvasMock?.toDataURLSpy.mock.calls.length).toBe(initialSnapshotCount);
-    expect(render?.container.querySelector("img.thumb-canvas-image")?.getAttribute("src")).toBe(firstSnapshotSrc);
-    expect(render?.container.querySelector("canvas")?.style.opacity).toBe("0");
+    expect(render?.container.querySelector("img.thumb-canvas-image")).toBeNull();
+    expect(render?.container.querySelector("canvas")?.style.opacity).not.toBe("0");
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(60);

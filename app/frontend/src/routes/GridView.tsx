@@ -1237,7 +1237,7 @@ export default function GridView() {
         (typeof bv === "number" && !Number.isFinite(bv)) ||
         (typeof bv === "string" && bv.trim() === "");
       if (aMissing && bMissing) {
-        if (isBarsDependentSortKey(activeKey)) {
+        if (isGridBarsDependentSortKey(activeKey)) {
           return a.index - b.index;
         }
         return a.ticker.code.localeCompare(b.ticker.code);

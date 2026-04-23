@@ -46,6 +46,49 @@ const waitForRender = (): Promise<void> => {
     });
 };
 
+const shouldForceScreenshotFailure = (): boolean => {
+    const globalWindow = window as Window & {
+        __meemeeFatalDiagnosticsForceScreenshotFailure?: boolean;
+    };
+    if (Boolean(globalWindow.__meemeeFatalDiagnosticsForceScreenshotFailure)) {
+        return true;
+    }
+    try {
+        const probe = new URLSearchParams(window.location.search).get("meemeeFatalDiagnostics");
+        return probe === "window-error-no-root";
+    } catch {
+        return false;
+    }
+};
+
+const isSafeHtml2CanvasColor = (value: string | null | undefined): value is string => {
+    if (!value) {
+        return false;
+    }
+    const normalized = value.trim();
+    if (!normalized) {
+        return false;
+    }
+    const lower = normalized.toLowerCase();
+    if (
+        lower.includes("color-mix(") ||
+        lower.includes("color(") ||
+        lower.includes("lab(") ||
+        lower.includes("lch(") ||
+        lower.includes("oklab(") ||
+        lower.includes("oklch(") ||
+        lower.includes("var(")
+    ) {
+        return false;
+    }
+    return /^#|^rgba?\(|^hsla?\(|^[a-z]+$/.test(lower);
+};
+
+const readSafeThemeColor = (name: string): string | null => {
+    const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return isSafeHtml2CanvasColor(value) ? value : null;
+};
+
 const captureCanvasElements = (root: HTMLElement): Map<HTMLCanvasElement, string> => {
     const canvasMap = new Map<HTMLCanvasElement, string>();
     const canvases = root.querySelectorAll("canvas");
@@ -74,14 +117,13 @@ const resolveCaptureBackground = (root: HTMLElement): string | null => {
         if (
             backgroundColor &&
             backgroundColor !== "transparent" &&
-            backgroundColor !== "rgba(0, 0, 0, 0)"
+            backgroundColor !== "rgba(0, 0, 0, 0)" &&
+            isSafeHtml2CanvasColor(backgroundColor)
         ) {
             return backgroundColor;
         }
     }
-    const fallback = getComputedStyle(document.documentElement)
-        .getPropertyValue("--theme-bg-primary")
-        .trim();
+    const fallback = readSafeThemeColor("--bg-app") ?? readSafeThemeColor("--theme-bg-primary");
     return fallback || null;
 };
 
@@ -93,6 +135,10 @@ export const captureWindowBlob = async (
 ): Promise<CaptureResult> => {
     try {
         await waitForRender();
+
+        if (shouldForceScreenshotFailure()) {
+            return { success: false, error: "forced fatal diagnostics screenshot failure" };
+        }
 
         const root = document.getElementById("root");
         if (!root) {
@@ -118,6 +164,7 @@ export const captureWindowBlob = async (
         const canvas = await html2canvas(captureRoot, {
             useCORS: true,
             allowTaint: true,
+            foreignObjectRendering: true,
             scale: window.devicePixelRatio || 1,
             logging: false,
             backgroundColor,
@@ -164,7 +211,8 @@ export const copyBlobToClipboard = async (blob: Blob): Promise<boolean> => {
         const item = new ClipboardItem({ "image/png": blob });
         await navigator.clipboard.write([item]);
         return true;
-    } catch {
+    } catch (error) {
+        console.error("Clipboard screenshot write failed:", error);
         // Permission denied, not secure context, or other error
         return false;
     }

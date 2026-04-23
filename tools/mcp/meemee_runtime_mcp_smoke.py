@@ -80,7 +80,7 @@ def _send_notification(proc: subprocess.Popen[bytes], method: str, params: dict[
     proc.stdin.flush()
 
 
-def _call_tool(proc: subprocess.Popen[bytes], name: str) -> dict[str, Any]:
+def _call_tool(proc: subprocess.Popen[bytes], name: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
     response = _send_message(
         proc,
         {
@@ -89,7 +89,7 @@ def _call_tool(proc: subprocess.Popen[bytes], name: str) -> dict[str, Any]:
             "method": "tools/call",
             "params": {
                 "name": name,
-                "arguments": {},
+                "arguments": arguments or {},
             },
         },
     )
@@ -104,7 +104,7 @@ def _call_tool(proc: subprocess.Popen[bytes], name: str) -> dict[str, Any]:
     return json.loads(text)
 
 
-def run_smoke(config_path: Path) -> dict[str, Any]:
+def run_smoke(config_path: Path, *, tool_name: str | None = None, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
     config = _load_config(config_path)
     command, cwd = _resolve_command(config, config_dir=config_path.parent)
     proc = subprocess.Popen(
@@ -131,17 +131,23 @@ def run_smoke(config_path: Path) -> dict[str, Any]:
         if "error" in tools_response:
             raise RuntimeError(_compact_json(tools_response["error"]))
         tools = [tool.get("name") for tool in tools_response.get("result", {}).get("tools", [])]
-        runtime_status = _call_tool(proc, "get_runtime_stock_db_status")
-        rankings_freshness = _call_tool(proc, "get_rankings_freshness")
-        return {
+        result = {
             "config_path": str(config_path),
             "command": command,
             "cwd": str(cwd),
             "initialized_protocol": init_response.get("result", {}).get("protocolVersion"),
             "tools": tools,
-            "runtime_stock_db_status": runtime_status,
-            "rankings_freshness": rankings_freshness,
         }
+        if tool_name:
+            result["tool"] = tool_name
+            result["arguments"] = arguments or {}
+            result["tool_result"] = _call_tool(proc, tool_name, arguments or {})
+            return result
+        runtime_status = _call_tool(proc, "get_runtime_stock_db_status")
+        rankings_freshness = _call_tool(proc, "get_rankings_freshness")
+        result["runtime_stock_db_status"] = runtime_status
+        result["rankings_freshness"] = rankings_freshness
+        return result
     finally:
         if proc.stdin:
             try:
@@ -172,8 +178,13 @@ def run_smoke(config_path: Path) -> dict[str, Any]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Smoke test the MeeMee runtime MCP client path")
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
+    parser.add_argument("--tool", type=str, default=None)
+    parser.add_argument("--arguments-json", type=str, default="{}")
     args = parser.parse_args(argv)
-    result = run_smoke(args.config.resolve(strict=False))
+    arguments = json.loads(args.arguments_json or "{}")
+    if args.tool and not isinstance(arguments, dict):
+        raise ValueError("--arguments-json must decode to a JSON object")
+    result = run_smoke(args.config.resolve(strict=False), tool_name=args.tool, arguments=arguments if isinstance(arguments, dict) else {})
     print(_compact_json(result))
     return 0
 

@@ -119,6 +119,46 @@ export const buildYearBoundaries = (candles: Candle[]) => {
   return boundaries;
 };
 
+const JST_OFFSET_SEC = 9 * 60 * 60;
+
+const getWeekStartTime = (time: number) => {
+  const jstDate = new Date((time + JST_OFFSET_SEC) * 1000);
+  const diff = (jstDate.getUTCDay() + 6) % 7;
+  return Math.floor(
+    Date.UTC(
+      jstDate.getUTCFullYear(),
+      jstDate.getUTCMonth(),
+      jstDate.getUTCDate() - diff
+    ) / 1000 - JST_OFFSET_SEC
+  );
+};
+
+const getMonthStartTime = (time: number) => {
+  const date = new Date(time * 1000);
+  return Math.floor(
+    Date.UTC(
+      date.getUTCFullYear(),
+      date.getUTCMonth(),
+      1
+    ) / 1000
+  );
+};
+
+export const buildPeriodTerminalDateMap = (
+  candles: Candle[],
+  timeframe: "weekly" | "monthly"
+) => {
+  if (!candles.length) return {};
+  const map = new Map<number, number>();
+  for (const candle of candles) {
+    if (!Number.isFinite(candle.time)) continue;
+    const periodStart =
+      timeframe === "weekly" ? getWeekStartTime(candle.time) : getMonthStartTime(candle.time);
+    map.set(periodStart, candle.time);
+  }
+  return Object.fromEntries(map.entries()) as Record<number, number>;
+};
+
 export const DAILY_ROW_RATIO = 12 / 16;
 export const DEFAULT_WEEKLY_RATIO = 3 / 4;
 export const MIN_WEEKLY_RATIO = 0.2;
@@ -1780,19 +1820,19 @@ export const buildRange = (candles: Candle[], months: number) => {
 export const buildRangeEndingAt = (candles: Candle[], months: number, endTime: number | null) => {
   if (!candles.length) return null;
   if (!endTime) return buildRange(candles, months);
-  let nearest = candles[candles.length - 1].time;
-  let bestDiff = Number.POSITIVE_INFINITY;
-  for (const candle of candles) {
-    const diff = Math.abs(candle.time - endTime);
-    if (diff < bestDiff) {
-      bestDiff = diff;
-      nearest = candle.time;
+  let selected = candles[0].time;
+  for (let index = candles.length - 1; index >= 0; index -= 1) {
+    const candle = candles[index];
+    if (!candle) continue;
+    if (candle.time <= endTime) {
+      selected = candle.time;
+      break;
     }
   }
-  const endDate = new Date(nearest * 1000);
+  const endDate = new Date(selected * 1000);
   const startDate = new Date(endDate);
   startDate.setMonth(endDate.getMonth() - months);
-  return { from: Math.floor(startDate.getTime() / 1000), to: nearest };
+  return { from: Math.floor(startDate.getTime() / 1000), to: selected };
 };
 
 export const buildRangeFromEndTime = (months: number, endTime: number | null) => {

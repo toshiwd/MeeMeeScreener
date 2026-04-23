@@ -23,6 +23,8 @@ const mocks = vi.hoisted(() => {
     apiGet: vi.fn(),
     apiPost: vi.fn(),
     backendReadyRef: { value: false },
+    aiExplainDockProps: [] as Array<Record<string, unknown>>,
+    detailDebugBannerProps: [] as Array<Record<string, unknown>>,
     storeState: {
       tickers: [
         {
@@ -125,8 +127,9 @@ function MockSimilarSearchPanel() {
   return null;
 }
 
-function MockAiExplainDock() {
-  return null;
+function MockAiExplainDock(props: Record<string, any>) {
+  mocks.aiExplainDockProps.push(props);
+  return <div data-testid="ai-explain-dock" data-inline={props.inline ? "1" : ""} />;
 }
 
 function MockDailyMemoPanel() {
@@ -149,8 +152,10 @@ function MockDetailTdnetCard() {
   return null;
 }
 
-function MockDetailDebugBanner() {
-  return null;
+function MockDetailDebugBanner(props: Record<string, any>) {
+  mocks.detailDebugBannerProps.push(props);
+  if (!props.hasIssues) return null;
+  return <div data-testid="detail-debug-banner" data-inline={props.inline ? "1" : ""} />;
 }
 
 function MockDetailIndicatorOverlay() {
@@ -192,21 +197,30 @@ vi.mock("../store", () => ({
 
 vi.mock("../components/DetailChart", async () => {
   const React = await import("react");
-  return {
-    __esModule: true,
-    default: React.forwardRef(function MockDetailChart(props: Record<string, unknown>, _ref) {
-      const candles = Array.isArray(props.candles) ? props.candles.length : 0;
-      const positionOverlay = props.positionOverlay as
-        | { dailyPositions?: Array<{ posText?: string }>; tradeMarkers?: unknown[] }
-        | undefined;
-      return React.createElement("div", {
-        "data-testid": "detail-chart",
-        "data-candles": candles,
-        "data-trade-markers": positionOverlay?.tradeMarkers?.length ?? 0,
-        "data-position-text": positionOverlay?.dailyPositions?.[0]?.posText ?? "",
-      });
-    }),
-    DetailChartHandle: class DetailChartHandle {},
+    return {
+      __esModule: true,
+      default: React.forwardRef(function MockDetailChart(props: Record<string, unknown>, _ref) {
+        const candles = Array.isArray(props.candles) ? props.candles.length : 0;
+        const visibleRange = props.visibleRange as { from?: number; to?: number } | undefined;
+        const lastCandleTime = Array.isArray(props.candles) && props.candles.length > 0
+          ? (props.candles[props.candles.length - 1] as { time?: number } | undefined)?.time ?? null
+          : null;
+        const positionOverlay = props.positionOverlay as
+          | { dailyPositions?: Array<{ posText?: string }>; tradeMarkers?: unknown[] }
+          | undefined;
+        return React.createElement("div", {
+          "data-testid": "detail-chart",
+          "data-candles": candles,
+          "data-visible-from": visibleRange?.from ?? "",
+          "data-visible-to": visibleRange?.to ?? "",
+          "data-last-time": lastCandleTime ?? "",
+          "data-trade-markers": positionOverlay?.tradeMarkers?.length ?? 0,
+          "data-position-text": positionOverlay?.dailyPositions?.[0]?.posText ?? "",
+          "data-detail-chrome": props.meeMeeDetailChrome ? "on" : "",
+          "data-detail-chrome-timeframe": props.meeMeeDetailChrome?.timeframe ?? "",
+        });
+      }),
+      DetailChartHandle: class DetailChartHandle {},
   };
 });
 
@@ -404,6 +418,39 @@ const createBarsResponse = (code: string, seed = 1000) => ({
   },
 });
 
+const createAsOfMismatchBarsResponse = (code: string) => {
+  const marchDay = Date.UTC(2026, 2, 31) / 1000;
+  const aprilDay = Date.UTC(2026, 3, 1) / 1000;
+  const marchMonth = Date.UTC(2026, 2, 1) / 1000;
+  return {
+    data: {
+      items: {
+        [code]: {
+          daily: {
+            bars: [
+              [Date.UTC(2026, 2, 30) / 1000, 100, 105, 99, 104, 1000],
+              [marchDay, 104, 106, 103, 105, 1200],
+            ],
+          },
+          weekly: {
+            bars: [
+              [Date.UTC(2026, 2, 24) / 1000, 98, 106, 97, 104, 3000],
+              [marchDay, 104, 107, 103, 106, 2800],
+            ],
+          },
+          monthly: {
+            bars: [
+              [marchMonth, 90, 110, 88, 104, 12000],
+              [aprilDay, 104, 112, 102, 110, 13000],
+            ],
+            boxes: [],
+          },
+        },
+      },
+    },
+  };
+};
+
 const createReplayBarsResponse = (code: string) => {
   const daily = {
     bars: [
@@ -493,6 +540,8 @@ describe("DetailView", () => {
     mocks.storeState.updateCompareMaSetting.mockClear();
     mocks.storeState.resetMaSettings.mockClear();
     mocks.storeState.resetCompareMaSettings.mockClear();
+    mocks.aiExplainDockProps = [];
+    mocks.detailDebugBannerProps = [];
     window.localStorage.clear();
     window.sessionStorage.clear();
     if (!window.requestAnimationFrame) {
@@ -548,6 +597,25 @@ describe("DetailView", () => {
     render.cleanup();
   });
 
+  it("places the AI explain dock in the detail footer row", async () => {
+    mocks.backendReadyRef.value = true;
+    mocks.apiPost.mockImplementation((url: string) => {
+      if (url === "/batch_bars_v3") {
+        return Promise.resolve(createBarsResponse("7203"));
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    const render = await renderDetailView();
+    const { container } = render;
+
+    expect(await waitForSelector(container, "[data-testid='ai-explain-dock']")).not.toBeNull();
+    expect(container.querySelector("[data-testid='detail-footer'] [data-testid='ai-explain-dock']")).not.toBeNull();
+    expect(mocks.aiExplainDockProps.at(-1)?.inline).toBe(true);
+
+    render.cleanup();
+  });
+
   it("shows overwrite observability only in overwrite live validation mode", async () => {
     vi.stubEnv("VITE_SHOW_OPERATOR_CONSOLE", "1");
     mocks.backendReadyRef.value = true;
@@ -562,6 +630,41 @@ describe("DetailView", () => {
     const { container } = render;
 
     expect(await waitForSelector(container, "[data-testid='detail-overwrite-observability']")).not.toBeNull();
+
+    render.cleanup();
+  });
+
+  it("keeps monthly charts capped by the daily as-of instead of snapping into the future month", async () => {
+    mocks.backendReadyRef.value = true;
+    mocks.apiPost.mockImplementation((url: string, payload?: Record<string, unknown>) => {
+      if (url !== "/batch_bars_v3") {
+        return Promise.resolve({ data: {} });
+      }
+      const code = Array.isArray(payload?.codes) ? String(payload.codes[0]) : "";
+      if (code === "7203") {
+        return Promise.resolve(createAsOfMismatchBarsResponse("7203"));
+      }
+      return Promise.resolve({ data: { items: {} } });
+    });
+
+    const render = await renderDetailView("/detail/7203?mainAsOf=2026-04-01");
+    const { container } = render;
+
+    await act(async () => {
+      await flushMicrotasks();
+      await new Promise((resolve) => setTimeout(resolve, 450));
+      await flushMicrotasks();
+    });
+
+    const chartNodes = Array.from(container.querySelectorAll("[data-testid='detail-chart']"));
+    expect(chartNodes.length).toBeGreaterThanOrEqual(3);
+    expect(chartNodes.every((node) => node.getAttribute("data-detail-chrome") === "on")).toBe(true);
+
+    const dailyChart = chartNodes[0] as HTMLElement;
+    const monthlyChart = chartNodes[2] as HTMLElement;
+    expect(dailyChart.getAttribute("data-last-time")).toBe(String(Date.UTC(2026, 2, 31) / 1000));
+    expect(monthlyChart.getAttribute("data-candles")).toBe("1");
+    expect(monthlyChart.getAttribute("data-last-time")).toBe(String(Date.UTC(2026, 2, 1) / 1000));
 
     render.cleanup();
   });
@@ -637,6 +740,8 @@ describe("DetailView", () => {
 
     await act(async () => {
       analysisTab?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await flushMicrotasks();
+      await new Promise((resolve) => setTimeout(resolve, 350));
       await flushMicrotasks();
     });
 
@@ -743,6 +848,7 @@ describe("DetailView", () => {
     expect(container.textContent).toContain("Monthly: Loading...");
     const chartNodes = Array.from(container.querySelectorAll("[data-testid='detail-chart']"));
     expect(chartNodes.length).toBeGreaterThan(0);
+    expect(chartNodes.every((node) => node.getAttribute("data-detail-chrome") === "on")).toBe(true);
     for (const chartNode of chartNodes) {
       expect(chartNode.getAttribute("data-candles")).toBe("0");
     }

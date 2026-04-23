@@ -275,7 +275,7 @@ export const reportFrontendFatalDiagnostics = async (
     files: [
       {
         name: manifestName,
-        content: JSON.stringify(summary, null, 2),
+        content: summary,
       },
     ],
   });

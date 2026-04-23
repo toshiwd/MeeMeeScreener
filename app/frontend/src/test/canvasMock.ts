@@ -9,6 +9,8 @@ export type CanvasContextStub = {
   fillRect: ReturnType<typeof vi.fn>;
   strokeRect: ReturnType<typeof vi.fn>;
   fillText: ReturnType<typeof vi.fn>;
+  rect: ReturnType<typeof vi.fn>;
+  clip: ReturnType<typeof vi.fn>;
   save: ReturnType<typeof vi.fn>;
   restore: ReturnType<typeof vi.fn>;
   setTransform: ReturnType<typeof vi.fn>;
@@ -37,6 +39,8 @@ export function createCanvasContextStub(): CanvasContextStub {
     fillRect: vi.fn(),
     strokeRect: vi.fn(),
     fillText: vi.fn(),
+    rect: vi.fn(),
+    clip: vi.fn(),
     save: vi.fn(),
     restore: vi.fn(),
     setTransform: vi.fn(),

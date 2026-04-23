@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildRangeEndingAt,
+  buildPeriodTerminalDateMap,
   MAX_DAILY_BATCH_BARS_LIMIT,
   MAX_MONTHLY_BATCH_BARS_LIMIT,
   incrementBarLimit,
@@ -77,6 +79,47 @@ describe("resolveLatestAnalysisAvailableAsOfTime", () => {
         latestDailyAsOfTime: 1773273600,
       })
     ).toBe(1773273600);
+  });
+});
+
+describe("buildRangeEndingAt", () => {
+  it("caps the range at the last candle on or before the as-of date", () => {
+    const march = Date.UTC(2026, 2, 1) / 1000;
+    const april = Date.UTC(2026, 3, 1) / 1000;
+    const range = buildRangeEndingAt(
+      [
+        { time: march, open: 0, high: 0, low: 0, close: 0 },
+        { time: april, open: 0, high: 0, low: 0, close: 0 },
+      ],
+      3,
+      Date.UTC(2026, 2, 31) / 1000
+    );
+    expect(range?.to).toBe(march);
+  });
+});
+
+describe("buildPeriodTerminalDateMap", () => {
+  it("uses the last actual trading date inside each weekly bar keyed by the rendered weekly timestamp", () => {
+    const candles = [
+      { time: Date.UTC(2026, 3, 6) / 1000, open: 0, high: 0, low: 0, close: 0 },
+      { time: Date.UTC(2026, 3, 7) / 1000, open: 0, high: 0, low: 0, close: 0 },
+      { time: Date.UTC(2026, 3, 8) / 1000, open: 0, high: 0, low: 0, close: 0 },
+      { time: Date.UTC(2026, 3, 9) / 1000, open: 0, high: 0, low: 0, close: 0 },
+    ];
+    expect(buildPeriodTerminalDateMap(candles, "weekly")).toEqual({
+      [Date.UTC(2026, 3, 5, 15) / 1000]: Date.UTC(2026, 3, 9) / 1000
+    });
+  });
+
+  it("uses the last actual trading date inside each monthly bar", () => {
+    const candles = [
+      { time: Date.UTC(2026, 3, 1) / 1000, open: 0, high: 0, low: 0, close: 0 },
+      { time: Date.UTC(2026, 3, 2) / 1000, open: 0, high: 0, low: 0, close: 0 },
+      { time: Date.UTC(2026, 3, 15) / 1000, open: 0, high: 0, low: 0, close: 0 },
+    ];
+    expect(buildPeriodTerminalDateMap(candles, "monthly")).toEqual({
+      [Date.UTC(2026, 3, 1) / 1000]: Date.UTC(2026, 3, 15) / 1000
+    });
   });
 });
 

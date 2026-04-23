@@ -529,7 +529,6 @@ export default function ThumbnailCanvas({
 
   const scheduleDraw = useCallback(() => {
     pendingDrawRef.current = true;
-    if (isScrollingRef.current) return;
     if (rafRef.current !== null) {
       window.cancelAnimationFrame(rafRef.current);
     }

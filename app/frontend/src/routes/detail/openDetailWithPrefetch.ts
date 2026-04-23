@@ -11,7 +11,7 @@ type NavigateFn = (to: string, options?: { state?: { from?: string } }) => void;
 type OpenDetailWithPrefetchArgs = {
   navigate: NavigateFn;
   code: string;
-  listCodes: string[];
+  listCodes?: string[];
   backPath: string;
   asof?: string | null;
   backendReady?: boolean;
@@ -60,10 +60,11 @@ export const openDetailWithPrefetch = async ({
   backendReady,
   prefetchWaitMs = 120,
 }: OpenDetailWithPrefetchArgs) => {
-  saveDetailListContext(backPath, listCodes);
+  const resolvedListCodes = Array.isArray(listCodes) ? listCodes : [];
+  saveDetailListContext(backPath, resolvedListCodes);
   recordPerfEvent("detail_open_with_prefetch_start", {
     code,
-    listCount: listCodes.length,
+    listCount: resolvedListCodes.length,
     backPath,
     asof: asof ?? null,
   });
@@ -76,7 +77,7 @@ export const openDetailWithPrefetch = async ({
       asof,
     };
     const hasTargetSeed = hasCompleteDetailChartPrefetch(readDetailChartPrefetchSync(requestParams));
-    const neighborCodes = buildNeighborCodes(code, listCodes);
+    const neighborCodes = buildNeighborCodes(code, resolvedListCodes);
     const prefetchRequests = [
       requestParams,
       ...neighborCodes.map((neighborCode) => ({
