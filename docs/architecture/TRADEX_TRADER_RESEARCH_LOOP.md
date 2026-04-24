@@ -8,6 +8,9 @@
 - `run-hypothesis`
 - `rebuild-trader-benchmark`
 
+replay research では、`docs/architecture/TRADEX_REPLAY_MODEL_ROLE_SPLIT.md` を workflow policy として併用する。
+Step 2 の execution は frozen contract 下で replay executor sub-agent へ delegation するのが既定であり、この文書はその契約本体を再定義しない。
+
 ## source of truth
 
 - judge truth:
