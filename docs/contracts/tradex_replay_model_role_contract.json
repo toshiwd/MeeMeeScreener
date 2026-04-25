@@ -1,0 +1,166 @@
+{
+  "schema_version": "tradex_replay_model_role_contract_v1",
+  "status": "confirmed",
+  "scope": {
+    "policy_domain": "tradex_replay_research_workflow",
+    "applies_to": [
+      "fixed-period replay research",
+      "exact ledger reconstruction in sell-buy notation",
+      "replay artifact generation",
+      "postmortem interpretation after replay runs"
+    ],
+    "default_execution_mode": "split-role",
+    "excludes": [
+      "MeeMee product behavior",
+      "TRADEX scoring logic",
+      "TRADEX replay logic",
+      "same-condition compare rules",
+      "evaluation-condition changes",
+      "non-replay TRADEX research unless separately adopted"
+    ]
+  },
+  "authoritative_owner": {
+    "role_label": "GPT-5.4 Thinking",
+    "model_family": "gpt-5.4",
+    "reasoning_effort": "high",
+    "ownership": [
+      "requirement interpretation",
+      "research axis selection",
+      "Current State / Problem / Change Policy / Concrete Instructions synthesis",
+      "freeze conditions for compare",
+      "MeeMee / TRADEX boundary judgment",
+      "interpretation of replay results",
+      "keep / drop / hold final judgment",
+      "next single improvement axis selection",
+      "final user-facing summary"
+    ]
+  },
+  "default_executor_owner": {
+    "role_label": "GPT-5.4 mini high",
+    "model_family": "gpt-5.4-mini",
+    "reasoning_effort": "high",
+    "ownership": [
+      "repo inspection under the frozen contract",
+      "narrow replay-research implementation work",
+      "artifact generation",
+      "test updates",
+      "fixed command execution",
+      "raw verification gathering",
+      "draft summaries for planner/judge review"
+    ]
+  },
+  "delegation_policy": {
+    "step_2_default_mode": "delegate_to_separate_sub_agent",
+    "step_2_default_executor_role_label": "GPT-5.4 mini high",
+    "delegate_by_default_for": [
+      "replay-research implementation work",
+      "repo inspection",
+      "artifact generation",
+      "test updates",
+      "raw verification gathering"
+    ],
+    "planner_must_not_silently_absorb_step_2": true,
+    "trivial_inline_exception": {
+      "allowed": true,
+      "only_when": [
+        "no real implementation is needed",
+        "the work is limited to very small documentation edits",
+        "the work is limited to very small registry or pointer edits"
+      ]
+    },
+    "fallback_rule": {
+      "delegation_unavailable_marker": "research-fallback",
+      "planner_may_execute_step_2_directly": true,
+      "only_when": [
+        "sub-agent delegation is unavailable",
+        "the frozen 3-step workflow is preserved explicitly"
+      ],
+      "single_lane_execution_must_not_be_presented_as_normal_split_role_execution": true
+    }
+  },
+  "fixed_authority_rules": [
+    "Only GPT-5.4 Thinking defines requirements.",
+    "Only GPT-5.4 Thinking defines scope and non-scope.",
+    "Only GPT-5.4 Thinking defines confirmed vs provisional vs research-fallback status.",
+    "Only GPT-5.4 Thinking freezes comparison conditions.",
+    "Only GPT-5.4 Thinking decides success or failure against the frozen contract.",
+    "Only GPT-5.4 Thinking issues keep / drop / hold judgment."
+  ],
+  "delegable_work": [
+    "locating files, functions, and tests",
+    "implementing replay and ledger code under a frozen contract",
+    "wiring replay inputs and outputs under a frozen contract",
+    "generating JSON, parquet, and supporting replay artifacts",
+    "adding or updating tests",
+    "running fixed commands",
+    "collecting output metrics",
+    "small scoped refactors under a frozen contract"
+  ],
+  "forbidden_executor_actions": [
+    "changing requirements",
+    "changing evaluation conditions",
+    "changing product boundaries",
+    "introducing silent fallback",
+    "reinterpreting provisional data as confirmed",
+    "deciding keep / drop / hold",
+    "deciding final research direction",
+    "silently skipping delegation when Step 2 includes meaningful implementation, artifact generation, or verification work"
+  ],
+  "required_workflow": [
+    {
+      "step": 1,
+      "owner": "GPT-5.4 Thinking",
+      "must_produce": [
+        "Current State",
+        "Problem",
+        "Change Policy",
+        "Concrete Instructions",
+        "non-scope",
+        "acceptance criteria",
+        "remaining risks"
+      ]
+    },
+    {
+      "step": 2,
+      "owner": "GPT-5.4 mini high",
+      "default_mode": "delegated_sub_agent",
+      "allowed_work": [
+        "repo inspection",
+        "implementation under frozen contract",
+        "artifact generation",
+        "test updates",
+        "fixed command runs",
+        "raw verification gathering"
+      ]
+    },
+    {
+      "step": 3,
+      "owner": "GPT-5.4 Thinking",
+      "must_do": [
+        "re-check against user intent",
+        "re-check against the frozen contract",
+        "reject drift if present",
+        "interpret results",
+        "issue the final structured summary"
+      ]
+    }
+  ],
+  "acceptance_criteria": [
+    "Replay research role ownership is explicit and machine-readable.",
+    "Step 2 delegation to a separate GPT-5.4 mini high sub-agent is the default path for meaningful execution work.",
+    "Trivial inline Step 2 exceptions are narrow and explicit.",
+    "Unavailable delegation is marked as research-fallback.",
+    "The policy cannot be mistaken for a MeeMee or TRADEX product-behavior change."
+  ],
+  "non_scope": [
+    "MeeMee UI or operational behavior",
+    "TRADEX replay engine behavior",
+    "TRADEX compare logic",
+    "TRADEX artifact schemas outside this workflow-policy contract",
+    "global AGENTS or docs/CODEX policy"
+  ],
+  "boundary_check": {
+    "owner": "TRADEX",
+    "statement": "This contract governs replay-research workflow discipline only. It does not move research logic into MeeMee or move MeeMee display/operational concerns into TRADEX research execution."
+  }
+}
