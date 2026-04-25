@@ -546,7 +546,14 @@ def _hold_reason_bundle(row: pd.Series, *, window_end: bool) -> dict[str, Any]:
     return {"primary": primary, "codes": codes, "detail": detail}
 
 
-def _desired_targets(state: ChartState, row: pd.Series, *, end_date: str) -> tuple[int, int, dict[str, Any]]:
+def _desired_targets(
+    state: ChartState,
+    row: pd.Series,
+    *,
+    end_date: str,
+    policy_variant: str = "baseline",
+    policy_context: dict[str, Any] | None = None,
+) -> tuple[int, int, dict[str, Any]]:
     decision_dt = int(row.get("dt"))
     is_window_end = _ymd_to_date_text(decision_dt) == end_date
     close = _safe_float(row.get("c"))
@@ -567,6 +574,26 @@ def _desired_targets(state: ChartState, row: pd.Series, *, end_date: str) -> tup
     bull_stack = bool(row.get("bull_stack"))
     bear_stack = bool(row.get("bear_stack"))
     daily = str(row.get("daily_main_state_ctx") or "unknown")
+    rank_bucket = str((policy_context or {}).get("rank_bucket") or "")
+    lower_bucket_rollout_variant = ""
+    if policy_variant == "lower_bucket_long_rollout_v2":
+        lower_bucket_rollout_variant = str((policy_context or {}).get("rollout_variant") or "").upper()
+    long_rollout_guardrail = (
+        policy_variant == "policy_rollout_guardrails_v1"
+        and state.buy_units > 0
+        and rank_bucket in {"top6_10", "top11_20"}
+    )
+    long_late_exit_repair = policy_variant == "long_late_exit_repair_v1" and state.buy_units > 0 and rank_bucket in {"top6_10", "top11_20"}
+    lower_bucket_hold_only = policy_variant == "lower_bucket_long_rollout_v2" and state.buy_units > 0 and rank_bucket in {"top6_10", "top11_20"}
+
+    lower_bucket_allow_long_entry = True
+    if policy_variant == "lower_bucket_long_rollout_v2":
+        if rank_bucket == "top11_20":
+            lower_bucket_allow_long_entry = False
+        elif rank_bucket == "top6_10":
+            lower_bucket_allow_long_entry = lower_bucket_rollout_variant in {"", "A", "C"}
+        else:
+            lower_bucket_allow_long_entry = True
 
     target_buy = state.buy_units
     target_sell = state.sell_units
@@ -609,12 +636,20 @@ def _desired_targets(state: ChartState, row: pd.Series, *, end_date: str) -> tup
         return target_buy, target_sell, reason_map
 
     if state.buy_units > 0:
-        if lose60 or (lose20 and bear_stack):
+        if long_rollout_guardrail or lower_bucket_hold_only:
+            reason_map["flat"] = _hold_reason_bundle(row, window_end=False)
+            return target_buy, target_sell, reason_map
+
+        if lose60 or (lose20 and bear_stack) or long_late_exit_repair:
             target_buy = 0
             target_sell = 0
             reason_map["exit"] = {
-                "primary": "lose_ma60" if lose60 else "lose_ma20",
-                "codes": ["lose_ma60", "invalidated"] if lose60 else ["lose_ma20", "invalidated"],
+                "primary": "lose_ma20_early_exit"
+                if long_late_exit_repair and lose20
+                else ("lose_ma60" if lose60 else "lose_ma20"),
+                "codes": ["lose_ma20", "early_exit", "rank_bucket_scoped", "invalidated"]
+                if long_late_exit_repair and lose20
+                else (["lose_ma60", "invalidated"] if lose60 else ["lose_ma20", "invalidated"]),
                 "detail": f"long_exit close={close:.2f} ma20={ma20:.2f} ma60={ma60:.2f} dist_ma20_pct={dist_ma20_pct:.4f} daily={daily}",
             }
             return target_buy, target_sell, reason_map
@@ -658,7 +693,7 @@ def _desired_targets(state: ChartState, row: pd.Series, *, end_date: str) -> tup
             "codes": ["ma20_reclaim_body_close", "weekly_bull_recovery", "lower_wick_support"],
             "detail": f"short_cover close={close:.2f} ma20={ma20:.2f} ma60={ma60:.2f} daily={daily}",
         }
-        if close > ma20 and bull_stack:
+        if lower_bucket_allow_long_entry and close > ma20 and bull_stack:
             target_buy = 1 if dist_ma20_pct < 0.05 else 2
             reason_map["entry"] = {
                 "primary": "reentry_after_cooloff",
@@ -676,7 +711,7 @@ def _desired_targets(state: ChartState, row: pd.Series, *, end_date: str) -> tup
         }
         return target_buy, target_sell, reason_map
 
-    if close > ma20 and support_wick:
+    if lower_bucket_allow_long_entry and close > ma20 and support_wick:
         target_sell = 0
         reason_map["cover"] = {
             "primary": "reentry_after_cooloff",
@@ -818,6 +853,8 @@ def simulate_chart_first_replay(
     end_date: str = DEFAULT_END_DATE,
     trade_start_date: str | None = None,
     source_db_path: Path | None = None,
+    policy_variant: str = "baseline",
+    policy_context: dict[str, Any] | None = None,
 ) -> tuple[pd.DataFrame, dict[str, Any], dict[str, Any]]:
     frame = _prepare_chart_frame(bars_frame, basis_frame)
     frame = frame.loc[(frame["dt"] >= _date_text_to_ymd(start_date)) & (frame["dt"] <= _date_text_to_ymd(end_date))].copy()
@@ -857,7 +894,13 @@ def simulate_chart_first_replay(
                 raise RuntimeError(f"missing execution bar for {execution_dt}")
 
         prev_position = _position_text(state.sell_units, state.buy_units)
-        target_buy_units, target_sell_units, reason_map = _desired_targets(state, row, end_date=end_date)
+        target_buy_units, target_sell_units, reason_map = _desired_targets(
+            state,
+            row,
+            end_date=end_date,
+            policy_variant=policy_variant,
+            policy_context=policy_context,
+        )
         if terminal_source_end and decision_dt == source_end_dt:
             if state.buy_units > 0 or state.sell_units > 0:
                 target_buy_units = 0
@@ -1466,6 +1509,8 @@ def run_chart_first_replay(
     end_date: str = DEFAULT_END_DATE,
     freeze_date: str = DEFAULT_FREEZE_DATE,
     trade_start_date: str | None = None,
+    policy_variant: str = "baseline",
+    policy_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     bars_frame, basis_frame = _load_source_frames(
         source_db_path=source_db_path,
@@ -1481,12 +1526,15 @@ def run_chart_first_replay(
         end_date=end_date,
         trade_start_date=trade_start_date,
         source_db_path=source_db_path,
+        policy_variant=policy_variant,
+        policy_context=policy_context,
     )
     config = {
         **config,
         "freeze_date": freeze_date,
         "output_dir": str(output_dir),
         "source_db_path": str(source_db_path),
+        "policy_variant": policy_variant,
     }
     generated_at = _utc_now()
     roundtrip_summary = _build_roundtrip_summary(
@@ -1536,6 +1584,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--start-date", default=DEFAULT_START_DATE)
     parser.add_argument("--end-date", default=DEFAULT_END_DATE)
     parser.add_argument("--freeze-date", default=DEFAULT_FREEZE_DATE)
+    parser.add_argument("--policy-variant", default="baseline")
     args = parser.parse_args(argv)
     payload = run_chart_first_replay(
         source_db_path=Path(args.source_db_path).expanduser().resolve(),
@@ -1544,6 +1593,7 @@ def main(argv: list[str] | None = None) -> int:
         start_date=str(args.start_date),
         end_date=str(args.end_date),
         freeze_date=str(args.freeze_date),
+        policy_variant=str(args.policy_variant),
     )
     print(_json_text(payload))
     return 0
