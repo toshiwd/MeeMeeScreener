@@ -1,0 +1,395 @@
+{
+  "schema_version": "tradex_iizuka_trade_learning_loop_contract_v9",
+  "status": "confirmed",
+  "scope": {
+    "policy_domain": "tradex_replay_research_workflow",
+    "applies_to": [
+      "TRADEX-only replay learning loop",
+      "Iizuka-style daily action replay",
+      "critic-side mistake classification",
+      "single-axis rule patch validation",
+      "before-after replay comparison"
+    ],
+    "excludes": [
+      "MeeMee UI changes",
+      "production ranking changes",
+      "publish registry mutation",
+      "publish candidate creation",
+      "promotion flow",
+      "live trading",
+      "external order execution",
+      "broad ranking experiments"
+    ]
+  },
+  "authoritative_owner": {
+    "role_label": "GPT-5.4 Thinking",
+    "ownership": [
+      "requirement interpretation",
+      "scope and boundary judgment",
+      "keep / hold / drop decision",
+      "same-condition comparison rules"
+    ]
+  },
+  "execution_owner": {
+    "role_label": "GPT-5.4 mini high",
+    "ownership": [
+      "repo inspection",
+      "narrow replay implementation",
+      "artifact generation",
+      "raw verification gathering",
+      "fixed command execution"
+    ]
+  },
+  "frozen_case_set": [
+    {
+      "symbol": "2317",
+      "name": "Systena 2317",
+      "role": "failure_control",
+      "applicable_patch_ids": [
+        "failed_followthrough_time_stop_v1"
+      ],
+      "window": {
+        "start_date": "2025-12-02",
+        "end_date": "2026-02-04"
+      },
+      "expected_themes": [
+        "failed line escape",
+        "no follow-through",
+        "range stall",
+        "over-accumulation before confirmation",
+        "time-stop ignored",
+        "MA cluster breakdown",
+        "exit correct but late"
+      ]
+    },
+    {
+      "symbol": "9697",
+      "name": "Capcom 9697",
+      "role": "failure_control",
+      "applicable_patch_ids": [
+        "hard_invalidation_exit_v1"
+      ],
+      "window": {
+        "start_date": "2025-09-19",
+        "end_date": "2025-11-21"
+      },
+      "expected_themes": [
+        "breakout-like attempt",
+        "no follow-through",
+        "sideways / koma cluster",
+        "continued long bias after failed attempt",
+        "late drawdown"
+      ]
+    },
+    {
+      "symbol": "2531",
+      "name": "宝HD2531",
+      "role": "capture_control",
+      "window": {
+        "start_date": "2026-01-01",
+        "end_date": "2026-03-31"
+      },
+      "expected_themes": [
+        "profit-taking / re-entry timing",
+        "bad re-entry after profit-taking",
+        "blocked re-entry after weak rebound",
+        "not a hard invalidation long-failure case"
+      ],
+      "applicable_patch_ids": [
+        "bad_reentry_after_profit_take_v1"
+      ]
+    },
+    {
+      "symbol": "5541",
+      "name": "Taiheiyo Kinzoku 5541",
+      "role": "success_control",
+      "applicable_patch_ids": [],
+      "window": {
+        "start_date": "2025-10-10",
+        "end_date": "2026-01-30"
+      },
+      "expected_themes": [
+        "line escape",
+        "follow-through",
+        "MA expansion",
+        "valid pullback",
+        "old resistance becoming support",
+        "reacceleration"
+      ]
+    }
+  ],
+  "action_space": [
+    "watch",
+    "trial_buy",
+    "long_add",
+    "hedge_add",
+    "long_reduce",
+    "hedge_reduce",
+    "stop_add",
+    "exit_all"
+  ],
+  "action_trace_schema": {
+    "schema_version": "tradex_iizuka_trade_learning_loop_action_trace_v2",
+    "fields": [
+      "symbol",
+      "date",
+      "as_of",
+      "session_id",
+      "candidate_id",
+      "trace_schema_version",
+      "action_type",
+      "action_reason",
+      "action_source",
+      "position_before",
+      "position_after",
+      "target_position_after",
+      "buy_units_before",
+      "sell_units_before",
+      "buy_units_after",
+      "sell_units_after",
+      "net_units_before",
+      "net_units_after",
+      "gross_units_before",
+      "gross_units_after",
+      "close",
+      "next_open_if_used",
+      "mark_price",
+      "position_market_value_before",
+      "position_market_value_after",
+      "realized_pnl_day",
+      "unrealized_pnl_day",
+      "cumulative_realized_pnl",
+      "cumulative_unrealized_pnl",
+      "equity_curve_value",
+      "pnl_path_available",
+      "data_source",
+      "input_bar_date",
+      "decision_uses_future_data",
+      "trace_row_hash",
+      "forced_exit_reason",
+      "special_reason",
+      "severity_level",
+      "severity_action_type",
+      "reduction_intensity",
+      "severity_target_buy_units",
+      "late_extension_hedge_condition_activated",
+      "late_extension_hedge_condition_reason",
+      "reason",
+      "evidence_for",
+      "evidence_against",
+      "risk_warning",
+      "confidence",
+      "active_thesis",
+      "profit_protection_guard_applied",
+      "profit_preservation_guard_applied",
+      "profit_preservation_guard_reason",
+      "no_lookahead_assertion"
+    ],
+    "execution_basis": "decision may be made only from information available up to the decision date; execution may use the next trading day open, with explicit source-coverage fallback only when no next bar exists"
+  },
+  "position_constraints": {
+    "notation": "X-Y",
+    "sell_units": "X",
+    "buy_units": "Y",
+    "hedge_units_may_not_exceed_long_units": true,
+    "pure_short_entries_disallowed": true,
+    "failed_followthrough_window_days": {
+      "min": 3,
+      "max": 5
+    },
+    "profit_take_reentry_window_days": {
+      "min": 2,
+      "max": 5
+    },
+    "bad_reentry_block_window_days": {
+      "min": 2,
+      "max": 5
+    },
+    "trial_buy_units": 1,
+    "confirmed_long_units": 3,
+    "full_long_units": 5
+  },
+  "event_surface": {
+    "bad_reentry_after_profit_take_v1": {
+      "required_dated_fields": [
+        "first_bad_reentry_candidate_date",
+        "first_reentry_block_date",
+        "bad_reentry_stop_add"
+      ],
+      "required_events": [
+        "bad_reentry_candidate",
+        "reentry_blocked",
+        "bad_reentry_stop_add"
+      ],
+      "summary_event_log_field": "event_log"
+    },
+    "hard_invalidation_exit_severity_v2_loss_side_override": {
+      "required_dated_fields": [
+        "first_hard_invalidation_action_date",
+        "hard_invalidation_severity_level",
+        "hard_invalidation_reduction_intensity",
+        "hard_invalidation_loss_side_override_applied"
+      ],
+      "required_events": [
+        "hard_invalidation_exit_all",
+        "hard_invalidation_long_reduce",
+        "hard_invalidation_partial_exit"
+      ],
+      "trace_row_selection_fields": [
+        "reason",
+        "forced_exit_reason"
+      ],
+      "selection_note": "Trigger-date exit_all rows must preserve their override reason so summary selection does not collapse back to an earlier long_reduce row.",
+      "summary_event_log_field": "event_log"
+    },
+    "hard_invalidation_profit_preservation_guard_v1": {
+      "required_dated_fields": [
+        "first_hard_invalidation_action_date",
+        "hard_invalidation_severity_level",
+        "hard_invalidation_reduction_intensity",
+        "hard_invalidation_profit_preservation_guard_applied",
+        "hard_invalidation_profit_preservation_guard_reason"
+      ],
+      "required_events": [
+        "hard_invalidation_exit_all",
+        "hard_invalidation_long_reduce",
+        "hard_invalidation_profit_preservation_guard_long_reduce"
+      ],
+      "trace_row_selection_fields": [
+        "reason",
+        "forced_exit_reason",
+        "special_reason"
+      ],
+      "selection_note": "Guarded hard-invalidation rows must preserve a typed guard reason so profitable continuation cases do not collapse into a generic exit row.",
+      "summary_event_log_field": "event_log"
+    }
+  },
+  "follow_on_rule_patch_schema": {
+    "candidate_name": "hard_invalidation_profit_preservation_guard_v1",
+    "baseline_candidate_name": "hard_invalidation_exit_severity_v2_loss_side_override",
+    "purpose": "Soften hard invalidation on profitable continuation states without changing loss-side protection",
+    "scope": "single-axis only",
+    "effects": [
+      "soften exit_all to long_reduce when trigger-date evidence remains constructive",
+      "preserve decisive loss-side exits",
+      "keep trigger-date severity and emitted action aligned"
+    ]
+  },
+  "critic_error_labels": [
+    "valid_read",
+    "reasonable_but_failed",
+    "too_early_entry",
+    "too_early_add",
+    "over_accumulation_before_confirmation",
+    "failed_breakout_misread",
+    "bad_pullback_misread",
+    "late_time_stop",
+    "missed_reduce",
+    "missed_exit",
+    "hedge_correct_but_long_too_large",
+    "false_exit_on_valid_pullback",
+    "blocked_valid_winner",
+    "success_pattern_preserved",
+    "hard_invalidation_exit_applicable",
+    "profit_take_reasonable",
+    "profit_take_too_early",
+    "profit_take_too_late",
+    "missed_reentry",
+    "valid_reentry",
+    "bad_reentry_blocked",
+    "false_reentry",
+    "opportunity_loss_after_profit_take",
+    "bad_reentry_after_profit_take",
+    "bad_reentry_after_profit_take_applicable",
+    "reentry_blocked",
+    "false_reentry_avoided"
+  ],
+  "rule_patch_schema": {
+    "candidate_name": "hard_invalidation_exit_severity_v2_loss_side_override",
+    "stack_candidate_name": "iizuka_kept_axis_stack_v1",
+    "preserved_candidate_names": [
+      "failed_followthrough_time_stop_v1",
+      "hard_invalidation_exit_v1",
+      "bad_reentry_after_profit_take_v1"
+    ],
+    "frozen_candidate_names": [
+      "profit_take_reentry_delay_v1"
+    ],
+    "purpose": "Refine hard invalidation into tiered severity so profitable baselines are reduced rather than flattened",
+    "scope": "single-axis only",
+    "effects": [
+      "reduce premature exits on profitable hard-invalidation cases",
+      "preserve loss-side hard-invalidation protection",
+      "preserve hard_invalidation_exit_v1 controls",
+      "preserve Systena-like failed-followthrough improvement",
+      "preserve 2531-like bad-reentry protection",
+      "preserve Taiheiyo-like winner patterns"
+    ]
+  },
+  "stack_rule_surface": {
+    "stack_candidate_name": "iizuka_kept_axis_stack_v1",
+    "included_axes": [
+      "failed_followthrough_time_stop_v1",
+      "hard_invalidation_exit_v1",
+      "bad_reentry_after_profit_take_v1"
+    ],
+    "precedence_order": [
+      {
+        "priority": 1,
+        "axis_name": "hard_invalidation_exit_v1",
+        "when_active": "force long_reduce or exit_all and prohibit long_add"
+      },
+      {
+        "priority": 2,
+        "axis_name": "failed_followthrough_time_stop_v1",
+        "when_active": "set add_stop after a failed breakout / follow-through window"
+      },
+      {
+        "priority": 3,
+        "axis_name": "bad_reentry_after_profit_take_v1",
+        "when_active": "block weak re-entry after profit taking and emit reentry_blocked"
+      }
+    ],
+    "winner_preservation": [
+      "preserve valid line escape winner state",
+      "preserve follow-through confirmation when support continues to hold",
+      "preserve valid pullback / support retest behavior on 5541-style winners"
+    ]
+  },
+  "decision_rules": {
+    "keep": "correction reduces bad re-entry damage or risk on 2531-like capture cases and preserves 2317, 9697, and 5541 controls",
+    "drop": "correction creates false blocks or damages controls, or fails to improve the negative anchor",
+    "hold": "structurally working but the bad-reentry evidence is insufficient",
+    "authoritative_result": "authoritative JSON artifacts only"
+  },
+  "artifact_names": [
+    "tradex_iizuka_trade_learning_loop_replay_spec.json",
+    "tradex_iizuka_trade_learning_loop_action_space.json",
+    "tradex_iizuka_trade_learning_loop_state_rule.json",
+    "tradex_iizuka_trade_learning_loop_position_constraints.json",
+    "tradex_iizuka_trade_learning_loop_systena_replay_result.json",
+    "tradex_iizuka_trade_learning_loop_taiheiyo_replay_result.json",
+    "tradex_iizuka_trade_learning_loop_2531_replay_result.json",
+    "tradex_iizuka_trade_learning_loop_anchor_manifest.json",
+    "tradex_iizuka_trade_learning_loop_error_taxonomy.json",
+    "tradex_iizuka_trade_learning_loop_error_report.json",
+    "tradex_iizuka_trade_learning_loop_rule_patch_candidates.json",
+    "tradex_iizuka_trade_learning_loop_before_after_patch_summary.json",
+    "tradex_iizuka_trade_learning_loop_hard_invalidation_summary.json",
+    "tradex_iizuka_trade_learning_loop_bad_reentry_summary.json",
+    "tradex_iizuka_trade_learning_loop_decision.json",
+    "tradex_iizuka_kept_axis_stack_spec.json",
+    "tradex_iizuka_kept_axis_stack_manifest.json",
+    "tradex_iizuka_kept_axis_stack_precedence.json",
+    "tradex_iizuka_kept_axis_stack_anchor_results.json",
+    "tradex_iizuka_kept_axis_stack_interaction_summary.json",
+    "tradex_iizuka_kept_axis_stack_error_report.json",
+    "tradex_iizuka_kept_axis_stack_decision.json"
+  ],
+  "no_lookahead": {
+    "actor": "current row and prior state only",
+    "critic": "post-replay outcomes only",
+    "assertion_text": "decision uses only the current row and prior state; critic labels are assigned after replay outcome is known"
+  },
+  "generated_at": "2026-04-27T00:00:00Z"
+}
