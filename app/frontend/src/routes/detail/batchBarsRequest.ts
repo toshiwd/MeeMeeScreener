@@ -8,6 +8,7 @@ export type BatchBarsRequestPayload = {
   includeProvisional: boolean;
   includeBoxes?: boolean;
   asof?: string;
+  forceRefresh?: boolean;
 };
 
 export type BatchBarsFramePayload = {
@@ -68,6 +69,7 @@ type DetailParams = {
 type ScopedDetailParams = DetailParams & {
   timeframes?: BatchBarsRequestTimeframe[];
   includeBoxes?: boolean;
+  forceRefresh?: boolean;
 };
 
 const DEFAULT_DETAIL_TIMEFRAMES: BatchBarsRequestTimeframe[] = ["daily", "weekly", "monthly"];
@@ -87,6 +89,7 @@ export const buildScopedDetailBatchBarsRequestPayload = ({
   asof,
   timeframes,
   includeBoxes,
+  forceRefresh,
 }: ScopedDetailParams): BatchBarsRequestPayload => {
   const resolvedTimeframes = normalizeDetailTimeframes(timeframes);
   const timeframeLimits = {
@@ -108,6 +111,9 @@ export const buildScopedDetailBatchBarsRequestPayload = ({
   };
   if (typeof asof === "string" && asof.trim()) {
     payload.asof = asof.trim();
+  }
+  if (forceRefresh === true) {
+    payload.forceRefresh = true;
   }
   return payload;
 };

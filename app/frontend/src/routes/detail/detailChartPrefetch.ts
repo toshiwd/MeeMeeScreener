@@ -437,6 +437,7 @@ export const prefetchDetailChartFrames = async (
       asof: request.asof,
       timeframes: requestedTimeframes,
       includeBoxes: true,
+      forceRefresh: options?.forceNetwork === true,
     }),
     options?.signal
   )
@@ -487,7 +488,7 @@ const shouldRefreshFromNetwork = (
   return Date.now() - lastNetworkAt >= CHART_PREFETCH_TTL_MS;
 };
 
-const buildBatchPayload = (requests: DetailChartPrefetchRequest[]) => {
+const buildBatchPayload = (requests: DetailChartPrefetchRequest[], forceRefresh = false) => {
   const first = requests[0];
   const payload = {
     codes: requests.map((request) => request.code),
@@ -500,6 +501,7 @@ const buildBatchPayload = (requests: DetailChartPrefetchRequest[]) => {
     },
     includeProvisional: true,
     includeBoxes: true,
+    ...(forceRefresh ? { forceRefresh: true } : {}),
   } as const;
   if (normalizeAsof(first.asof)) {
     return {
@@ -616,7 +618,10 @@ export const prefetchDetailChartFramesBatch = async (
     );
   }
 
-  const requestPromise = postDetailBatchBarsRequest(buildBatchPayload(networkRequests), options?.signal)
+  const requestPromise = postDetailBatchBarsRequest(
+    buildBatchPayload(networkRequests, options?.forceNetwork === true),
+    options?.signal
+  )
     .then(async (response) => {
       const freshEntries = await Promise.all(
         networkRequests.map(async (request) => [

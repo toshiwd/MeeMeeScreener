@@ -1596,6 +1596,135 @@ def _load_trade_market_code_map(codes: list[str]) -> dict[str, str | None]:
     return market_code_map
 
 
+_TRADE_EVENT_BLOCK_KEYWORDS = (
+    "上場廃止",
+    "整理銘柄",
+    "監理銘柄",
+    "非公開化",
+    "スクイーズアウト",
+    "全部取得条項",
+    "going private",
+    "delisting",
+)
+_TRADE_EVENT_TOB_KEYWORDS = ("公開買付", "公開買付け", "tob", "tender offer", "mbo")
+_TRADE_EVENT_TOB_RESULT_KEYWORDS = (
+    "成立",
+    "結果",
+    "応募",
+    "完全子会社化",
+    "株式併合",
+    "上場廃止",
+    "非公開化",
+    "スクイーズアウト",
+    "買付け等の結果",
+    "going private",
+    "delisting",
+)
+_STATIC_TRADE_EVENT_BLOCK_MAP: dict[str, dict[str, Any]] = {
+    "6201": {
+        "reason": "known_tob_delisting",
+        "title": "Toyota Industries delisting/private transaction event",
+        "published_at": "2026-05-07",
+    },
+}
+
+
+def _manual_trade_event_block_map(codes: list[str]) -> dict[str, dict[str, Any]]:
+    normalized_codes = {str(code).strip() for code in codes if str(code).strip()}
+    env_codes = {
+        str(code).strip()
+        for code in str(os.getenv("MEEMEE_RANKING_EVENT_BLOCK_CODES") or "").split(",")
+        if str(code).strip()
+    }
+    blocked: dict[str, dict[str, Any]] = {
+        code: dict(reason)
+        for code, reason in _STATIC_TRADE_EVENT_BLOCK_MAP.items()
+        if code in normalized_codes
+    }
+    for code in env_codes & normalized_codes:
+        blocked.setdefault(
+            code,
+            {
+                "reason": "manual_event_block",
+                "title": "MEEMEE_RANKING_EVENT_BLOCK_CODES",
+                "published_at": None,
+            },
+        )
+    return blocked
+
+
+def _trade_event_block_reason(text: str) -> str | None:
+    normalized = str(text or "").strip().lower()
+    if not normalized:
+        return None
+    for keyword in _TRADE_EVENT_BLOCK_KEYWORDS:
+        if keyword.lower() in normalized:
+            return keyword
+    if any(keyword in normalized for keyword in _TRADE_EVENT_TOB_KEYWORDS) and any(
+        keyword.lower() in normalized for keyword in _TRADE_EVENT_TOB_RESULT_KEYWORDS
+    ):
+        return "tob_private_event"
+    return None
+
+
+def _load_trade_event_block_map(codes: list[str]) -> dict[str, dict[str, Any]]:
+    normalized_codes = [code for code in dict.fromkeys(str(code).strip() for code in codes if str(code).strip())]
+    if not normalized_codes:
+        return {}
+    manual_blocked = _manual_trade_event_block_map(normalized_codes)
+    try:
+        with get_conn() as conn:
+            if not _table_exists(conn, "tdnet_disclosures"):
+                return manual_blocked
+            placeholders = ",".join("?" for _ in normalized_codes)
+            rows = conn.execute(
+                f"""
+                SELECT sec_code, title, category, summary_text, raw_json, published_at
+                FROM tdnet_disclosures
+                WHERE sec_code IN ({placeholders})
+                ORDER BY published_at DESC
+                LIMIT 4000
+                """,
+                normalized_codes,
+            ).fetchall()
+    except Exception as exc:
+        logger.debug("trade event block lookup skipped: %s", exc)
+        return manual_blocked
+
+    blocked: dict[str, dict[str, Any]] = dict(manual_blocked)
+    for code, title, category, summary_text, raw_json, published_at in rows:
+        code_key = str(code).strip()
+        if not code_key or code_key in blocked:
+            continue
+        text = " ".join(
+            str(value or "")
+            for value in (title, category, summary_text, raw_json)
+            if value is not None
+        )
+        reason = _trade_event_block_reason(text)
+        if reason is None:
+            continue
+        blocked[code_key] = {
+            "reason": reason,
+            "title": str(title or "").strip() or None,
+            "published_at": str(published_at or "").strip() or None,
+        }
+    return blocked
+
+
+def _filter_trade_event_blocked_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not items:
+        return []
+    blocked = _load_trade_event_block_map([str(item.get("code") or "").strip() for item in items])
+    if not blocked:
+        return items
+    return [
+        item
+        for item in items
+        if str(item.get("code") or "").strip() not in blocked
+    ]
+
+
 def _ensure_ranking_edinet_audit_table(conn: duckdb.DuckDBPyConnection) -> None:
     conn.execute(
         """
@@ -5540,8 +5669,9 @@ def _is_trade_caution_candidate(item: dict[str, Any]) -> bool:
 
 
 def _build_trade_candidate_buckets(items: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
-    buy_scored = _copy_rank_items(items)
-    short_scored = _copy_rank_items(items)
+    eligible_items = _filter_trade_event_blocked_items(items)
+    buy_scored = _copy_rank_items(eligible_items)
+    short_scored = _copy_rank_items(eligible_items)
     _apply_trade_priority_scores(buy_scored, direction="up")
     _apply_trade_priority_scores(short_scored, direction="down")
 
@@ -7013,7 +7143,7 @@ def _build_rankings_response(
     items, last_updated, provisional_meta = _load_live_cache_items(cache_key, include_provisional=include_provisional)
     phase_timings["load_live_cache_items_ms"] = round((time.perf_counter() - phase_started_at) * 1000.0, 3)
     phase_started_at = time.perf_counter()
-    source_items = _copy_rank_items(items)
+    source_items = _filter_trade_event_blocked_items(_copy_rank_items(items))
     legacy_analysis_disabled = is_legacy_analysis_disabled()
     candidate_source = _candidate_source_for_mode(
         effective_mode=effective_mode,
@@ -7065,6 +7195,9 @@ def _build_rankings_response(
         model_version=model_version,
     )
     phase_timings["fallback_down_ms"] = round((time.perf_counter() - phase_started_at) * 1000.0, 3)
+    phase_started_at = time.perf_counter()
+    out_items = _filter_trade_event_blocked_items(out_items)
+    phase_timings["trade_event_block_ms"] = round((time.perf_counter() - phase_started_at) * 1000.0, 3)
     phase_started_at = time.perf_counter()
     monthly_edinet_ms = 0.0
     if tf == "M" and effective_mode in {"hybrid", "trade"}:
@@ -7501,7 +7634,7 @@ def get_rankings_asof(
                 fallback_items = list(_CACHE.get(cache_key, []) or [])
             cache = {cache_key: fallback_items}
     items = cache.get((tf, which, direction), [])
-    source_items = _copy_rank_items(items)
+    source_items = _filter_trade_event_blocked_items(_copy_rank_items(items))
     limit = max(1, min(int(limit or 50), 200))
 
     pred_dt = None
@@ -7544,6 +7677,7 @@ def get_rankings_asof(
         pred_dt=pred_dt,
         model_version=model_version,
     )
+    out_items = _filter_trade_event_blocked_items(out_items)
     if tf == "M" and effective_mode in {"hybrid", "trade"}:
         flag_applied = _is_edinet_bonus_enabled()
         out_items = [_apply_edinet_defaults(dict(item), flag_applied=flag_applied) for item in out_items]
@@ -7974,6 +8108,27 @@ def get_trade_code_qualification_summary(
     code = str(code or "").strip()
     if not code:
         raise ValueError("code is required")
+    event_block = _load_trade_event_block_map([code]).get(code)
+    if event_block:
+        return {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "tf": tf,
+            "which": which,
+            "risk_mode": risk_mode,
+            "code": code,
+            "as_of": None,
+            "as_of_int": None,
+            "today_state": "event_blocked",
+            "today_buy_item": None,
+            "today_sell_item": None,
+            "last_buy_date": None,
+            "last_buy_date_iso": None,
+            "last_sell_date": None,
+            "last_sell_date_iso": None,
+            "recent_buy_hits": [],
+            "recent_sell_hits": [],
+            "event_block": event_block,
+        }
     as_of_int = _coerce_as_of_int(as_of) if as_of is not None else None
     lookback_days = max(20, min(int(lookback_days or 260), 1200))
     recent_hits = max(1, min(int(recent_hits or 10), 50))

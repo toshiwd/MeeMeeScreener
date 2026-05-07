@@ -64,7 +64,7 @@ def _timeout_sec() -> float:
 
 
 def _cache_ttl_sec() -> float:
-    return _env_float("MEEMEE_YF_CACHE_TTL_SEC", 120.0, minimum=1.0)
+    return _env_float("MEEMEE_YF_CACHE_TTL_SEC", 30.0, minimum=1.0)
 
 
 def _spark_chunk_size() -> int:
@@ -228,16 +228,21 @@ def apply_split_gap_adjustment(rows: Iterable[Sequence[Any]]) -> list[tuple]:
     return adjusted
 
 
-def get_provisional_daily_row_from_chart(code: str) -> tuple[int, float, float, float, float, float] | None:
+def get_provisional_daily_row_from_chart(
+    code: str,
+    *,
+    force_refresh: bool = False,
+) -> tuple[int, float, float, float, float, float] | None:
     if not _enabled():
         return None
     symbol = code_to_yahoo_symbol(code)
     if symbol is None:
         return None
 
-    cached = _cache_get(_chart_cache, symbol)
-    if cached is not _CACHE_MISS:
-        return cached
+    if not force_refresh:
+        cached = _cache_get(_chart_cache, symbol)
+        if cached is not _CACHE_MISS:
+            return cached
 
     row: tuple[int, float, float, float, float, float] | None = None
     try:
@@ -302,6 +307,7 @@ def get_provisional_daily_rows_from_spark(
     codes: Sequence[str],
     *,
     prefer_chart_ohlc: bool = False,
+    force_refresh: bool = False,
 ) -> dict[str, tuple[int, float, float, float, float, float]]:
     if not _enabled():
         return {}
@@ -318,12 +324,15 @@ def get_provisional_daily_rows_from_spark(
         return {}
 
     if prefer_chart_ohlc:
-        return _get_provisional_daily_rows_from_chart_symbols(code_by_symbol)
+        return _get_provisional_daily_rows_from_chart_symbols(
+            code_by_symbol,
+            force_refresh=force_refresh,
+        )
 
     resolved: dict[str, tuple[int, float, float, float, float, float]] = {}
     missing_symbols: list[str] = []
     for symbol, code in code_by_symbol.items():
-        cached = _cache_get(_spark_cache, symbol)
+        cached = _CACHE_MISS if force_refresh else _cache_get(_spark_cache, symbol)
         if cached is _CACHE_MISS:
             missing_symbols.append(symbol)
             continue
@@ -346,7 +355,8 @@ def get_provisional_daily_rows_from_spark(
     ]
     if unresolved_symbols:
         fallback_rows = _get_provisional_daily_rows_from_chart_symbols(
-            {symbol: code_by_symbol[symbol] for symbol in unresolved_symbols}
+            {symbol: code_by_symbol[symbol] for symbol in unresolved_symbols},
+            force_refresh=force_refresh,
         )
         resolved.update(fallback_rows)
 
@@ -355,11 +365,13 @@ def get_provisional_daily_rows_from_spark(
 
 def _get_provisional_daily_rows_from_chart_symbols(
     code_by_symbol: dict[str, str],
+    *,
+    force_refresh: bool = False,
 ) -> dict[str, tuple[int, float, float, float, float, float]]:
     resolved: dict[str, tuple[int, float, float, float, float, float]] = {}
     missing_symbols: list[str] = []
     for symbol, code in code_by_symbol.items():
-        cached = _cache_get(_chart_cache, symbol)
+        cached = _CACHE_MISS if force_refresh else _cache_get(_chart_cache, symbol)
         if cached is _CACHE_MISS:
             missing_symbols.append(symbol)
             continue

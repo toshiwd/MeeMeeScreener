@@ -96,6 +96,24 @@ describe("buildScopedDetailBatchBarsRequestPayload", () => {
       asof: "2026-03-19",
     });
   });
+
+  it("adds forceRefresh only when explicitly requested", () => {
+    expect(
+      buildScopedDetailBatchBarsRequestPayload({
+        code: "2531",
+        dailyLimit: 240,
+        weeklyLimit: 120,
+        monthlyLimit: 90,
+        timeframes: ["daily"],
+        includeBoxes: true,
+        forceRefresh: true,
+      })
+    ).toMatchObject({
+      codes: ["2531"],
+      timeframes: ["daily"],
+      forceRefresh: true,
+    });
+  });
 });
 
 describe("buildDetailPrefetchBatchBarsRequestPayload", () => {

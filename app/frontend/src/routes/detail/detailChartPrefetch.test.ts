@@ -35,6 +35,7 @@ vi.mock("./batchBarsRequest", () => ({
     asof,
     timeframes,
     includeBoxes,
+    forceRefresh,
   }: any) => ({
     codes: [code],
     timeframes: timeframes ?? ["daily", "weekly", "monthly"],
@@ -51,6 +52,7 @@ vi.mock("./batchBarsRequest", () => ({
     includeProvisional: true,
     includeBoxes: includeBoxes ?? true,
     ...(asof ? { asof } : {}),
+    ...(forceRefresh ? { forceRefresh: true } : {}),
   }),
   postDetailBatchBarsRequest,
 }));
@@ -177,6 +179,36 @@ describe("detailChartPrefetch", () => {
     expect(result.monthly?.rows).toEqual([[3, 3, 3, 3, 30]]);
     expect(result.weekly).toBeNull();
   });
+
+  it("passes forceRefresh for forced network prefetch", async () => {
+    postDetailBatchBarsRequest.mockResolvedValue({
+      data: {
+        items: {
+          "8053": {
+            daily: { bars: [[1, 1, 1, 1, 10]] },
+            weekly: { bars: [[2, 2, 2, 2, 20]] },
+            monthly: { bars: [[3, 3, 3, 3, 30]], boxes: [] },
+          },
+        },
+        meta: { data_version: "v3" },
+      },
+    });
+
+    const mod = await import("./detailChartPrefetch");
+    await mod.prefetchDetailChartFrames({
+      code: "8053",
+      dailyLimit: 2000,
+      weeklyLimit: 520,
+      monthlyLimit: 240,
+      asof: null,
+    }, { forceNetwork: true });
+
+    expect(postDetailBatchBarsRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ codes: ["8053"], forceRefresh: true }),
+      undefined
+    );
+  });
+
 
   it("rejects malformed cached frames without rows", async () => {
     const mod = await import("./detailChartPrefetch");

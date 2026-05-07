@@ -50,6 +50,7 @@ class BatchBarsV3Request(BaseModel):
     includeProvisional: bool = True
     includeBoxes: bool = False
     asof: str | int | None = None
+    forceRefresh: bool = False
 
 
 def _normalize_bar_time(value: Any) -> int | None:
@@ -475,6 +476,7 @@ def _fetch_multi_timeframe_items(
     include_provisional: bool,
     include_boxes: bool,
     asof_dt: int | None,
+    force_refresh: bool = False,
 ) -> Dict[str, Dict[str, Dict[str, Any]]]:
     items: Dict[str, Dict[str, Dict[str, Any]]] = {code: {} for code in codes}
     if not codes:
@@ -493,6 +495,7 @@ def _fetch_multi_timeframe_items(
             provisional_map_raw = get_provisional_daily_rows_from_spark(
                 codes,
                 prefer_chart_ohlc=True,
+                force_refresh=force_refresh,
             )
             today_key_jst = int((datetime.now(timezone.utc) + timedelta(hours=9)).strftime("%Y%m%d"))
             provisional_map = {
@@ -658,10 +661,12 @@ def batch_bars_v3(
     requested_frames = _normalize_requested_frames(payload.timeframes)
     valid_codes = _normalize_codes(payload.codes)
     asof_dt = _parse_asof(payload.asof)
+    force_refresh = bool(payload.forceRefresh) and bool(payload.includeProvisional) and asof_dt is None
     meta = _build_batch_meta(
         include_provisional=bool(payload.includeProvisional),
         asof_dt=asof_dt,
     )
+    meta["force_refresh"] = "true" if force_refresh else "false"
     if not valid_codes:
         return {"items": {}, "meta": meta}
     timeframe_limits = _normalize_timeframe_limits(payload.timeframeLimits)
@@ -676,16 +681,19 @@ def batch_bars_v3(
         runtime_db_path=str(getattr(config, "DB_PATH", None)) if getattr(config, "DB_PATH", None) else None,
         data_version=meta.get("data_version"),
     )
-    cached_items = _get_cached_batch_v3_items(cache_key)
+    cached_items = None if force_refresh else _get_cached_batch_v3_items(cache_key)
     if cached_items is not None:
         return {"items": cached_items, "meta": meta}
 
-    inflight_event, is_owner = _claim_batch_v3_inflight(cache_key)
-    if not is_owner:
-        inflight_event.wait(timeout=15.0)
-        cached_items = _get_cached_batch_v3_items(cache_key)
-        if cached_items is not None:
-            return {"items": cached_items, "meta": meta}
+    inflight_event: Event | None = None
+    is_owner = True
+    if not force_refresh:
+        inflight_event, is_owner = _claim_batch_v3_inflight(cache_key)
+        if not is_owner:
+            inflight_event.wait(timeout=15.0)
+            cached_items = _get_cached_batch_v3_items(cache_key)
+            if cached_items is not None:
+                return {"items": cached_items, "meta": meta}
 
     try:
         items = _fetch_multi_timeframe_items(
@@ -697,9 +705,11 @@ def batch_bars_v3(
             include_provisional=bool(payload.includeProvisional),
             include_boxes=bool(payload.includeBoxes),
             asof_dt=asof_dt,
+            force_refresh=force_refresh,
         )
-        _store_cached_batch_v3_items(cache_key, items)
+        if not force_refresh:
+            _store_cached_batch_v3_items(cache_key, items)
     finally:
-        if is_owner:
+        if not force_refresh and is_owner:
             _finish_batch_v3_inflight(cache_key)
     return {"items": items, "meta": meta}
