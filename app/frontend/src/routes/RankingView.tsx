@@ -13,6 +13,8 @@ import Toast from "../components/Toast";
 import UnifiedListHeader from "../components/UnifiedListHeader";
 import VirtualizedCardGrid from "../components/VirtualizedCardGrid";
 import TradexShadowReadout from "../components/TradexShadowReadout";
+import DataFreshnessBadges from "../components/DataFreshnessBadges";
+import ProductStateNotice from "../components/ProductStateNotice";
 import AiExplainDock from "../features/aiExplain/AiExplainDock";
 import { buildAiExplainImages } from "../features/aiExplain/aiExplainImages";
 import { useStore } from "../store";
@@ -27,6 +29,7 @@ import {
 import { downloadChartScreenshots } from "../utils/chartScreenshot";
 import { captureWindowBlob, getScreenType, saveBlobToFile } from "../utils/windowScreenshot";
 import { openDetailWithPrefetch } from "./detail/openDetailWithPrefetch";
+import { shouldUseDetailV2Navigation } from "./detail/detailV2Navigation";
 import { buildTradexListSummaryKey } from "./list/tradexSummary";
 import { TradexListSummaryMount } from "./list/TradexListSummaryMount";
 import { ResearchPatternBadges } from "./list/ResearchPatternBadges";
@@ -38,6 +41,10 @@ import {
   tradeStrengthToneClass,
 } from "../utils/tradeStrength";
 import { formatDateTimeLabel } from "../utils/dateLabels";
+import {
+  normalizeMeeMeeDataFreshnessContract,
+  type MeeMeeDataFreshnessContract,
+} from "../dataFreshnessContract";
 
 type RankItem = {
   code: string;
@@ -193,6 +200,7 @@ type RankingFetchCacheEntry = {
   items: RankItem[];
   errorMessage: string | null;
   useFallback: boolean;
+  dataFreshnessContract?: MeeMeeDataFreshnessContract | null;
 };
 
 type RankingFreshnessState = {
@@ -254,6 +262,7 @@ type RankSessionBundle = {
   provisional_trade_summary?: TradeDirectionSummary | null;
   confirmed_items?: RankItem[];
   provisional_items?: RankItem[];
+  data_freshness_contract?: MeeMeeDataFreshnessContract | null;
 };
 
 const RANK_VIEW_STATE_KEY = "rankingViewState";
@@ -389,7 +398,10 @@ const readRankingFetchCache = (cacheKey: string): RankingFetchCacheEntry | null 
         tf: parsed.tf === "W" || parsed.tf === "M" ? parsed.tf : "D",
         items: parsed.items as RankItem[],
         errorMessage: typeof parsed.errorMessage === "string" ? parsed.errorMessage : null,
-        useFallback: parsed.useFallback
+        useFallback: parsed.useFallback,
+        dataFreshnessContract: parsed.dataFreshnessContract
+          ? normalizeMeeMeeDataFreshnessContract(parsed.dataFreshnessContract)
+          : null,
       };
       rankingFetchMemoryCache.set(cacheKey, entry);
       return entry;
@@ -728,6 +740,8 @@ export default function RankingView() {
   const [errorMessage, setErrorMessage] = useState<string | null>(() => initialFetchCache?.errorMessage ?? null);
   const [tradeSummary, setTradeSummary] = useState<TradeDirectionSummary | null>(null);
   const [rankingFreshness, setRankingFreshness] = useState<RankingFreshnessState | null>(null);
+  const [rankingDataFreshnessContract, setRankingDataFreshnessContract] =
+    useState<MeeMeeDataFreshnessContract | null>(() => initialFetchCache?.dataFreshnessContract ?? null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [toastAction, setToastAction] = useState<{ label: string; onClick: () => void } | null>(null);
   const [selectedCodes, setSelectedCodes] = useState<string[]>([]);
@@ -1214,6 +1228,7 @@ export default function RankingView() {
       setItems(syncFavoriteFlags(cached.items));
       setUseFallback(cached.useFallback);
       setErrorMessage(cached.errorMessage);
+      setRankingDataFreshnessContract(cached.dataFreshnessContract ?? null);
       setLoading(false);
       recordPerfEvent("ranking_cache_hydrated", {
         cacheKey: rankingCacheKey,
@@ -1279,7 +1294,11 @@ export default function RankingView() {
           snapshot_as_of?: string | null;
           current_candidate_available?: boolean | null;
           stale?: boolean | null;
+          data_freshness_contract?: unknown;
         };
+        const nextDataFreshnessContract = normalizeMeeMeeDataFreshnessContract(
+          payload.data_freshness_contract
+        );
         const backendErrors = formatRankingBackendErrors(payload.errors);
         const nextFreshness: RankingFreshnessState = {
           state: payload.freshness_state ?? (payload.stale ? "stale" : null),
@@ -1322,12 +1341,14 @@ export default function RankingView() {
         setUseFallback(false);
         setErrorMessage(backendErrors);
         setRankingFreshness(nextFreshness);
+        setRankingDataFreshnessContract(nextDataFreshnessContract);
         writeRankingFetchCache(rankingCacheKey, {
           cacheVersion: RANK_FETCH_CACHE_VERSION,
           tf: rankingTf,
           items: syncFavoriteFlags(nextItems),
           errorMessage: backendErrors,
-          useFallback: false
+          useFallback: false,
+          dataFreshnessContract: nextDataFreshnessContract,
         });
         recordPerfEvent("ranking_fetch_end", {
           cacheKey: rankingCacheKey,
@@ -1340,6 +1361,7 @@ export default function RankingView() {
           setUseFallback(false);
           setErrorMessage(extractRankingFailureReason(error) ?? "当日のランキング取得に失敗しました。");
           setRankingFreshness({ state: "stale", days: null, snapshotAsOf: null, currentCandidateAvailable: false });
+          setRankingDataFreshnessContract(null);
           recordPerfEvent("ranking_fetch_failed", {
             cacheKey: rankingCacheKey,
             retainedCount: itemsRef.current.length,
@@ -1352,6 +1374,7 @@ export default function RankingView() {
           setUseFallback(true);
           setErrorMessage(buildRankingFallbackMessage(extractRankingFailureReason(error)));
           setRankingFreshness({ state: "stale", days: null, snapshotAsOf: null, currentCandidateAvailable: false });
+          setRankingDataFreshnessContract(null);
           recordPerfEvent("ranking_fetch_failed", {
             cacheKey: rankingCacheKey,
             retainedCount: itemsRef.current.length,
@@ -1471,19 +1494,22 @@ export default function RankingView() {
 
   const handleOpenDetail = useCallback(
     (code: string) => {
+      const useDetailV2 = shouldUseDetailV2Navigation(location.search);
       recordPerfEvent("ranking_open_detail", {
         code,
         listCount: listCodes.length,
+        targetRoute: useDetailV2 ? "detail-v2" : "detail",
       });
       void openDetailWithPrefetch({
         navigate,
         code,
         listCodes,
-        backPath: location.pathname,
+        backPath: `${location.pathname}${location.search}`,
         backendReady,
+        targetRoute: useDetailV2 ? "detail-v2" : "detail",
       });
     },
-    [backendReady, listCodes, location.pathname, navigate]
+    [backendReady, listCodes, location.pathname, location.search, navigate]
   );
 
   const { handleVisibleItemsChange } = useVisibleCodesPrefetch<RankItem>({
@@ -1914,6 +1940,7 @@ export default function RankingView() {
     rankingFreshness?.state === "stale" ||
     qualificationFilterRelaxed ||
     mtfStrictFilterRelaxed ||
+    Boolean(rankingDataFreshnessContract) ||
     (rankMode === "trade" && Boolean(tradeSummary)) ||
     (rankMode === "trade" && Boolean(rankSession));
   return (
@@ -1960,9 +1987,12 @@ export default function RankingView() {
       />
       {showOverviewPanel && (
         <div className="rank-overview-panel">
-          {(rankingFreshness?.state === "stale" || qualificationFilterRelaxed || mtfStrictFilterRelaxed) && (
+          {(rankingFreshness?.state === "stale" || qualificationFilterRelaxed || mtfStrictFilterRelaxed || rankingDataFreshnessContract) && (
             <div className="rank-overview-row">
               <span className="rank-overview-section-title">状態</span>
+              <div className="rank-top-summary">
+                <DataFreshnessBadges contract={rankingDataFreshnessContract} scope="ranking" compact />
+              </div>
               {rankingFreshness?.state === "stale" && (
                 <div className="rank-top-summary is-warn">
                   {`ランキングは古いスナップショットです${rankingFreshness.snapshotAsOf ? ` (asOf=${rankingFreshness.snapshotAsOf})` : ""}${rankingFreshness.days != null ? ` / ${rankingFreshness.days}日経過` : ""}`}
@@ -2009,6 +2039,13 @@ export default function RankingView() {
           {rankMode === "trade" && rankSession && (
             <div className="rank-overview-row">
               <span className="rank-overview-section-title">暫定 / provisional</span>
+              <div className="rank-top-summary">
+                <DataFreshnessBadges
+                  contract={rankSession.data_freshness_contract ?? null}
+                  scope="ranking"
+                  compact
+                />
+              </div>
               <div className="rank-top-summary">Yahoo更新 {formatDateTimeLabel(rankSession.provisional_fetched_at ?? null)}</div>
               <div className="rank-top-summary">
                 確認 asOf {rankSession.confirmed_snapshot_as_of ?? "--"} / 暫定 asOf {rankSession.provisional_snapshot_as_of ?? "--"}
@@ -2089,10 +2126,18 @@ export default function RankingView() {
             scope="ranking-selected"
             items={tradexListSummaryItems}
           >
-            {(tradexListSummaryState) => (
+            {() => (
               <>
-                {errorMessage && <div className="rank-status">{errorMessage}</div>}
-                {emptyLabel && <div className="rank-status">{emptyLabel}</div>}
+                {errorMessage && (
+                  <ProductStateNotice kind="error" className="rank-status">
+                    {errorMessage}
+                  </ProductStateNotice>
+                )}
+                {emptyLabel && (
+                  <ProductStateNotice kind="empty" className="rank-status">
+                    {emptyLabel}
+                  </ProductStateNotice>
+                )}
                 <VirtualizedCardGrid
                   items={sortedItems}
                   columns={columns}

@@ -6,7 +6,7 @@ import {
   getPerfDiagnosticsEvents,
   recordPerfEvent,
 } from "./perfDiagnostics";
-import { preloadRoute } from "./routePreload";
+import { getPrimaryPreloadRoutes, preloadRoute } from "./routePreload";
 
 describe("perfDiagnostics", () => {
   beforeEach(async () => {
@@ -59,5 +59,10 @@ describe("routePreload", () => {
     const second = preloadRoute("/ranking");
     expect(first).toBe(second);
     await expect(first).resolves.toBeTruthy();
+  });
+
+  it("keeps detail routes out of idle primary preloading", () => {
+    expect(getPrimaryPreloadRoutes()).not.toContain("/detail/:code");
+    expect(getPrimaryPreloadRoutes()).not.toContain("/detail-v2/:code");
   });
 });

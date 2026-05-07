@@ -7,6 +7,8 @@ export type HealthReadyResponse = {
   error_code?: string | null;
   errors?: string[];
   retryAfterMs?: number;
+  db_retryable?: boolean;
+  transient_db_busy?: boolean;
   txt_count?: number;
   last_updated?: string | null;
   code_txt_missing?: boolean;
@@ -21,6 +23,13 @@ export const isAliveHealthResponse = (
   status: number,
   data: HealthReadyResponse | null | undefined
 ): boolean => status >= 200 && status < 300 && data?.ready === true;
+
+export const isTransientDbBusyHealthResponse = (
+  data: HealthReadyResponse | null | undefined
+): boolean =>
+  data?.transient_db_busy === true ||
+  data?.status === "db_busy" ||
+  data?.phase === "db_busy";
 
 export const isBackendHealthUrl = (url: string | null | undefined): boolean => {
   if (!url) return false;

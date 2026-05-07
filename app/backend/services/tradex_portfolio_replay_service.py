@@ -73,6 +73,7 @@ def _store_window_artifacts(run_dir: Path, window: dict[str, Any]) -> None:
     _write_artifact(run_dir / "replay_feature_snapshot.json", {"schema_version": window["schema_version"], "items": window["feature_snapshot"]})
     _write_artifact(run_dir / "replay_positions_timeline.json", {"schema_version": window["schema_version"], "items": window["positions_timeline"]})
     _write_artifact(run_dir / "replay_trade_ledger.json", {"schema_version": window["schema_version"], "items": window["trade_ledger"]})
+    _write_artifact(run_dir / "replay_portfolio_daily_action_ledger.json", {"schema_version": window["schema_version"], "items": window.get("portfolio_daily_action_ledger", [])})
     _write_artifact(run_dir / "replay_daily_equity_curve.json", {"schema_version": window["schema_version"], "items": window["daily_equity_curve"]})
     _write_artifact(run_dir / "replay_benchmark_market.json", window["benchmark_market"])
     _write_artifact(run_dir / "replay_benchmark_universe.json", window["benchmark_universe"])
@@ -126,6 +127,7 @@ def run_policy_family_cohort_replay(repo: StockRepository, payload: dict[str, An
 
 def load_replay_run(run_id: str) -> dict[str, Any]:
     run_dir = replay_runs_root() / _text(run_id)
+    portfolio_daily_action_ledger_path = run_dir / "replay_portfolio_daily_action_ledger.json"
     return {
         "ok": True,
         "run_id": run_id,
@@ -134,6 +136,11 @@ def load_replay_run(run_id: str) -> dict[str, Any]:
         "feature_snapshot": os_store.read_json_object_strict(run_dir / "replay_feature_snapshot.json", artifact_name="replay feature snapshot"),
         "positions_timeline": os_store.read_json_object_strict(run_dir / "replay_positions_timeline.json", artifact_name="replay positions timeline"),
         "trade_ledger": os_store.read_json_object_strict(run_dir / "replay_trade_ledger.json", artifact_name="replay trade ledger"),
+        "portfolio_daily_action_ledger": (
+            os_store.read_json_object_strict(portfolio_daily_action_ledger_path, artifact_name="replay portfolio daily action ledger")
+            if portfolio_daily_action_ledger_path.exists()
+            else {"schema_version": "tradex_policy_replay_v1", "items": [], "capability_flags": {"legacy_run_without_portfolio_daily_action_ledger": True}}
+        ),
         "daily_equity_curve": os_store.read_json_object_strict(run_dir / "replay_daily_equity_curve.json", artifact_name="replay daily equity curve"),
         "benchmark_market": os_store.read_json_object_strict(run_dir / "replay_benchmark_market.json", artifact_name="replay benchmark market"),
         "benchmark_universe": os_store.read_json_object_strict(run_dir / "replay_benchmark_universe.json", artifact_name="replay benchmark universe"),

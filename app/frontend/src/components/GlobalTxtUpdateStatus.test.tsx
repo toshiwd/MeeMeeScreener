@@ -57,7 +57,7 @@ describe("GlobalTxtUpdateStatus", () => {
     vi.restoreAllMocks();
   });
 
-  it("hides the badge on detail routes while keeping polling active", async () => {
+  it("hides the badge on old detail routes without polling non-blocking jobs", async () => {
     const render = await renderClient(
       <MemoryRouter initialEntries={["/detail/9984"]}>
         <Routes>
@@ -75,7 +75,30 @@ describe("GlobalTxtUpdateStatus", () => {
     });
 
     expect(render.container.querySelector(".txt-update-meta")).toBeNull();
-    expect(mocks.apiGet).toHaveBeenCalledWith("/jobs/current");
+    expect(mocks.apiGet).not.toHaveBeenCalledWith("/jobs/current");
+
+    render.cleanup();
+  });
+
+  it("hides the badge on detail v2 routes without polling non-blocking jobs", async () => {
+    const render = await renderClient(
+      <MemoryRouter initialEntries={["/detail-v2/9984"]}>
+        <Routes>
+          <Route
+            path="*"
+            element={<GlobalTxtUpdateStatus />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(render.container.querySelector(".txt-update-meta")).toBeNull();
+    expect(mocks.apiGet).not.toHaveBeenCalledWith("/jobs/current");
 
     render.cleanup();
   });

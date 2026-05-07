@@ -277,6 +277,41 @@ def test_get_runtime_stock_db_status_reports_fresh_selected_db(tmp_path, monkeyp
     assert before == after
 
 
+def test_get_runtime_stock_db_status_reports_epoch_dates_and_source_split(tmp_path, monkeypatch) -> None:
+    db_path = tmp_path / "stocks.duckdb"
+    conn = duckdb.connect(str(db_path))
+    try:
+        conn.execute("CREATE TABLE daily_bars(code VARCHAR, date BIGINT, o DOUBLE, h DOUBLE, l DOUBLE, c DOUBLE, v DOUBLE, source VARCHAR)")
+        conn.execute(
+            "INSERT INTO daily_bars VALUES "
+            "('0001', 1777593600, 100.0, 102.0, 99.0, 101.0, 1000.0, 'pan'), "
+            "('0001', 1778112000, 101.0, 103.0, 100.0, 102.0, 1100.0, 'yahoo')"
+        )
+        conn.execute("CREATE TABLE market_regime_daily(date BIGINT)")
+        conn.execute("INSERT INTO market_regime_daily VALUES (1778112000)")
+        conn.execute("CREATE TABLE feature_snapshot_daily(dt BIGINT)")
+        conn.execute("INSERT INTO feature_snapshot_daily VALUES (1778112000)")
+        conn.execute("CREATE TABLE ml_pred_20d(dt BIGINT)")
+        conn.execute("INSERT INTO ml_pred_20d VALUES (1773360000)")
+    finally:
+        conn.close()
+
+    monkeypatch.setenv("STOCKS_DB_PATH", str(db_path))
+    monkeypatch.setattr(bridge, "_current_jst_date", lambda: date(2026, 5, 7))
+    mcp.resolve_runtime_stock_db_selection.cache_clear()
+
+    result = mcp.get_runtime_stock_db_status()
+
+    assert result["latest_daily_bars_date"] == 20260507
+    assert result["latest_daily_bars_date_iso"] == "2026-05-07"
+    assert result["latest_confirmed_daily_bars_date"] == 20260501
+    assert result["latest_confirmed_daily_bars_date_iso"] == "2026-05-01"
+    assert result["latest_feature_snapshot_daily_date"] == 20260507
+    assert result["latest_ml_pred_20d_date"] == 20260313
+    assert result["daily_bars_by_source"]["yahoo"]["latest_date_iso"] == "2026-05-07"
+    assert result["daily_bars_by_source"]["pan"]["latest_date_iso"] == "2026-05-01"
+
+
 def test_get_rankings_freshness_reports_current_snapshot(monkeypatch) -> None:
     monkeypatch.setattr(
         bridge.rankings_cache,
@@ -309,6 +344,43 @@ def test_get_rankings_freshness_reports_current_snapshot(monkeypatch) -> None:
     assert result["stale"] is False
     assert result["current_candidate_available"] is True
     assert result["note"] is None
+
+
+def test_get_rankings_freshness_explains_confirmed_source_lag(monkeypatch) -> None:
+    monkeypatch.setattr(
+        bridge.rankings_cache,
+        "get_rankings",
+        lambda *args, **kwargs: {
+            "snapshot_as_of": "2026-05-01",
+            "freshness_state": "stale",
+            "freshness_days": 6,
+            "stale": True,
+            "current_candidate_available": False,
+        },
+    )
+    monkeypatch.setattr(
+        bridge,
+        "get_runtime_stock_db_status",
+        lambda: {
+            "stale": False,
+            "selected_runtime_db_path": "C:/runtime/stocks.duckdb",
+            "freshness_state": "fresh",
+            "freshness_days": 0,
+            "latest_available_global_date_iso": "2026-05-07",
+            "latest_confirmed_daily_bars_date_iso": "2026-05-01",
+            "daily_bars_by_source": {
+                "yahoo": {"latest_date_iso": "2026-05-07"},
+                "pan": {"latest_date_iso": "2026-05-01"},
+            },
+        },
+    )
+
+    result = mcp.get_rankings_freshness()
+
+    assert result["freshness_state"] == "stale"
+    assert result["runtime_latest_available_global_date"] == "2026-05-07"
+    assert result["runtime_latest_confirmed_daily_bars_date"] == "2026-05-01"
+    assert "confirmed non-Yahoo daily bars lag" in result["note"]
 
 
 def test_get_publish_runtime_state_is_sanitized(monkeypatch, tmp_path) -> None:
@@ -555,7 +627,9 @@ def test_client_smoke_path_works_end_to_end(tmp_path) -> None:
     assert payload["runtime_stock_db_status"]["freshness_state"] in {"fresh", "stale"}
     assert payload["rankings_freshness"]["snapshot_as_of"]
     assert payload["rankings_freshness"]["freshness_state"] in {"fresh", "stale"}
-    assert payload["rankings_freshness"]["current_candidate_available"] is True
+    assert payload["rankings_freshness"]["current_candidate_available"] is (
+        payload["rankings_freshness"]["freshness_state"] == "fresh"
+    )
 
 
 @pytest.mark.parametrize(

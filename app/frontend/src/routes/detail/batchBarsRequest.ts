@@ -20,6 +20,7 @@ export type BatchBarsFramePayload = {
 export type BatchBarsResponseMeta = {
   data_version?: string | null;
   fetched_at?: string | null;
+  data_freshness_contract?: import("../../dataFreshnessContract").MeeMeeDataFreshnessContract | null;
 };
 
 export type BatchBarsV3Response = {

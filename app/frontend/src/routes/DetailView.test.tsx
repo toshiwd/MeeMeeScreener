@@ -903,6 +903,55 @@ describe("DetailView", () => {
     render.cleanup();
   });
 
+  it("resolves an incomplete detail bars response into explicit chart lifecycle states", async () => {
+    mocks.backendReadyRef.value = true;
+    mocks.storeState.tickers = [
+      { code: "9402", name: "Partial Corp", close: 1600, chg1D: 0.02 },
+    ];
+    mocks.apiPost.mockImplementation((url: string, payload?: Record<string, unknown>) => {
+      if (url !== "/batch_bars_v3") {
+        return Promise.resolve({ data: {} });
+      }
+      const code = Array.isArray(payload?.codes) ? String(payload.codes[0]) : "";
+      if (code === "9402") {
+        return Promise.resolve({
+          data: {
+            items: {
+              "9402": {
+                daily: createBarsFrame(1_710_000_000, 1600),
+                monthly: {
+                  ...createBarsFrame(1_707_264_000, 1620),
+                  boxes: [],
+                },
+              },
+            },
+          },
+        });
+      }
+      return Promise.resolve({ data: { items: {} } });
+    });
+
+    const render = await renderDetailView("/detail/9402");
+    const { container } = render;
+
+    await act(async () => {
+      await flushMicrotasks();
+      await flushMicrotasks();
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      await flushMicrotasks();
+    });
+
+    expect(container.textContent).toContain("Weekly: No data");
+    expect(container.textContent).not.toContain("Weekly: Loading...");
+    const chartNodes = Array.from(container.querySelectorAll("[data-testid='detail-chart']"));
+    expect(chartNodes.length).toBeGreaterThanOrEqual(3);
+    expect((chartNodes[0] as HTMLElement).getAttribute("data-candles")).toBe("1");
+    expect((chartNodes[1] as HTMLElement).getAttribute("data-candles")).toBe("0");
+    expect((chartNodes[2] as HTMLElement).getAttribute("data-candles")).toBe("1");
+
+    render.cleanup();
+  });
+
   it("loads replay mode on the detail route and renders replay markers and ledger rows", async () => {
     mocks.backendReadyRef.value = true;
     mocks.storeState.tickers = [

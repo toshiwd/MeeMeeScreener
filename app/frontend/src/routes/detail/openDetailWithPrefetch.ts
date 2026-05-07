@@ -5,6 +5,11 @@ import {
   readDetailChartPrefetchSync,
 } from "./detailChartPrefetch";
 import { recordPerfEvent } from "../../perfDiagnostics";
+import {
+  normalizeDetailBackPath,
+  normalizeDetailListCodes,
+  saveDetailListContext,
+} from "./detailNavigationContext";
 
 type NavigateFn = (to: string, options?: { state?: { from?: string } }) => void;
 
@@ -16,6 +21,7 @@ type OpenDetailWithPrefetchArgs = {
   asof?: string | null;
   backendReady?: boolean;
   prefetchWaitMs?: number;
+  targetRoute?: "detail" | "detail-v2";
 };
 
 const DETAIL_NEIGHBOR_PREFETCH_RADIUS = 4;
@@ -42,15 +48,6 @@ const buildNeighborCodes = (targetCode: string, listCodes: string[]) => {
   return neighbors;
 };
 
-export const saveDetailListContext = (backPath: string, listCodes: string[]) => {
-  try {
-    sessionStorage.setItem("detailListBack", backPath);
-    sessionStorage.setItem("detailListCodes", JSON.stringify(listCodes));
-  } catch {
-    // ignore storage failures
-  }
-};
-
 export const openDetailWithPrefetch = async ({
   navigate,
   code,
@@ -59,13 +56,15 @@ export const openDetailWithPrefetch = async ({
   asof,
   backendReady,
   prefetchWaitMs = 120,
+  targetRoute = "detail",
 }: OpenDetailWithPrefetchArgs) => {
-  const resolvedListCodes = Array.isArray(listCodes) ? listCodes : [];
-  saveDetailListContext(backPath, resolvedListCodes);
+  const resolvedBackPath = normalizeDetailBackPath(backPath);
+  const resolvedListCodes = normalizeDetailListCodes(listCodes);
+  saveDetailListContext(resolvedBackPath, resolvedListCodes);
   recordPerfEvent("detail_open_with_prefetch_start", {
     code,
     listCount: resolvedListCodes.length,
-    backPath,
+    backPath: resolvedBackPath,
     asof: asof ?? null,
   });
   if (backendReady && code) {
@@ -98,5 +97,6 @@ export const openDetailWithPrefetch = async ({
       await Promise.race([prefetchPromise, waitMs(prefetchWaitMs)]);
     }
   }
-  navigate(`/detail/${code}`, { state: { from: backPath } });
+  const routePrefix = targetRoute === "detail-v2" ? "/detail-v2" : "/detail";
+  navigate(`${routePrefix}/${code}`, { state: { from: resolvedBackPath } });
 };

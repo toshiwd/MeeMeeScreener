@@ -1,4 +1,6 @@
 import type { Box, ChartDataProvenance } from "../../storeTypes";
+import type { MeeMeeDataFreshnessContract } from "../../dataFreshnessContract";
+import { normalizeMeeMeeDataFreshnessContract } from "../../dataFreshnessContract";
 import {
   applyChartDataVersion,
   getPersistentChartFrame,
@@ -27,6 +29,7 @@ export type ChartPrefetchFrames = {
   daily: ChartPrefetchEntry | null;
   weekly: ChartPrefetchEntry | null;
   monthly: ChartPrefetchEntry | null;
+  dataFreshnessContract?: MeeMeeDataFreshnessContract | null;
 };
 
 type DetailChartPrefetchRequest = {
@@ -48,6 +51,10 @@ type DetailChartPrefetchBatchResult = Record<string, ChartPrefetchFrames>;
 const CHART_PREFETCH_TTL_MS = 60_000;
 const DEFAULT_DETAIL_PREFETCH_TIMEFRAMES: BatchBarsRequestTimeframe[] = ["daily", "weekly", "monthly"];
 const chartPrefetchCache = new Map<string, ChartPrefetchEntry>();
+const chartPrefetchContractCache = new Map<
+  string,
+  { contract: MeeMeeDataFreshnessContract; fetchedAt: number }
+>();
 const chartPrefetchInFlight = new Map<string, Promise<ChartPrefetchFrames>>();
 const chartPrefetchBatchInFlight = new Map<string, Promise<DetailChartPrefetchBatchResult>>();
 const chartPrefetchPendingByKey = new Map<string, Promise<ChartPrefetchFrames>>();
@@ -251,11 +258,29 @@ export const readDetailChartPrefetchSync = ({
   weeklyLimit,
   monthlyLimit,
   asof,
-}: DetailChartPrefetchRequest): ChartPrefetchFrames => ({
-  daily: readMemoryChartPrefetch(code, "daily", dailyLimit, asof),
-  weekly: readMemoryChartPrefetch(code, "weekly", weeklyLimit, asof),
-  monthly: readMemoryChartPrefetch(code, "monthly", monthlyLimit, asof),
-});
+}: DetailChartPrefetchRequest, timeframes?: BatchBarsRequestTimeframe[]): ChartPrefetchFrames => {
+  const contractKey = buildDetailPrefetchKey(
+    code,
+    dailyLimit,
+    weeklyLimit,
+    monthlyLimit,
+    asof,
+    timeframes
+  );
+  const cachedContract = chartPrefetchContractCache.get(contractKey) ?? null;
+  if (cachedContract && Date.now() - cachedContract.fetchedAt > CHART_PREFETCH_TTL_MS) {
+    chartPrefetchContractCache.delete(contractKey);
+  }
+  return {
+    daily: readMemoryChartPrefetch(code, "daily", dailyLimit, asof),
+    weekly: readMemoryChartPrefetch(code, "weekly", weeklyLimit, asof),
+    monthly: readMemoryChartPrefetch(code, "monthly", monthlyLimit, asof),
+    dataFreshnessContract:
+      cachedContract && Date.now() - cachedContract.fetchedAt <= CHART_PREFETCH_TTL_MS
+        ? cachedContract.contract
+        : null,
+  };
+};
 
 export const loadDetailChartPrefetch = async ({
   code,
@@ -271,7 +296,7 @@ export const loadDetailChartPrefetch = async ({
     weeklyLimit,
     monthlyLimit,
     asof,
-  });
+  }, requestedTimeframes);
   if (hasCompleteDetailChartPrefetch(memoryFrames, requestedTimeframes)) {
     recordPerfEvent("detail_chart_seed_hit", {
       code,
@@ -381,13 +406,34 @@ export const extractDetailChartFrames = async ({
     ),
   ]);
 
-  return readDetailChartPrefetchSync({
-    code,
-    dailyLimit,
-    weeklyLimit,
-    monthlyLimit,
-    asof,
-  });
+  const normalizedContract = normalizeMeeMeeDataFreshnessContract(
+    response?.meta?.data_freshness_contract
+  );
+  chartPrefetchContractCache.set(
+    buildDetailPrefetchKey(
+      code,
+      dailyLimit,
+      weeklyLimit,
+      monthlyLimit,
+      asof,
+      requestedTimeframes
+    ),
+    {
+      contract: normalizedContract,
+      fetchedAt,
+    }
+  );
+
+  return {
+    ...readDetailChartPrefetchSync({
+      code,
+      dailyLimit,
+      weeklyLimit,
+      monthlyLimit,
+      asof,
+    }, requestedTimeframes),
+    dataFreshnessContract: normalizedContract,
+  };
 };
 
 export const prefetchDetailChartFrames = async (
@@ -681,6 +727,7 @@ export const prefetchDetailChartFramesBatch = async (
 
 export const clearDetailChartPrefetchCache = () => {
   chartPrefetchCache.clear();
+  chartPrefetchContractCache.clear();
   chartPrefetchLastNetworkAt.clear();
   chartPrefetchPendingByKey.clear();
 };

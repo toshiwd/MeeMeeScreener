@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import json
 import math
 import random
@@ -18,6 +19,8 @@ import pandas as pd
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+
+logger = logging.getLogger(__name__)
 
 from app.backend.services.ml.rankings_cache import get_rankings_asof  # noqa: E402
 from scripts.tradex_chart_first_replay import (  # noqa: E402
@@ -40,7 +43,10 @@ from scripts.tradex_regime_specialization_gate_compare import (  # noqa: E402
     _specialized_label,
 )
 
-DEFAULT_SOURCE_DB_PATH = Path(r"C:\Users\enish\Desktop\MeeMeeScreener\_internal\app\backend\stocks.duckdb")
+DEFAULT_SOURCE_DB_PATH = Path(r"C:\Users\enish\AppData\Local\MeeMeeScreener-dev\data\stocks.duckdb")
+DEFAULT_SOURCE_DB_FALLBACKS = (
+    Path(r"G:\Tradex\db_snapshots\stocks_20260426_022925.duckdb"),
+)
 DEFAULT_OUTPUT_DIR = Path(r"G:\Tradex\sample_replays\tradex_random_anchor_3m")
 DEFAULT_SEED = 20260424
 DEFAULT_ANCHOR_COUNT = 10
@@ -324,23 +330,37 @@ def _ensure_usable_source_db_path(
     output_dir: Path,
     artifact_tag: str | None,
 ) -> Path:
-    candidate = source_db_path.expanduser().resolve()
-    try:
-        conn = duckdb.connect(str(candidate), read_only=True)
+    candidates = [source_db_path.expanduser().resolve()]
+    for fallback in DEFAULT_SOURCE_DB_FALLBACKS:
+        fallback_path = fallback.expanduser().resolve()
+        if fallback_path not in candidates:
+            candidates.append(fallback_path)
+
+    cache_dir = output_dir / "_db_cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    for candidate in candidates:
         try:
-            conn.execute("SELECT 1").fetchone()
-        finally:
-            conn.close()
-        return candidate
-    except Exception:
-        cache_dir = output_dir / "_db_cache"
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        working_name = _artifact_name(f"{candidate.stem}{candidate.suffix}", artifact_tag=artifact_tag)
-        working_path = cache_dir / working_name
-        if working_path.exists():
-            return working_path
-        shutil.copy2(candidate, working_path)
-        return working_path
+            conn = duckdb.connect(str(candidate), read_only=True)
+            try:
+                conn.execute("SELECT 1").fetchone()
+            finally:
+                conn.close()
+            return candidate
+        except Exception:
+            working_name = _artifact_name(f"{candidate.stem}{candidate.suffix}", artifact_tag=artifact_tag)
+            working_path = cache_dir / working_name
+            if working_path.exists():
+                return working_path
+            try:
+                shutil.copy2(candidate, working_path)
+                return working_path
+            except Exception:
+                continue
+
+    raise FileNotFoundError(
+        f"no usable source db found for random anchor replay: {source_db_path} with fallbacks {DEFAULT_SOURCE_DB_FALLBACKS}"
+    )
 
 
 def _load_universe_symbols(*, source_db_path: Path, as_of: int) -> list[str]:

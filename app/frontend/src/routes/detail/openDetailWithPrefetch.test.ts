@@ -89,6 +89,58 @@ describe("openDetailWithPrefetch", () => {
     expect(navigate).toHaveBeenCalledWith("/detail/7203", { state: { from: "/ranking" } });
   });
 
+  it("normalizes stored list context and navigation state", async () => {
+    const { openDetailWithPrefetch } = await import("./openDetailWithPrefetch");
+    const navigate = vi.fn();
+
+    await openDetailWithPrefetch({
+      navigate,
+      code: "7203",
+      listCodes: [" 7203 ", "6758", "7203", ""],
+      backPath: "/positions?tab=held",
+      backendReady: false,
+    });
+
+    expect(sessionStorage.getItem("detailListBack")).toBe("/positions?tab=held");
+    expect(sessionStorage.getItem("detailListCodes")).toBe(JSON.stringify(["7203", "6758"]));
+    expect(navigate).toHaveBeenCalledWith("/detail/7203", { state: { from: "/positions?tab=held" } });
+    expect(prefetchDetailChartFramesBatch).not.toHaveBeenCalled();
+  });
+
+  it("falls back to root for unsafe return paths", async () => {
+    const { openDetailWithPrefetch } = await import("./openDetailWithPrefetch");
+    const navigate = vi.fn();
+
+    await openDetailWithPrefetch({
+      navigate,
+      code: "7203",
+      listCodes: ["7203"],
+      backPath: "https://example.com/ranking",
+      backendReady: false,
+    });
+
+    expect(sessionStorage.getItem("detailListBack")).toBe("/");
+    expect(navigate).toHaveBeenCalledWith("/detail/7203", { state: { from: "/" } });
+  });
+
+  it("can navigate to the opt-in v2 detail route while preserving list context", async () => {
+    const { openDetailWithPrefetch } = await import("./openDetailWithPrefetch");
+    const navigate = vi.fn();
+
+    await openDetailWithPrefetch({
+      navigate,
+      code: "7203",
+      listCodes: ["7203", "6758"],
+      backPath: "/ranking?detailV2=1",
+      backendReady: false,
+      targetRoute: "detail-v2",
+    });
+
+    expect(sessionStorage.getItem("detailListBack")).toBe("/ranking?detailV2=1");
+    expect(sessionStorage.getItem("detailListCodes")).toBe(JSON.stringify(["7203", "6758"]));
+    expect(navigate).toHaveBeenCalledWith("/detail-v2/7203", { state: { from: "/ranking?detailV2=1" } });
+  });
+
   it("waits for the configured prefetch budget before navigating when prefetch is still pending", async () => {
     vi.useFakeTimers();
     const { openDetailWithPrefetch } = await import("./openDetailWithPrefetch");

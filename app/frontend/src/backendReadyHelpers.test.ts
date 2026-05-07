@@ -3,6 +3,7 @@ import {
   hasRecentApiActivity,
   isBackendHealthUrl,
   isAliveHealthResponse,
+  isTransientDbBusyHealthResponse,
   KEEPALIVE_FAIL_THRESHOLD,
   KEEPALIVE_RECONNECT_GRACE_MS,
   RECENT_API_ACTIVITY_RECONNECT_GRACE_MS,
@@ -22,6 +23,29 @@ describe("isAliveHealthResponse", () => {
 
   it("returns false when the backend is unreachable", () => {
     expect(isAliveHealthResponse(503, { ready: false, status: "starting" })).toBe(false);
+  });
+});
+
+describe("isTransientDbBusyHealthResponse", () => {
+  it("keeps transient DB busy distinct from generic backend down", () => {
+    expect(
+      isTransientDbBusyHealthResponse({
+        ready: false,
+        status: "db_busy",
+        phase: "db_busy",
+        transient_db_busy: true,
+      })
+    ).toBe(true);
+  });
+
+  it("returns false for ordinary not-ready responses", () => {
+    expect(
+      isTransientDbBusyHealthResponse({
+        ready: false,
+        status: "starting",
+        phase: "starting",
+      })
+    ).toBe(false);
   });
 });
 

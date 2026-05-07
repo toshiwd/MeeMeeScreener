@@ -11,6 +11,7 @@ type RouteKey =
   | "/market"
   | "/ranking/tracking"
   | "/detail/:code"
+  | "/detail-v2/:code"
   | "/practice/:code";
 
 type RouteModule = { default: ComponentType<any> };
@@ -24,6 +25,7 @@ const routeImporters: Record<RouteKey, () => Promise<RouteModule>> = {
   "/market": () => import("./routes/MarketView"),
   "/ranking/tracking": () => import("./routes/TrackingView"),
   "/detail/:code": () => import("./routes/DetailView"),
+  "/detail-v2/:code": () => import("./routes/DetailV2View"),
   "/practice/:code": () => import("./routes/PracticeView"),
 };
 
@@ -36,6 +38,7 @@ const routeLabels: Record<RouteKey, string> = {
   "/market": "market",
   "/ranking/tracking": "tracking",
   "/detail/:code": "detail",
+  "/detail-v2/:code": "detail-v2",
   "/practice/:code": "practice",
 };
 
@@ -43,6 +46,7 @@ const routeModulePromises = new Map<RouteKey, Promise<RouteModule>>();
 
 const normalizeRouteKey = (path: string): RouteKey | null => {
   if (!path) return null;
+  if (path.startsWith("/detail-v2/")) return "/detail-v2/:code";
   if (path.startsWith("/detail/")) return "/detail/:code";
   if (path.startsWith("/practice/")) return "/practice/:code";
   if (path.startsWith("/ranking/tracking")) return "/ranking/tracking";
@@ -92,8 +96,16 @@ export const preloadRoute = (path: string) => {
   return loadRouteModule(key);
 };
 
+export const getPrimaryPreloadRoutes = (): RouteKey[] => [
+  "/ranking",
+  "/favorites",
+  "/market",
+  "/positions",
+  "/candidates",
+];
+
 export const preloadPrimaryRoutes = () => {
-  const routes: RouteKey[] = ["/ranking", "/favorites", "/market", "/positions", "/candidates"];
+  const routes = getPrimaryPreloadRoutes();
   routes.forEach((route) => {
     void loadRouteModule(route).catch(() => undefined);
   });
@@ -107,4 +119,5 @@ export const PositionsRoute = lazy(() => loadRouteModule("/positions"));
 export const MarketRoute = lazy(() => loadRouteModule("/market"));
 export const TrackingRoute = lazy(() => loadRouteModule("/ranking/tracking"));
 export const DetailRoute = lazy(() => loadRouteModule("/detail/:code"));
+export const DetailV2Route = lazy(() => loadRouteModule("/detail-v2/:code"));
 export const PracticeRoute = lazy(() => loadRouteModule("/practice/:code"));

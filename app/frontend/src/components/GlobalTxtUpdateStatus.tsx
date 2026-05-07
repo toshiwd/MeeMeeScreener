@@ -46,7 +46,8 @@ export default function GlobalTxtUpdateStatus() {
   const location = useLocation();
   const [job, setJob] = useState<JobStatusPayload | null>(null);
   const [polling, setPolling] = useState(false);
-  const isDetailRoute = location.pathname.startsWith("/detail/");
+  const isDetailRoute =
+    location.pathname.startsWith("/detail/") || location.pathname.startsWith("/detail-v2/");
 
   const statusLabel = useMemo(() => {
     if (!job) return null;
@@ -73,6 +74,11 @@ export default function GlobalTxtUpdateStatus() {
   }, [job?.message]);
 
   useEffect(() => {
+    if (isDetailRoute) {
+      setJob(null);
+      setPolling(false);
+      return;
+    }
     if (!backendReady || polling || job?.id) return;
     let disposed = false;
 
@@ -101,9 +107,14 @@ export default function GlobalTxtUpdateStatus() {
       disposed = true;
       window.clearInterval(timer);
     };
-  }, [backendReady, polling, job?.id]);
+  }, [backendReady, isDetailRoute, polling, job?.id]);
 
   useEffect(() => {
+    if (isDetailRoute) {
+      setJob(null);
+      setPolling(false);
+      return;
+    }
     if (!backendReady || !polling || !job?.id) return;
     let disposed = false;
     const poll = async () => {
@@ -138,7 +149,7 @@ export default function GlobalTxtUpdateStatus() {
       disposed = true;
       window.clearInterval(timer);
     };
-  }, [backendReady, polling, job?.id]);
+  }, [backendReady, isDetailRoute, polling, job?.id]);
 
   if (
     location.pathname === "/" ||

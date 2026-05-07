@@ -153,8 +153,13 @@ def test_batch_bars_v3_marks_live_provisional_data_version(monkeypatch, tmp_path
     )
 
     assert response.status_code == 200
-    data_version = response.json()["meta"]["data_version"]
+    meta = response.json()["meta"]
+    data_version = meta["data_version"]
     assert data_version == "duckdb-mtime:1700000000.000000|yf-live:202604130900"
+    contract = meta["data_freshness_contract"]
+    assert contract["charts"]["daily"]["status"] == "ready"
+    assert contract["charts"]["weekly"]["status"] == "missing"
+    assert contract["charts"]["monthly"]["status"] == "missing"
 
 
 def test_batch_bars_v3_exposes_chart_provenance_for_provisional_overlay(monkeypatch, tmp_path) -> None:
@@ -215,6 +220,17 @@ def test_batch_bars_v3_exposes_chart_provenance_for_provisional_overlay(monkeypa
     assert daily["provenance"]["overwrite_status"] == "provisional_only"
     assert weekly["provenance"]["chart_aggregation_source"] == "derived"
     assert monthly["provenance"]["chart_source_provider"].startswith("runtime_stock_db.monthly_bars+runtime_stock_db.daily_bars")
+    contract = response.json()["meta"]["data_freshness_contract"]
+    assert contract["contract_version"] == "meemee_data_freshness_v1"
+    assert contract["detail"]["source"] == "batch_bars_v3"
+    assert contract["detail"]["classification"] == "mixed"
+    assert contract["charts"]["daily"]["source"] == "runtime_stock_db.daily_bars+yahoo_chart_overlay"
+    assert contract["charts"]["daily"]["right_edge_date"] == "2026-04-16"
+    assert contract["charts"]["daily"]["freshness_state"] == "stale"
+    assert contract["charts"]["daily"]["classification"] == "mixed"
+    assert contract["charts"]["weekly"]["classification"] == "mixed"
+    assert contract["charts"]["monthly"]["classification"] == "mixed"
+    assert contract["research"]["normal_ui_exposure_allowed"] is False
 
 
 def test_batch_bars_v3_prefers_confirmed_overlapping_chart_gallery_data(monkeypatch, tmp_path) -> None:

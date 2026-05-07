@@ -9,6 +9,7 @@ import {
   type HealthReadyResponse,
   isBackendHealthUrl,
   isAliveHealthResponse,
+  isTransientDbBusyHealthResponse,
   KEEPALIVE_RECONNECT_GRACE_MS,
   KEEPALIVE_TIMEOUT_MS,
   shouldReconnectAfterKeepaliveFailure
@@ -158,6 +159,16 @@ const useBackendReadyInternal = (): BackendReadyState => {
         setBackendReady(false);
         setDbBusy(data?.status === "degraded");
         setNotReadyState(nextPhase, nextMessage);
+        scheduleNext(data?.retryAfterMs);
+        return;
+      }
+
+      if (isTransientDbBusyHealthResponse(data)) {
+        failureRef.current = 0;
+        setBackendAlive(true);
+        setBackendReady(false);
+        setDbBusy(true);
+        setNotReadyState("db_busy", nextMessage);
         scheduleNext(data?.retryAfterMs);
         return;
       }

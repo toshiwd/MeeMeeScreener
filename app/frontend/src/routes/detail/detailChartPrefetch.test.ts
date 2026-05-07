@@ -141,6 +141,22 @@ describe("detailChartPrefetch", () => {
         },
         meta: {
           data_version: "v2",
+          data_freshness_contract: {
+            contract_version: "meemee_data_freshness_v1",
+            detail: {
+              source: "batch_bars_v3",
+              classification: "mixed",
+              status: "ready",
+            },
+            charts: {
+              daily: {
+                classification: "mixed",
+                freshness_state: "stale",
+                status: "ready",
+                right_edge_date: "2026-04-16",
+              },
+            },
+          },
         },
       },
     });
@@ -178,6 +194,75 @@ describe("detailChartPrefetch", () => {
     expect(result.daily?.rows).toEqual([[1, 1, 1, 1, 10]]);
     expect(result.monthly?.rows).toEqual([[3, 3, 3, 3, 30]]);
     expect(result.weekly).toBeNull();
+    expect(result.dataFreshnessContract?.detail.classification).toBe("mixed");
+    expect(result.dataFreshnessContract?.charts.daily.freshness_state).toBe("stale");
+  });
+
+  it("keeps data freshness contract metadata with cached detail frames", async () => {
+    postDetailBatchBarsRequest.mockResolvedValue({
+      data: {
+        items: {
+          "8053": {
+            daily: { bars: [[1, 1, 1, 1, 10]] },
+            weekly: { bars: [[2, 2, 2, 2, 20]] },
+            monthly: { bars: [[3, 3, 3, 3, 30]], boxes: [] },
+          },
+        },
+        meta: {
+          data_version: "v3",
+          data_freshness_contract: {
+            contract_version: "meemee_data_freshness_v1",
+            detail: {
+              source: "batch_bars_v3",
+              classification: "confirmed",
+              status: "ready",
+            },
+            charts: {
+              daily: {
+                classification: "confirmed",
+                freshness_state: "fresh",
+                status: "ready",
+                right_edge_date: "2026-05-01",
+              },
+              weekly: {
+                classification: "confirmed",
+                freshness_state: "fresh",
+                status: "ready",
+                right_edge_date: "2026-04-27",
+              },
+              monthly: {
+                classification: "confirmed",
+                freshness_state: "fresh",
+                status: "ready",
+                right_edge_date: "2026-05-01",
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const mod = await import("./detailChartPrefetch");
+    const request = {
+      code: "8053",
+      dailyLimit: 2000,
+      weeklyLimit: 520,
+      monthlyLimit: 240,
+      asof: null,
+    };
+
+    await mod.prefetchDetailChartFrames(request, { forceNetwork: true });
+    const cached = mod.readDetailChartPrefetchSync(request);
+
+    expect(postDetailBatchBarsRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ codes: ["8053"], forceRefresh: true }),
+      undefined
+    );
+    expect(cached.daily?.rows).toEqual([[1, 1, 1, 1, 10]]);
+    expect(cached.weekly?.rows).toEqual([[2, 2, 2, 2, 20]]);
+    expect(cached.monthly?.rows).toEqual([[3, 3, 3, 3, 30]]);
+    expect(cached.dataFreshnessContract?.charts.weekly.right_edge_date).toBe("2026-04-27");
+    expect(cached.dataFreshnessContract?.charts.weekly.classification).toBe("confirmed");
   });
 
   it("passes forceRefresh for forced network prefetch", async () => {

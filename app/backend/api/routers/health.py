@@ -112,7 +112,7 @@ def health():
         and bool(errors)
         and bool(readiness_state.get("boot_ready") or readiness_state.get("db_ready"))
     )
-    ready = (not missing_tables and not errors) or transient_db_busy
+    ready = not missing_tables and not errors
 
     detail_errors = list(errors)
     if missing_tables:
@@ -120,10 +120,10 @@ def health():
 
     payload = _health_payload(
         ok=ready,
-        status="ok" if ready else "starting",
+        status="ok" if ready else "db_busy" if transient_db_busy else "starting",
         ready=ready,
-        phase="ready" if ready else "starting",
-        message="ready" if ready else "backend is starting",
+        phase="ready" if ready else "db_busy" if transient_db_busy else "starting",
+        message="ready" if ready else "database is temporarily busy" if transient_db_busy else "backend is starting",
         errors=detail_errors if not ready else [],
         retry_after_ms=None if ready else 1000,
         extra={

@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Query
 
 from app.backend.services import rankings_cache
+from app.backend.services.meemee_data_freshness_contract import build_ranking_data_freshness_contract
 
 router = APIRouter(prefix="/api", tags=["rankings"])
 
@@ -29,7 +30,21 @@ def get_rankings(
         raise HTTPException(status_code=400, detail="mode must be rule/ml/hybrid/turn/trade")
     if risk_mode not in ("defensive", "balanced", "aggressive"):
         raise HTTPException(status_code=400, detail="risk_mode must be defensive/balanced/aggressive")
-    return rankings_cache.get_rankings(tf, which, dir, limit, mode=mode, risk_mode=risk_mode)
+    payload = rankings_cache.get_rankings(tf, which, dir, limit, mode=mode, risk_mode=risk_mode)
+    payload = dict(payload) if isinstance(payload, dict) else {"items": []}
+    contract_payload = {
+        **payload,
+        "tf": tf,
+        "which": which,
+        "dir": dir,
+        "mode": mode,
+        "risk_mode": risk_mode,
+    }
+    payload["data_freshness_contract"] = build_ranking_data_freshness_contract(
+        contract_payload,
+        source="rankings_cache.get_rankings",
+    )
+    return payload
 
 
 @router.get("/rankings/multi")
@@ -95,7 +110,7 @@ def get_rankings_multi(
     overall_freshness_state = freshness_state or ("stale" if errors else None)
     current_candidate_available = overall_freshness_state == "fresh"
 
-    return {
+    response = {
         "which": which,
         "dir": dir,
         "mode": mode,
@@ -110,6 +125,11 @@ def get_rankings_multi(
         "current_candidate_available": current_candidate_available,
         "stale": overall_freshness_state != "fresh",
     }
+    response["data_freshness_contract"] = build_ranking_data_freshness_contract(
+        {**response, "tf": "multi"},
+        source="rankings_cache.get_rankings_multi",
+    )
+    return response
 
 
 @router.get("/rankings/trace/last-qualified")
@@ -197,7 +217,21 @@ def get_rankings_session(
         raise HTTPException(status_code=400, detail="mode must be rule/ml/hybrid/turn/trade")
     if risk_mode not in ("defensive", "balanced", "aggressive"):
         raise HTTPException(status_code=400, detail="risk_mode must be defensive/balanced/aggressive")
-    return rankings_cache.get_rankings_session_bundle(tf, which, dir, limit, mode=mode, risk_mode=risk_mode)
+    payload = rankings_cache.get_rankings_session_bundle(tf, which, dir, limit, mode=mode, risk_mode=risk_mode)
+    payload = dict(payload) if isinstance(payload, dict) else {"items": []}
+    contract_payload = {
+        **payload,
+        "tf": tf,
+        "which": which,
+        "dir": dir,
+        "mode": mode,
+        "risk_mode": risk_mode,
+    }
+    payload["data_freshness_contract"] = build_ranking_data_freshness_contract(
+        contract_payload,
+        source="rankings_cache.get_rankings_session_bundle",
+    )
+    return payload
 
 
 @router.get("/rankings/trace/code-qualified")

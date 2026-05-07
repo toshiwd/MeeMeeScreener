@@ -106,6 +106,28 @@ def _ymd_to_iso(value: int | None) -> str | None:
         return None
 
 
+def _coerce_db_date_to_ymd(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        raw = int(value)
+    except Exception:
+        return None
+    if 19_000_101 <= raw <= 20_991_231:
+        return raw
+    if raw >= 1_000_000_000_000:
+        try:
+            return int(datetime.fromtimestamp(raw / 1000, tz=timezone.utc).strftime("%Y%m%d"))
+        except Exception:
+            return None
+    if raw >= 1_000_000_000:
+        try:
+            return int(datetime.fromtimestamp(raw, tz=timezone.utc).strftime("%Y%m%d"))
+        except Exception:
+            return None
+    return None
+
+
 @lru_cache(maxsize=1)
 def get_stock_repo() -> StockRepository:
     return StockRepository(str(app_config.DB_PATH))
@@ -133,10 +155,12 @@ def _runtime_stock_db_freshness_state(latest_global_date: int | None) -> dict[st
     }
 
 
-def _inspect_latest_table_dates(db_path: Path) -> dict[str, int | None]:
+def _inspect_latest_table_dates(db_path: Path) -> dict[str, Any]:
     if not db_path.exists():
         return {
             "daily_bars": None,
+            "daily_bars_confirmed": None,
+            "daily_bars_by_source": {},
             "feature_snapshot_daily": None,
             "ml_pred_20d": None,
         }
@@ -155,37 +179,80 @@ def _inspect_latest_table_dates(db_path: Path) -> dict[str, int | None]:
             ).fetchall()
             return {str(row[0]).strip().lower() for row in rows if str(row[0]).strip()}
 
-        def _latest_ymd_from_table(table_name: str) -> int | None:
+        def _date_expr(column_name: str) -> str:
+            return f"""
+                CASE
+                    WHEN "{column_name}" BETWEEN 19000101 AND 20991231 THEN CAST("{column_name}" AS INTEGER)
+                    WHEN "{column_name}" >= 1000000000000 THEN CAST(strftime(to_timestamp("{column_name}" / 1000), '%Y%m%d') AS INTEGER)
+                    WHEN "{column_name}" >= 1000000000 THEN CAST(strftime(to_timestamp("{column_name}"), '%Y%m%d') AS INTEGER)
+                    ELSE NULL
+                END
+            """
+
+        def _date_column_for_table(table_name: str) -> str | None:
             columns = _table_columns(table_name)
             if not columns:
                 return None
             for candidate in ("date", "dt", "as_of", "asof", "snapshot_date", "trade_date", "ymd"):
-                if candidate not in columns:
-                    continue
-                row = conn.execute(
-                    f"""
-                    SELECT "{candidate}"
-                    FROM "{table_name}"
-                    WHERE "{candidate}" IS NOT NULL
-                    ORDER BY "{candidate}" DESC
-                    LIMIT 1
-                    """
-                ).fetchone()
-                if not row:
-                    continue
-                value = row[0]
-                if value is None:
-                    continue
-                try:
-                    raw = int(value)
-                except Exception:
-                    continue
-                if 19_000_101 <= raw <= 20_991_231:
-                    return raw
+                if candidate in columns:
+                    return candidate
             return None
+
+        def _latest_ymd_from_table(table_name: str) -> int | None:
+            date_column = _date_column_for_table(table_name)
+            if not date_column:
+                return None
+            row = conn.execute(
+                f"""
+                SELECT MAX({_date_expr(date_column)})
+                FROM "{table_name}"
+                """
+            ).fetchone()
+            if not row:
+                return None
+            return _coerce_db_date_to_ymd(row[0])
+
+        def _daily_bars_by_source() -> dict[str, Any]:
+            columns = _table_columns("daily_bars")
+            if not columns or "date" not in columns:
+                return {}
+            source_expr = "COALESCE(source, 'unknown')" if "source" in columns else "'unknown'"
+            rows = conn.execute(
+                f"""
+                SELECT
+                    {source_expr} AS source_name,
+                    MAX({_date_expr("date")}) AS latest_date,
+                    COUNT(*) AS row_count,
+                    COUNT(DISTINCT code) AS symbol_count
+                FROM daily_bars
+                GROUP BY 1
+                ORDER BY latest_date DESC
+                """
+            ).fetchall()
+            out: dict[str, Any] = {}
+            for row in rows:
+                source_name = str(row[0] or "unknown")
+                latest_ymd = _coerce_db_date_to_ymd(row[1])
+                out[source_name] = {
+                    "latest_date": latest_ymd,
+                    "latest_date_iso": _ymd_to_iso(latest_ymd),
+                    "row_count": int(row[2] or 0),
+                    "symbol_count": int(row[3] or 0),
+                }
+            return out
+
+        daily_by_source = _daily_bars_by_source()
+        confirmed_sources = [
+            payload.get("latest_date")
+            for source_name, payload in daily_by_source.items()
+            if source_name.lower() != "yahoo" and isinstance(payload, dict)
+        ]
+        latest_confirmed_daily = max([int(value) for value in confirmed_sources if value is not None], default=None)
 
         return {
             "daily_bars": _latest_ymd_from_table("daily_bars"),
+            "daily_bars_confirmed": latest_confirmed_daily,
+            "daily_bars_by_source": daily_by_source,
             "feature_snapshot_daily": _latest_ymd_from_table("feature_snapshot_daily"),
             "ml_pred_20d": _latest_ymd_from_table("ml_pred_20d"),
         }
@@ -215,6 +282,9 @@ def get_runtime_stock_db_status() -> dict[str, Any]:
         "latest_available_global_date_iso": inspection.get("latest_available_global_date_iso"),
         "latest_daily_bars_date": table_dates["daily_bars"],
         "latest_daily_bars_date_iso": _ymd_to_iso(table_dates["daily_bars"]),
+        "latest_confirmed_daily_bars_date": table_dates["daily_bars_confirmed"],
+        "latest_confirmed_daily_bars_date_iso": _ymd_to_iso(table_dates["daily_bars_confirmed"]),
+        "daily_bars_by_source": table_dates["daily_bars_by_source"],
         "latest_feature_snapshot_daily_date": table_dates["feature_snapshot_daily"],
         "latest_feature_snapshot_daily_date_iso": _ymd_to_iso(table_dates["feature_snapshot_daily"]),
         "latest_ml_pred_20d_date": table_dates["ml_pred_20d"],
@@ -268,7 +338,15 @@ def get_rankings_freshness(
     if runtime_db.get("stale"):
         note = "runtime DB freshness is stale; rankings reflect stale local data"
     elif payload.get("stale"):
-        note = "rankings cache is stale even though runtime DB is fresh"
+        confirmed_iso = runtime_db.get("latest_confirmed_daily_bars_date_iso")
+        latest_iso = runtime_db.get("latest_available_global_date_iso")
+        if confirmed_iso and latest_iso and confirmed_iso != latest_iso:
+            note = (
+                "confirmed rankings are stale because confirmed non-Yahoo daily bars lag latest runtime availability "
+                f"({confirmed_iso} vs {latest_iso})"
+            )
+        else:
+            note = "rankings cache is stale even though runtime DB is fresh"
     return {
         "confirmed": True,
         "ranking_endpoint_source_path": "app/backend/api/routers/rankings.py",
@@ -288,6 +366,9 @@ def get_rankings_freshness(
         "runtime_db_path": runtime_db.get("selected_runtime_db_path"),
         "runtime_db_freshness_state": runtime_db.get("freshness_state"),
         "runtime_db_freshness_days": runtime_db.get("freshness_days"),
+        "runtime_latest_available_global_date": runtime_db.get("latest_available_global_date_iso"),
+        "runtime_latest_confirmed_daily_bars_date": runtime_db.get("latest_confirmed_daily_bars_date_iso"),
+        "runtime_daily_bars_by_source": runtime_db.get("daily_bars_by_source"),
         "note": note,
     }
 

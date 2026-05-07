@@ -29,6 +29,8 @@ import DetailModeTabs from "../components/DetailModeTabs";
 import DetailTimeframeSwitcher from "../components/DetailTimeframeSwitcher";
 import DetailDrawToolbar from "../components/DetailDrawToolbar";
 import TradexShadowReadout from "../components/TradexShadowReadout";
+import DataFreshnessBadges from "../components/DataFreshnessBadges";
+import ProductStateNotice, { type ProductStateNoticeKind } from "../components/ProductStateNotice";
 import ScreenPanel from "../components/ScreenPanel";
 import {
   buildAiExplainBarsPayload,
@@ -48,6 +50,7 @@ import { shouldShowOperatorConsole } from "../utils/operatorConsole";
 import { useExactDecisionRange, type ExactDecisionTone } from "./detail/hooks/useExactDecisionRange";
 import { useAsOfItemFetch } from "./detail/hooks/useAsOfItemFetch";
 import { useDetailReplayRun } from "./detail/useDetailReplayRun";
+import type { MeeMeeDataFreshnessContract } from "../dataFreshnessContract";
 import {
   hasCompleteDetailChartPrefetch,
   loadDetailChartPrefetch,
@@ -56,14 +59,27 @@ import {
   type ChartPrefetchEntry,
   type ChartPrefetchFrames,
 } from "./detail/detailChartPrefetch";
+import {
+  buildDetailChartLifecycle,
+} from "./detail/detailChartLifecycle";
 import { openDetailWithPrefetch } from "./detail/openDetailWithPrefetch";
+import {
+  readDetailListBackPath,
+  readDetailListCodes,
+} from "./detail/detailNavigationContext";
+import {
+  buildDetailChartPanelInput,
+  buildDetailMaLines,
+  buildDetailParsedFrame as buildCandlesWithStats,
+  buildDetailVolume as buildVolume,
+  toDetailChartMaLines,
+} from "./detail/detailChartFrameAdapter";
 import DetailDebugBanner from "./detail/components/DetailDebugBanner";
 import DetailReplayPanel from "./detail/DetailReplayPanel";
 import DetailPositionLedgerSheet from "./detail/components/DetailPositionLedgerSheet";
 import { useDetailDrawings } from "./detail/hooks/useDetailDrawings";
 
 const loadSimilarSearchPanel = () => import("../components/SimilarSearchPanel");
-const loadAiExplainDock = () => import("../features/aiExplain/AiExplainDock");
 const loadDetailJudgementPanel = () =>
   import("./detail/DetailJudgementPanel").then((mod) => ({ default: mod.DetailJudgementPanel }));
 const loadDetailFinancialPanel = () =>
@@ -147,9 +163,6 @@ import {
   normalizeBuyStagePrecision,
   formatLedgerDate,
   normalizeTime,
-  computeMA,
-  buildCandlesWithStats,
-  buildVolume,
   clamp,
   incrementBarLimit,
   computeEnvironmentTone,
@@ -180,7 +193,6 @@ import { formatDateTimeLabel } from "../utils/dateLabels";
 
 const DETAIL_DAILY_ROW_RATIO = 0.72;
 const DETAIL_DEFAULT_WEEKLY_RATIO = 0.64;
-const DETAIL_TAB_CHUNK_PRELOAD_TIMEOUT_MS = 4000;
 const COMPARE_DETAIL_PREFETCH_TIMEFRAMES: Timeframe[] = ["daily", "monthly"];
 const DETAIL_CHROME_DAILY = { timeframe: "daily" as const };
 const DETAIL_CHROME_WEEKLY = { timeframe: "weekly" as const };
@@ -248,43 +260,6 @@ const summarizeDetailOverwriteObservability = (
     monthly: summarizeDetailFrameOverwriteObservability(frames.monthly),
   };
 };
-
-let detailTabChunksPreloadPromise: Promise<unknown> | null = null;
-
-const preloadDetailTabChunks = () => {
-  if (!detailTabChunksPreloadPromise) {
-    detailTabChunksPreloadPromise = Promise.allSettled([
-      loadDetailJudgementPanel(),
-      loadDetailFinancialPanel(),
-      loadTradexAnalysisMount(),
-      loadDetailTdnetCard(),
-      loadAiExplainDock(),
-      loadDetailIndicatorOverlay(),
-    ]);
-  }
-  return detailTabChunksPreloadPromise;
-};
-
-const buildDetailMaLines = (candles: Candle[], settings: MaSetting[]) =>
-  settings.map((setting) => {
-    const data = computeMA(candles, setting.period);
-    return {
-      key: setting.key,
-      label: setting.label,
-      period: setting.period,
-      color: setting.color,
-      visible: setting.visible,
-      lineWidth: setting.lineWidth,
-      data,
-      chartData: setting.visible ? data : []
-    };
-  });
-
-const toDetailChartMaLines = (lines: ReturnType<typeof buildDetailMaLines>) =>
-  lines.map(({ chartData, data, ...line }) => ({
-    ...line,
-    data: chartData ?? data
-  }));
 
 const summarizeDetailTickerForAiExplain = (
   ticker: Record<string, unknown> | null | undefined,
@@ -470,6 +445,8 @@ export default function DetailView() {
   const [monthlyBarsMeta, setMonthlyBarsMeta] = useState<BarsMeta | null>(null);
   const [mainChartOverwriteObservability, setMainChartOverwriteObservability] =
     useState<DetailOverwriteObservability | null>(null);
+  const [detailDataFreshnessContract, setDetailDataFreshnessContract] =
+    useState<MeeMeeDataFreshnessContract | null>(null);
   const [dailyFetch, setDailyFetch] = useState<FetchState>({
     status: "idle",
     responseCount: 0,
@@ -778,6 +755,7 @@ export default function DetailView() {
     setSecondaryFetchReady(false);
     setSecondaryFetchStableReady(false);
     setSecondaryJobReady(false);
+    setDetailDataFreshnessContract(null);
     const seed =
       code == null
         ? undefined
@@ -2263,6 +2241,7 @@ export default function DetailView() {
       setMonthlyErrors([]);
       setDailyBarsMeta(null);
       setMonthlyBarsMeta(null);
+      setDetailDataFreshnessContract(null);
       setDailyData(dailyRows);
       setWeeklyData(weeklyRows);
       setMonthlyData(monthlyRows);
@@ -2287,6 +2266,7 @@ export default function DetailView() {
       setMainChartOverwriteObservability(
         summarizeDetailOverwriteObservability(frames, "daily", null)
       );
+      setDetailDataFreshnessContract(frames.dataFreshnessContract ?? null);
       rangeSettleRef.current = Date.now() + RANGE_SETTLE_MS;
       return true;
     };
@@ -2309,13 +2289,45 @@ export default function DetailView() {
     }
     const runNetworkRefresh = async () => {
       try {
-        const frames = await prefetchDetailChartFrames(requestParams, { signal: controller.signal });
+        const frames = await prefetchDetailChartFrames(requestParams, {
+          signal: controller.signal,
+          forceNetwork: true,
+        });
         if (!active) return;
         const applied = applyFrames(frames);
         if (!applied) {
-          setDailyErrors(frames.daily ? [] : ["daily_response_invalid"]);
-          setWeeklyErrors(frames.weekly ? [] : ["weekly_response_invalid"]);
-          setMonthlyErrors(frames.monthly ? [] : ["monthly_response_invalid"]);
+          const dailyRows = Array.isArray(frames.daily?.rows) ? frames.daily.rows : [];
+          const weeklyRows = Array.isArray(frames.weekly?.rows) ? frames.weekly.rows : [];
+          const monthlyRows = Array.isArray(frames.monthly?.rows) ? frames.monthly.rows : [];
+          const dailyMessage = frames.daily ? null : "daily_response_invalid";
+          const weeklyMessage = frames.weekly ? null : "weekly_response_invalid";
+          const monthlyMessage = frames.monthly ? null : "monthly_response_invalid";
+          setMainChartPendingSwap(false);
+          setDailyData(dailyRows);
+          setWeeklyData(weeklyRows);
+          setMonthlyData(monthlyRows);
+          setBoxes(Array.isArray(frames.monthly?.boxes) ? frames.monthly.boxes : []);
+          setHasMoreDaily(dailyRows.length >= dailyLimit);
+          setHasMoreMonthly(monthlyRows.length >= monthlyLimit);
+          setDailyErrors(dailyMessage ? [dailyMessage] : []);
+          setWeeklyErrors(weeklyMessage ? [weeklyMessage] : []);
+          setMonthlyErrors(monthlyMessage ? [monthlyMessage] : []);
+          setDailyFetch({
+            status: dailyMessage ? "error" : "success",
+            responseCount: dailyRows.length,
+            errorMessage: dailyMessage,
+          });
+          setWeeklyFetch({
+            status: weeklyMessage ? "error" : "success",
+            responseCount: weeklyRows.length,
+            errorMessage: weeklyMessage,
+          });
+          setMonthlyFetch({
+            status: monthlyMessage ? "error" : "success",
+            responseCount: monthlyRows.length,
+            errorMessage: monthlyMessage,
+          });
+          setDetailDataFreshnessContract(frames.dataFreshnessContract ?? null);
         }
       } catch (error) {
         if (!active || isCanceledRequestError(error)) return;
@@ -2386,39 +2398,6 @@ export default function DetailView() {
       setRouteReadyPhase("analysis");
     });
   }, [analysisFetchEnabled, dailyFetch.status, routeReadyPhase]);
-
-  useEffect(() => {
-    if (!backendReady || dailyFetch.status !== "success" || mainChartPendingSwap) return;
-    let cancelled = false;
-    const runPreload = () => {
-      if (cancelled) return;
-      void preloadDetailTabChunks();
-    };
-    const idleWindow = window as typeof window & {
-      requestIdleCallback?: (
-        callback: (deadline: { didTimeout: boolean; timeRemaining: () => number }) => void,
-        options?: { timeout: number }
-      ) => number;
-      cancelIdleCallback?: (handle: number) => void;
-    };
-    if (typeof idleWindow.requestIdleCallback === "function") {
-      const idleId = idleWindow.requestIdleCallback(
-        () => {
-          runPreload();
-        },
-        { timeout: DETAIL_TAB_CHUNK_PRELOAD_TIMEOUT_MS }
-      );
-      return () => {
-        cancelled = true;
-        idleWindow.cancelIdleCallback?.(idleId);
-      };
-    }
-    const timerId = window.setTimeout(runPreload, DETAIL_TAB_CHUNK_PRELOAD_TIMEOUT_MS);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timerId);
-    };
-  }, [backendReady, dailyFetch.status, mainChartPendingSwap]);
 
   useEffect(() => {
     if (!backendReady) return;
@@ -3149,33 +3128,76 @@ export default function DetailView() {
   const weeklyHasParsedZero = weeklyParse.stats.parsed === 0 && weeklyParse.stats.total > 0;
   const monthlyHasParsedZero = monthlyParse.stats.parsed === 0 && monthlyParse.stats.total > 0;
 
+  const chartLifecycle = useMemo(
+    () =>
+      buildDetailChartLifecycle({
+        daily: buildDetailChartPanelInput({
+          fetch: dailyFetch,
+          errors: dailyErrors,
+          candleCount: dailyCandles.length,
+          parseStats: dailyParse.stats,
+          loading: loadingDaily,
+          pendingSwap: mainChartPendingSwap,
+        }),
+        weekly: buildDetailChartPanelInput({
+          fetch: weeklyFetch,
+          errors: weeklyErrors,
+          candleCount: weeklyCandles.length,
+          parseStats: weeklyParse.stats,
+          loading: loadingDaily,
+          pendingSwap: mainChartPendingSwap,
+        }),
+        monthly: buildDetailChartPanelInput({
+          fetch: monthlyFetch,
+          errors: monthlyErrors,
+          candleCount: monthlyCandles.length,
+          parseStats: monthlyParse.stats,
+          loading: loadingMonthly,
+          pendingSwap: mainChartPendingSwap,
+        }),
+        contract: detailDataFreshnessContract,
+      }),
+    [
+      dailyFetch,
+      dailyErrors,
+      dailyCandles.length,
+      dailyParse.stats,
+      loadingDaily,
+      mainChartPendingSwap,
+      weeklyFetch,
+      weeklyErrors,
+      weeklyCandles.length,
+      weeklyParse.stats,
+      monthlyFetch,
+      monthlyErrors,
+      monthlyCandles.length,
+      monthlyParse.stats,
+      loadingMonthly,
+      detailDataFreshnessContract,
+    ]
+  );
+
   const dailyError =
-    dailyErrors.length > 0
-      ? dailyErrors[0]
-      : dailyHasEmpty
-        ? "No data"
-        : dailyHasParsedZero
-          ? `Date parse failed ${dailyParse.stats.invalidTime}`
-          : null;
+    chartLifecycle.daily.status === "error" ||
+    chartLifecycle.daily.status === "empty" ||
+    chartLifecycle.daily.status === "missing"
+      ? chartLifecycle.daily.message
+      : null;
 
   const monthlyError =
-    monthlyErrors.length > 0
-      ? monthlyErrors[0]
-      : monthlyHasEmpty
-        ? "No data"
-        : monthlyHasParsedZero
-          ? `Date parse failed ${monthlyParse.stats.invalidTime}`
-          : null;
+    chartLifecycle.monthly.status === "error" ||
+    chartLifecycle.monthly.status === "empty" ||
+    chartLifecycle.monthly.status === "missing"
+      ? chartLifecycle.monthly.message
+      : null;
 
   const weeklyError =
-    weeklyErrors.length > 0
-      ? weeklyErrors[0]
-      : weeklyHasEmpty
-        ? "No data"
-        : weeklyHasParsedZero
-          ? `Date parse failed ${weeklyParse.stats.invalidTime}`
-          : dailyCandles.length === 0
-            ? dailyError ?? "No data"
+    chartLifecycle.weekly.status === "error" ||
+    chartLifecycle.weekly.status === "empty" ||
+    chartLifecycle.weekly.status === "missing"
+      ? chartLifecycle.weekly.message
+      : dailyCandles.length === 0
+        ? dailyError ?? "No data"
         : null;
   const tradeWarningItems = useMemo(() => tradeWarnings.items ?? [], [tradeWarnings.items]);
   const marketDataStatusMeta =
@@ -5018,61 +5040,33 @@ export default function DetailView() {
 
   const dailyEmptyMessage =
     dailyCandles.length === 0
-      ? loadingDaily || mainChartPendingSwap
-        ? "Loading..."
-        : dailyError ?? "No data"
+      ? chartLifecycle.daily.message ?? (chartLifecycle.daily.status === "idle" ? "No data" : null)
       : null;
   const weeklyEmptyMessage =
     weeklyCandles.length === 0
-      ? loadingDaily || mainChartPendingSwap
-        ? "Loading..."
-        : weeklyError
+      ? chartLifecycle.weekly.message ?? (chartLifecycle.weekly.status === "idle" ? null : weeklyError)
       : null;
   const monthlyEmptyMessage =
     monthlyCandles.length === 0
-      ? loadingMonthly || mainChartPendingSwap
-        ? "Loading..."
-        : monthlyError ?? "No data"
+      ? chartLifecycle.monthly.message ?? (chartLifecycle.monthly.status === "idle" ? "No data" : null)
       : null;
+  const chartNoticeKind = (status: string): ProductStateNoticeKind => {
+    if (status === "loading") return "loading";
+    if (status === "error") return "error";
+    if (status === "missing") return "missing";
+    if (status === "empty") return "empty";
+    return "empty";
+  };
 
   const monthlyRatio = 1 - weeklyRatio;
   const focusTitle =
     focusPanel === "daily" ? "Daily (Focused)" : focusPanel === "weekly" ? "Weekly (Focused)" : "Monthly (Focused)";
   const listBackPath = useMemo(() => {
     const state = location.state as { from?: string } | null;
-    const from = state?.from;
-    let stored: string | null = null;
-    if (typeof window !== "undefined") {
-      try {
-        stored = window.sessionStorage.getItem("detailListBack");
-      } catch {
-        stored = null;
-      }
-    }
-    const candidate = from ?? stored;
-    if (
-      candidate === "/" ||
-      candidate === "/ranking" ||
-      candidate === "/favorites" ||
-      candidate === "/candidates" ||
-      candidate === "/tradex/legacy/tags" ||
-      candidate === "/tradex/verify"
-    ) {
-      return candidate;
-    }
-    return "/";
+    return readDetailListBackPath(state);
   }, [location.state]);
   const listCodes = useMemo(() => {
-    if (typeof window === "undefined") return [];
-    try {
-      const stored = window.sessionStorage.getItem("detailListCodes");
-      if (!stored) return [];
-      const parsed = JSON.parse(stored);
-      if (!Array.isArray(parsed)) return [];
-      return parsed.filter((item) => typeof item === "string");
-    } catch {
-      return [];
-    }
+    return readDetailListCodes();
   }, []);
   const compareList = useMemo(() => {
     if (typeof window === "undefined") return null;
@@ -5418,6 +5412,7 @@ export default function DetailView() {
         summaryCenter={
           <div className="detail-status-stack">
             <TradexShadowReadout variant="detail" />
+            <DataFreshnessBadges contract={detailDataFreshnessContract} scope="detail" compact />
             {headerRangeControls}
           </div>
         }
@@ -5582,7 +5577,13 @@ export default function DetailView() {
                       onVisibleRangeChange={handleMonthlyVisibleRangeChange}
                     />
                     {monthlyEmptyMessage && (
-                      <div className="detail-chart-empty">Monthly: {monthlyEmptyMessage}</div>
+                      <ProductStateNotice
+                        kind={chartNoticeKind(chartLifecycle.monthly.status)}
+                        prefix="Monthly"
+                        className="detail-chart-empty"
+                      >
+                        {monthlyEmptyMessage}
+                      </ProductStateNotice>
                     )}
                   </div>
                 </div>
@@ -5635,13 +5636,17 @@ export default function DetailView() {
                       />
                     )}
                     {(compareLoading || compareChartPendingSwap) && compareMonthlyCandles.length === 0 && (
-                      <div className="detail-chart-empty">Loading...</div>
+                      <ProductStateNotice kind="loading" className="detail-chart-empty">Loading...</ProductStateNotice>
                     )}
                     {!compareLoading && !compareChartPendingSwap && compareMonthlyErrors.length > 0 && (
-                      <div className="detail-chart-empty">Monthly: {compareMonthlyErrors[0]}</div>
+                      <ProductStateNotice kind="error" prefix="Monthly" className="detail-chart-empty">
+                        {compareMonthlyErrors[0]}
+                      </ProductStateNotice>
                     )}
                     {!compareLoading && !compareChartPendingSwap && compareMonthlyErrors.length === 0 && compareMonthlyCandles.length === 0 && (
-                      <div className="detail-chart-empty">Monthly: データがありません</div>
+                      <ProductStateNotice kind="empty" prefix="Monthly" className="detail-chart-empty">
+                        データがありません
+                      </ProductStateNotice>
                     )}
                   </div>
                 </div>
@@ -5706,10 +5711,16 @@ export default function DetailView() {
                       />
                     )}
                     {holdDailyChartUntilDecisionReady && (
-                      <div className="detail-chart-empty">判定マークを読み込み中...</div>
+                      <ProductStateNotice kind="loading" className="detail-chart-empty">判定マークを読み込み中...</ProductStateNotice>
                     )}
                     {dailyEmptyMessage && (
-                      <div className="detail-chart-empty">Daily: {dailyEmptyMessage}</div>
+                      <ProductStateNotice
+                        kind={chartNoticeKind(chartLifecycle.daily.status)}
+                        prefix="Daily"
+                        className="detail-chart-empty"
+                      >
+                        {dailyEmptyMessage}
+                      </ProductStateNotice>
                     )}
                   </div>
                 </div>
@@ -5769,13 +5780,17 @@ export default function DetailView() {
                       />
                     )}
                     {(compareDailyLoading || compareChartPendingSwap || compareDailyNeedsMore) && compareDailyCandles.length === 0 && (
-                      <div className="detail-chart-empty">一致期間のデータを読み込み中...</div>
+                      <ProductStateNotice kind="loading" className="detail-chart-empty">一致期間のデータを読み込み中...</ProductStateNotice>
                     )}
                     {!compareDailyLoading && !compareChartPendingSwap && compareDailyErrors.length > 0 && (
-                      <div className="detail-chart-empty">Daily: {compareDailyErrors[0]}</div>
+                      <ProductStateNotice kind="error" prefix="Daily" className="detail-chart-empty">
+                        {compareDailyErrors[0]}
+                      </ProductStateNotice>
                     )}
                     {!compareDailyLoading && !compareChartPendingSwap && compareDailyErrors.length === 0 && compareDailyCandles.length === 0 && (
-                      <div className="detail-chart-empty">Daily: データがありません</div>
+                      <ProductStateNotice kind="empty" prefix="Daily" className="detail-chart-empty">
+                        データがありません
+                      </ProductStateNotice>
                     )}
                   </div>
                 </div>
@@ -5784,7 +5799,17 @@ export default function DetailView() {
           )}
           {compareCode ? null : focusPanel ? (
             <div className="detail-row detail-row-focus">
-              <div className="detail-pane-header">{focusTitle}</div>
+              <div className="detail-pane-header">
+                <span>{focusTitle}</span>
+                {focusPanel && (
+                  <DataFreshnessBadges
+                    contract={detailDataFreshnessContract}
+                    scope="chart"
+                    timeframe={focusPanel}
+                    compact
+                  />
+                )}
+              </div>
               <div
                 className="detail-chart detail-chart-focused"
                 onDoubleClick={() => toggleFocus(focusPanel)}
@@ -5948,16 +5973,34 @@ export default function DetailView() {
                   />
                 )}
                 {focusPanel === "daily" && dailyEmptyMessage && (
-                  <div className="detail-chart-empty">Daily: {dailyEmptyMessage}</div>
+                  <ProductStateNotice
+                    kind={chartNoticeKind(chartLifecycle.daily.status)}
+                    prefix="Daily"
+                    className="detail-chart-empty"
+                  >
+                    {dailyEmptyMessage}
+                  </ProductStateNotice>
                 )}
                 {focusPanel === "daily" && holdDailyChartUntilDecisionReady && (
-                  <div className="detail-chart-empty">判定マークを読み込み中...</div>
+                  <ProductStateNotice kind="loading" className="detail-chart-empty">判定マークを読み込み中...</ProductStateNotice>
                 )}
                 {focusPanel === "weekly" && weeklyEmptyMessage && (
-                  <div className="detail-chart-empty">Weekly: {weeklyEmptyMessage}</div>
+                  <ProductStateNotice
+                    kind={chartNoticeKind(chartLifecycle.weekly.status)}
+                    prefix="Weekly"
+                    className="detail-chart-empty"
+                  >
+                    {weeklyEmptyMessage}
+                  </ProductStateNotice>
                 )}
                 {focusPanel === "monthly" && monthlyEmptyMessage && (
-                  <div className="detail-chart-empty">Monthly: {monthlyEmptyMessage}</div>
+                  <ProductStateNotice
+                    kind={chartNoticeKind(chartLifecycle.monthly.status)}
+                    prefix="Monthly"
+                    className="detail-chart-empty"
+                  >
+                    {monthlyEmptyMessage}
+                  </ProductStateNotice>
                 )}
                 <button
                   type="button"
@@ -5971,7 +6014,10 @@ export default function DetailView() {
           ) : (
             <>
               <div className="detail-row detail-row-top" style={{ flex: `${DETAIL_DAILY_ROW_RATIO} 1 0%` }}>
-                <div className="detail-pane-header">Daily</div>
+                <div className="detail-pane-header">
+                  <span>Daily</span>
+                  <DataFreshnessBadges contract={detailDataFreshnessContract} scope="chart" timeframe="daily" compact />
+                </div>
                 <div
                   className="detail-chart detail-chart-focusable"
                   onDoubleClick={() => toggleFocus("daily")}
@@ -6030,10 +6076,16 @@ export default function DetailView() {
                     />
                   )}
                   {holdDailyChartUntilDecisionReady && (
-                    <div className="detail-chart-empty">判定マークを読み込み中...</div>
+                    <ProductStateNotice kind="loading" className="detail-chart-empty">判定マークを読み込み中...</ProductStateNotice>
                   )}
                   {dailyEmptyMessage && (
-                    <div className="detail-chart-empty">Daily: {dailyEmptyMessage}</div>
+                    <ProductStateNotice
+                      kind={chartNoticeKind(chartLifecycle.daily.status)}
+                      prefix="Daily"
+                      className="detail-chart-empty"
+                    >
+                      {dailyEmptyMessage}
+                    </ProductStateNotice>
                   )}
                 </div>
               </div>
@@ -6043,7 +6095,10 @@ export default function DetailView() {
                 ref={bottomRowRef}
               >
                 <div className="detail-pane" style={{ flex: `${weeklyRatio} 1 0%` }}>
-                  <div className="detail-pane-header">Weekly</div>
+                  <div className="detail-pane-header">
+                    <span>Weekly</span>
+                    <DataFreshnessBadges contract={detailDataFreshnessContract} scope="chart" timeframe="weekly" compact />
+                  </div>
                   <div
                     className="detail-chart detail-chart-focusable"
                     onDoubleClick={() => toggleFocus("weekly")}
@@ -6090,10 +6145,18 @@ export default function DetailView() {
                         onVisibleRangeChange={handleWeeklyVisibleRangeChange}
                       />
                     ) : (
-                      <div className="detail-chart-empty">Weekly: 準備中...</div>
+                      <ProductStateNotice kind="loading" prefix="Weekly" className="detail-chart-empty">
+                        準備中...
+                      </ProductStateNotice>
                     )}
                     {weeklyEmptyMessage && (
-                      <div className="detail-chart-empty">Weekly: {weeklyEmptyMessage}</div>
+                      <ProductStateNotice
+                        kind={chartNoticeKind(chartLifecycle.weekly.status)}
+                        prefix="Weekly"
+                        className="detail-chart-empty"
+                      >
+                        {weeklyEmptyMessage}
+                      </ProductStateNotice>
                     )}
                   </div>
                 </div>
@@ -6103,7 +6166,10 @@ export default function DetailView() {
                   onTouchStart={startDrag()}
                 />
                 <div className="detail-pane" style={{ flex: `${monthlyRatio} 1 0%` }}>
-                  <div className="detail-pane-header">Monthly</div>
+                  <div className="detail-pane-header">
+                    <span>Monthly</span>
+                    <DataFreshnessBadges contract={detailDataFreshnessContract} scope="chart" timeframe="monthly" compact />
+                  </div>
                   <div
                     className="detail-chart detail-chart-focusable"
                     onDoubleClick={() => toggleFocus("monthly")}
@@ -6150,10 +6216,18 @@ export default function DetailView() {
                         onVisibleRangeChange={handleMonthlyVisibleRangeChange}
                       />
                     ) : (
-                      <div className="detail-chart-empty">Monthly: 準備中...</div>
+                      <ProductStateNotice kind="loading" prefix="Monthly" className="detail-chart-empty">
+                        準備中...
+                      </ProductStateNotice>
                     )}
                     {monthlyEmptyMessage && (
-                      <div className="detail-chart-empty">Monthly: {monthlyEmptyMessage}</div>
+                      <ProductStateNotice
+                        kind={chartNoticeKind(chartLifecycle.monthly.status)}
+                        prefix="Monthly"
+                        className="detail-chart-empty"
+                      >
+                        {monthlyEmptyMessage}
+                      </ProductStateNotice>
                     )}
                   </div>
                 </div>

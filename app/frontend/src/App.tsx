@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useLayoutEffect } from "react";
+import { Suspense, useEffect, useLayoutEffect, type ReactNode } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { BackendReadyProvider } from "./backendReady";
 import { AiExplainProvider } from "./features/aiExplain/AiExplainProvider";
@@ -12,6 +12,7 @@ import {
 import {
   CandidatesRoute,
   DetailRoute,
+  DetailV2Route,
   FavoritesRoute,
   GridRoute,
   MarketRoute,
@@ -113,10 +114,26 @@ function AppRoutes() {
         <Route path="/ranking/tracking" element={<TrackingRoute />} />
         <Route path="/tracking" element={<Navigate to="/ranking/tracking" replace />} />
         <Route path="/detail/:code" element={<DetailRoute />} />
+        <Route path="/detail-v2/:code" element={<DetailV2Route />} />
         <Route path="/practice/:code" element={<PracticeRoute />} />
       </Routes>
     </Suspense>
   );
+}
+
+export const shouldEnableAiExplainProvider = (pathname: string) => {
+  if (pathname === "/") return true;
+  if (pathname === "/ranking") return true;
+  if (pathname.startsWith("/detail/")) return true;
+  return false;
+};
+
+function AiExplainRouteBoundary({ children }: { children: ReactNode }) {
+  const location = useLocation();
+  if (!shouldEnableAiExplainProvider(location.pathname)) {
+    return <>{children}</>;
+  }
+  return <AiExplainProvider>{children}</AiExplainProvider>;
 }
 
 export default function App() {
@@ -146,10 +163,10 @@ export default function App() {
 
   return (
     <BackendReadyProvider>
-      <AiExplainProvider>
+      <AiExplainRouteBoundary>
         <GlobalTxtUpdateStatus />
         <AppRoutes />
-      </AiExplainProvider>
+      </AiExplainRouteBoundary>
     </BackendReadyProvider>
   );
 }

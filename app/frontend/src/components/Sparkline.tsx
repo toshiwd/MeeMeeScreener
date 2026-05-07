@@ -50,7 +50,6 @@ export default function Sparkline({ code }: { code: string }) {
 
     const init = (width: number) => {
       if (chartRef.current || width <= 0) return;
-      console.debug("[Sparkline] init", { width, height: 120 });
       const chart = createChart(element, {
         height: 120,
         width,

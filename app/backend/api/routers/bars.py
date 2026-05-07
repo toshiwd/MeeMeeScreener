@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from app.backend.api.dependencies import get_stock_repo
 from app.core.config import config
 from app.backend.infra.duckdb.stock_repo import StockRepository
+from app.backend.services.meemee_data_freshness_contract import build_chart_data_freshness_contract
 from app.backend.services.data.bar_aggregation import merge_weekly_rows_with_daily
 from app.backend.services.data.yahoo_provisional import (
     apply_split_gap_adjustment,
@@ -668,6 +669,11 @@ def batch_bars_v3(
     )
     meta["force_refresh"] = "true" if force_refresh else "false"
     if not valid_codes:
+        meta["data_freshness_contract"] = build_chart_data_freshness_contract(
+            items={},
+            requested_timeframes=requested_frames,
+            generated_at=meta.get("fetched_at"),
+        )
         return {"items": {}, "meta": meta}
     timeframe_limits = _normalize_timeframe_limits(payload.timeframeLimits)
     cache_key = _make_batch_v3_cache_key(
@@ -683,6 +689,11 @@ def batch_bars_v3(
     )
     cached_items = None if force_refresh else _get_cached_batch_v3_items(cache_key)
     if cached_items is not None:
+        meta["data_freshness_contract"] = build_chart_data_freshness_contract(
+            items=cached_items,
+            requested_timeframes=requested_frames,
+            generated_at=meta.get("fetched_at"),
+        )
         return {"items": cached_items, "meta": meta}
 
     inflight_event: Event | None = None
@@ -693,6 +704,11 @@ def batch_bars_v3(
             inflight_event.wait(timeout=15.0)
             cached_items = _get_cached_batch_v3_items(cache_key)
             if cached_items is not None:
+                meta["data_freshness_contract"] = build_chart_data_freshness_contract(
+                    items=cached_items,
+                    requested_timeframes=requested_frames,
+                    generated_at=meta.get("fetched_at"),
+                )
                 return {"items": cached_items, "meta": meta}
 
     try:
@@ -712,4 +728,9 @@ def batch_bars_v3(
     finally:
         if not force_refresh and is_owner:
             _finish_batch_v3_inflight(cache_key)
+    meta["data_freshness_contract"] = build_chart_data_freshness_contract(
+        items=items,
+        requested_timeframes=requested_frames,
+        generated_at=meta.get("fetched_at"),
+    )
     return {"items": items, "meta": meta}

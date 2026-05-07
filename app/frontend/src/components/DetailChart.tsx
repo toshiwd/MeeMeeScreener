@@ -2232,7 +2232,6 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
 
     const init = (width: number, height: number) => {
       if (chartRef.current) return;
-      console.debug("[DetailChart] init", { width, height });
 
       const chart = createChart(element, {
         height,
