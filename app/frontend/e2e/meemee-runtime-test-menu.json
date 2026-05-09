@@ -1,0 +1,95 @@
+{
+  "schemaVersion": 1,
+  "name": "MeeMee runtime UI regression menu",
+  "description": "Layered browser smoke checks for normal MeeMee runtime routes and visible fallback leakage.",
+  "defaultStartRoute": "/ranking",
+  "artifactsDir": "artifacts/runtime-ui",
+  "baselineFile": "artifacts/runtime-ui/meemee-runtime-baseline.latest.json",
+  "warningPolicy": {
+    "baselineRegressionRatio": 1.5,
+    "absoluteTimingWarnMs": 5000,
+    "functionalTimeoutMs": 60000,
+    "settledStateTimeoutMs": 30000
+  },
+  "abnormalTextGuard": {
+    "settledForbiddenText": [
+      "Detail v2 shell",
+      "detail missing",
+      "status missing",
+      "freshness missing",
+      "shadow unavailable"
+    ]
+  },
+  "layers": [
+    {
+      "id": "fast-route-smoke",
+      "purpose": "Catch broken normal user routes quickly.",
+      "checks": [
+        "click top tab /",
+        "click top tab /ranking",
+        "click top tab /market",
+        "click top tab /positions",
+        "click top tab /favorites",
+        "click top tab /candidates",
+        "open /ranking",
+        "click first visible ranking/list card",
+        "verify /detail-v2/:code",
+        "verify Daily, Weekly, Monthly panels",
+        "verify previous and next stay on /detail-v2",
+        "verify back to /ranking",
+        "direct open /detail-v2/:code"
+      ]
+    },
+    {
+      "id": "feature-smoke",
+      "purpose": "Verify existing implemented UI surfaces still open or respond.",
+      "checks": [
+        "ranking/list cards visible",
+        "ranking controls visible when present",
+        "detail chart tab visible",
+        "detail analysis tab visible when present",
+        "detail similar tab visible when present",
+        "detail financial tab visible when present",
+        "detail positions tab visible when present",
+        "detail memo/practice tab visible when present",
+        "screenshot/copy controls visible when present",
+        "daily update/status UI visible when present"
+      ]
+    },
+    {
+      "id": "performance-baseline",
+      "purpose": "Record timings and warn on obvious regressions after a baseline exists.",
+      "metrics": [
+        "appFirstUsableRenderMs",
+        "tab_timings_ms.list_first_visible",
+        "tab_timings_ms.ranking_first_visible",
+        "tab_timings_ms.market_first_visible",
+        "tab_timings_ms.positions_first_visible",
+        "tab_timings_ms.favorites_first_visible",
+        "tab_timings_ms.candidates_first_visible",
+        "rankingFirstContentVisibleMs",
+        "rankingVisibleCardCount",
+        "rankingClickToDetailUrlMs",
+        "detail_timings_ms.url_changed",
+        "detail_timings_ms.first_useful_chart_visible",
+        "detail_timings_ms.daily_visible",
+        "detail_timings_ms.weekly_visible",
+        "detail_timings_ms.monthly_visible",
+        "detail_timings_ms.all_charts_visible",
+        "detailUrlToDailyVisibleMs",
+        "detailUrlToWeeklyVisibleMs",
+        "detailUrlToMonthlyVisibleMs",
+        "nextInteractionLatencyMs",
+        "previousInteractionLatencyMs",
+        "backToRankingLatencyMs"
+      ]
+    },
+    {
+      "id": "abnormal-text-guard",
+      "purpose": "Catch fallback/debug/missing-state leakage after the page has settled.",
+      "checks": [
+        "settled ranking/detail routes do not show forbidden text"
+      ]
+    }
+  ]
+}
