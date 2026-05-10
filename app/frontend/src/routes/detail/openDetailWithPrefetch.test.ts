@@ -18,6 +18,11 @@ vi.mock("./detailChartPrefetch", () => ({
 }));
 
 describe("openDetailWithPrefetch", () => {
+  const flushDeferredNeighborPrefetch = async () => {
+    await Promise.resolve();
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+  };
+
   beforeEach(() => {
     vi.useRealTimers();
     sessionStorage.clear();
@@ -29,10 +34,11 @@ describe("openDetailWithPrefetch", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     sessionStorage.clear();
   });
 
-  it("stores detail list context, fires target and neighbor prewarm, and navigates immediately", async () => {
+  it("stores detail list context, starts target prefetch, defers neighbor prewarm, and navigates immediately", async () => {
     const { openDetailWithPrefetch } = await import("./openDetailWithPrefetch");
     const navigate = vi.fn();
 
@@ -55,6 +61,8 @@ describe("openDetailWithPrefetch", () => {
       monthlyLimit: 240,
       asof: "2026-04-04",
     });
+    expect(prefetchDetailChartFramesBatch).not.toHaveBeenCalled();
+    await flushDeferredNeighborPrefetch();
     expect(prefetchDetailChartFramesBatch).toHaveBeenCalledWith([
       {
         code: "6758",
@@ -87,6 +95,8 @@ describe("openDetailWithPrefetch", () => {
       monthlyLimit: 240,
       asof: undefined,
     });
+    expect(prefetchDetailChartFramesBatch).not.toHaveBeenCalled();
+    await flushDeferredNeighborPrefetch();
     expect(prefetchDetailChartFramesBatch).toHaveBeenCalledWith([
       {
         code: "1332",
@@ -206,7 +216,7 @@ describe("openDetailWithPrefetch", () => {
     const pending = openDetailWithPrefetch({
       navigate,
       code: "6758",
-      listCodes: ["6758"],
+      listCodes: ["6758", "7203"],
       backPath: "/favorites",
       backendReady: true,
       prefetchWaitMs: 250,
@@ -218,8 +228,19 @@ describe("openDetailWithPrefetch", () => {
     await vi.advanceTimersByTimeAsync(60);
     await pending;
     expect(navigate).toHaveBeenCalledWith("/detail/6758", { state: { from: "/favorites" } });
+    expect(prefetchDetailChartFramesBatch).not.toHaveBeenCalled();
 
     resolvePrefetch?.();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(prefetchDetailChartFramesBatch).toHaveBeenCalledWith([
+      {
+        code: "7203",
+        dailyLimit: 2000,
+        weeklyLimit: 520,
+        monthlyLimit: 240,
+        asof: undefined,
+      },
+    ]);
   });
 
   it("skips the wait budget when the target seed is already in memory", async () => {
@@ -248,6 +269,143 @@ describe("openDetailWithPrefetch", () => {
       monthlyLimit: 240,
       asof: undefined,
     });
+    expect(prefetchDetailChartFramesBatch).toHaveBeenCalledWith([
+      {
+        code: "7203",
+        dailyLimit: 2000,
+        weeklyLimit: 520,
+        monthlyLimit: 240,
+        asof: undefined,
+      },
+      {
+        code: "9984",
+        dailyLimit: 2000,
+        weeklyLimit: 520,
+        monthlyLimit: 240,
+        asof: undefined,
+      },
+    ]);
+  });
+
+  it("does not start neighbor prefetch when target prefetch is still pending", async () => {
+    vi.useFakeTimers();
+    const { openDetailWithPrefetch } = await import("./openDetailWithPrefetch");
+    const navigate = vi.fn();
+    let resolvePrefetch: (() => void) | null = null;
+    prefetchDetailChartFrames.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolvePrefetch = () => resolve({});
+        })
+    );
+
+    const pending = openDetailWithPrefetch({
+      navigate,
+      code: "7203",
+      listCodes: ["1332", "7203", "6758"],
+      backPath: "/ranking",
+      backendReady: true,
+      prefetchWaitMs: 0,
+    });
+
+    await pending;
+    expect(navigate).toHaveBeenCalledWith("/detail/7203", { state: { from: "/ranking" } });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(prefetchDetailChartFramesBatch).not.toHaveBeenCalled();
+
+    resolvePrefetch?.();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(prefetchDetailChartFramesBatch).toHaveBeenCalledWith([
+      {
+        code: "1332",
+        dailyLimit: 2000,
+        weeklyLimit: 520,
+        monthlyLimit: 240,
+        asof: undefined,
+      },
+      {
+        code: "6758",
+        dailyLimit: 2000,
+        weeklyLimit: 520,
+        monthlyLimit: 240,
+        asof: undefined,
+      },
+    ]);
+  });
+
+  it("navigates and defers neighbors even when target prefetch rejects", async () => {
+    vi.useFakeTimers();
+    const { openDetailWithPrefetch } = await import("./openDetailWithPrefetch");
+    const navigate = vi.fn();
+    prefetchDetailChartFrames.mockRejectedValueOnce(new Error("target failed"));
+
+    const pending = openDetailWithPrefetch({
+      navigate,
+      code: "7203",
+      listCodes: ["7203", "6758"],
+      backPath: "/ranking",
+      backendReady: true,
+      prefetchWaitMs: 250,
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    await pending;
+    expect(navigate).toHaveBeenCalledWith("/detail/7203", { state: { from: "/ranking" } });
+    expect(prefetchDetailChartFramesBatch).toHaveBeenCalledWith([
+      {
+        code: "6758",
+        dailyLimit: 2000,
+        weeklyLimit: 520,
+        monthlyLimit: 240,
+        asof: undefined,
+      },
+    ]);
+  });
+
+  it("skips stale neighbor prefetch after a newer detail navigation", async () => {
+    vi.useFakeTimers();
+    const { openDetailWithPrefetch } = await import("./openDetailWithPrefetch");
+    const navigate = vi.fn();
+    let resolveFirst: (() => void) | null = null;
+    let resolveSecond: (() => void) | null = null;
+    prefetchDetailChartFrames
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveFirst = () => resolve({});
+          })
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveSecond = () => resolve({});
+          })
+      );
+
+    await openDetailWithPrefetch({
+      navigate,
+      code: "7203",
+      listCodes: ["7203", "6758"],
+      backPath: "/ranking",
+      backendReady: true,
+      prefetchWaitMs: 0,
+    });
+    await openDetailWithPrefetch({
+      navigate,
+      code: "8306",
+      listCodes: ["7203", "8306", "9984"],
+      backPath: "/ranking",
+      backendReady: true,
+      prefetchWaitMs: 0,
+    });
+
+    resolveFirst?.();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(prefetchDetailChartFramesBatch).not.toHaveBeenCalled();
+
+    resolveSecond?.();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(prefetchDetailChartFramesBatch).toHaveBeenCalledTimes(1);
     expect(prefetchDetailChartFramesBatch).toHaveBeenCalledWith([
       {
         code: "7203",

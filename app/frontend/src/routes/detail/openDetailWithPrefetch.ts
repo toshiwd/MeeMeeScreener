@@ -26,6 +26,7 @@ type OpenDetailWithPrefetchArgs = {
 };
 
 const DETAIL_NEIGHBOR_PREFETCH_RADIUS = 4;
+let neighborPrefetchGeneration = 0;
 
 const waitMs = (ms: number) =>
   new Promise<void>((resolve) => {
@@ -59,6 +60,7 @@ export const openDetailWithPrefetch = async ({
   prefetchWaitMs = 120,
   targetRoute = "detail",
 }: OpenDetailWithPrefetchArgs) => {
+  const currentNeighborPrefetchGeneration = ++neighborPrefetchGeneration;
   const resolvedBackPath = normalizeDetailBackPath(backPath);
   const resolvedListCodes = normalizeDetailListCodes(listCodes);
   saveDetailListContext(resolvedBackPath, resolvedListCodes);
@@ -87,7 +89,12 @@ export const openDetailWithPrefetch = async ({
     }));
     const targetPrefetchPromise = prefetchDetailChartFrames(requestParams).catch(() => undefined);
     if (neighborPrefetchRequests.length) {
-      void prefetchDetailChartFramesBatch(neighborPrefetchRequests).catch(() => undefined);
+      targetPrefetchPromise.finally(() => {
+        window.setTimeout(() => {
+          if (currentNeighborPrefetchGeneration !== neighborPrefetchGeneration) return;
+          void prefetchDetailChartFramesBatch(neighborPrefetchRequests).catch(() => undefined);
+        }, 0);
+      });
     }
     if (!hasTargetSeed && prefetchWaitMs > 0) {
       recordPerfEvent("detail_open_prefetch_wait", {
