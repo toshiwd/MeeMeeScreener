@@ -1,6 +1,7 @@
 import { DEFAULT_LIMITS } from "./detailHelpers";
 import {
   hasCompleteDetailChartPrefetch,
+  prefetchDetailChartFrames,
   prefetchDetailChartFramesBatch,
   readDetailChartPrefetchSync,
 } from "./detailChartPrefetch";
@@ -77,24 +78,24 @@ export const openDetailWithPrefetch = async ({
     };
     const hasTargetSeed = hasCompleteDetailChartPrefetch(readDetailChartPrefetchSync(requestParams));
     const neighborCodes = buildNeighborCodes(code, resolvedListCodes);
-    const prefetchRequests = [
-      requestParams,
-      ...neighborCodes.map((neighborCode) => ({
-        code: neighborCode,
-        dailyLimit: DEFAULT_LIMITS.daily,
-        weeklyLimit: DEFAULT_LIMITS.weekly,
-        monthlyLimit: DEFAULT_LIMITS.monthly,
-        asof,
-      })),
-    ];
-    const prefetchPromise = prefetchDetailChartFramesBatch(prefetchRequests).catch(() => undefined);
+    const neighborPrefetchRequests = neighborCodes.map((neighborCode) => ({
+      code: neighborCode,
+      dailyLimit: DEFAULT_LIMITS.daily,
+      weeklyLimit: DEFAULT_LIMITS.weekly,
+      monthlyLimit: DEFAULT_LIMITS.monthly,
+      asof,
+    }));
+    const targetPrefetchPromise = prefetchDetailChartFrames(requestParams).catch(() => undefined);
+    if (neighborPrefetchRequests.length) {
+      void prefetchDetailChartFramesBatch(neighborPrefetchRequests).catch(() => undefined);
+    }
     if (!hasTargetSeed && prefetchWaitMs > 0) {
       recordPerfEvent("detail_open_prefetch_wait", {
         code,
         waitBudgetMs: prefetchWaitMs,
         neighborCount: neighborCodes.length,
       });
-      await Promise.race([prefetchPromise, waitMs(prefetchWaitMs)]);
+      await Promise.race([targetPrefetchPromise, waitMs(prefetchWaitMs)]);
     }
   }
   const routePrefix = targetRoute === "detail-v2" ? "/detail-v2" : "/detail";

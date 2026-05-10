@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const prefetchDetailChartFramesBatch = vi.fn(async () => ({}));
+const prefetchDetailChartFrames = vi.fn(async () => ({}));
 const readDetailChartPrefetchSync = vi.fn(() => ({
   daily: null,
   weekly: null,
@@ -10,6 +11,7 @@ const readDetailChartPrefetchSync = vi.fn(() => ({
 const hasCompleteDetailChartPrefetch = vi.fn(() => false);
 
 vi.mock("./detailChartPrefetch", () => ({
+  prefetchDetailChartFrames,
   prefetchDetailChartFramesBatch,
   readDetailChartPrefetchSync,
   hasCompleteDetailChartPrefetch,
@@ -19,6 +21,7 @@ describe("openDetailWithPrefetch", () => {
   beforeEach(() => {
     vi.useRealTimers();
     sessionStorage.clear();
+    prefetchDetailChartFrames.mockClear();
     prefetchDetailChartFramesBatch.mockClear();
     readDetailChartPrefetchSync.mockClear();
     hasCompleteDetailChartPrefetch.mockClear();
@@ -45,20 +48,66 @@ describe("openDetailWithPrefetch", () => {
 
     expect(sessionStorage.getItem("detailListBack")).toBe("/ranking");
     expect(sessionStorage.getItem("detailListCodes")).toBe(JSON.stringify(["7203", "6758"]));
+    expect(prefetchDetailChartFrames).toHaveBeenCalledWith({
+      code: "7203",
+      dailyLimit: 2000,
+      weeklyLimit: 520,
+      monthlyLimit: 240,
+      asof: "2026-04-04",
+    });
     expect(prefetchDetailChartFramesBatch).toHaveBeenCalledWith([
-      {
-        code: "7203",
-        dailyLimit: 2000,
-        weeklyLimit: 520,
-        monthlyLimit: 240,
-        asof: "2026-04-04",
-      },
       {
         code: "6758",
         dailyLimit: 2000,
         weeklyLimit: 520,
         monthlyLimit: 240,
         asof: "2026-04-04",
+      },
+    ]);
+    expect(navigate).toHaveBeenCalledWith("/detail/7203", { state: { from: "/ranking" } });
+  });
+
+  it("prefetches the target separately from neighbors so the visible symbol is not coupled to neighbor prewarm", async () => {
+    const { openDetailWithPrefetch } = await import("./openDetailWithPrefetch");
+    const navigate = vi.fn();
+
+    await openDetailWithPrefetch({
+      navigate,
+      code: "7203",
+      listCodes: ["1332", "7203", "6758", "9984"],
+      backPath: "/ranking",
+      backendReady: true,
+      prefetchWaitMs: 0,
+    });
+
+    expect(prefetchDetailChartFrames).toHaveBeenCalledWith({
+      code: "7203",
+      dailyLimit: 2000,
+      weeklyLimit: 520,
+      monthlyLimit: 240,
+      asof: undefined,
+    });
+    expect(prefetchDetailChartFramesBatch).toHaveBeenCalledWith([
+      {
+        code: "1332",
+        dailyLimit: 2000,
+        weeklyLimit: 520,
+        monthlyLimit: 240,
+        asof: undefined,
+      },
+      {
+        code: "6758",
+        dailyLimit: 2000,
+        weeklyLimit: 520,
+        monthlyLimit: 240,
+        asof: undefined,
+      },
+      {
+        code: "9984",
+        dailyLimit: 2000,
+        weeklyLimit: 520,
+        monthlyLimit: 240,
+        asof: undefined,
       },
     ]);
     expect(navigate).toHaveBeenCalledWith("/detail/7203", { state: { from: "/ranking" } });
@@ -77,15 +126,14 @@ describe("openDetailWithPrefetch", () => {
     });
 
     expect(sessionStorage.getItem("detailListCodes")).toBe(JSON.stringify([]));
-    expect(prefetchDetailChartFramesBatch).toHaveBeenCalledWith([
-      {
-        code: "7203",
-        dailyLimit: 2000,
-        weeklyLimit: 520,
-        monthlyLimit: 240,
-        asof: undefined,
-      },
-    ]);
+    expect(prefetchDetailChartFrames).toHaveBeenCalledWith({
+      code: "7203",
+      dailyLimit: 2000,
+      weeklyLimit: 520,
+      monthlyLimit: 240,
+      asof: undefined,
+    });
+    expect(prefetchDetailChartFramesBatch).not.toHaveBeenCalled();
     expect(navigate).toHaveBeenCalledWith("/detail/7203", { state: { from: "/ranking" } });
   });
 
@@ -104,6 +152,7 @@ describe("openDetailWithPrefetch", () => {
     expect(sessionStorage.getItem("detailListBack")).toBe("/positions?tab=held");
     expect(sessionStorage.getItem("detailListCodes")).toBe(JSON.stringify(["7203", "6758"]));
     expect(navigate).toHaveBeenCalledWith("/detail/7203", { state: { from: "/positions?tab=held" } });
+    expect(prefetchDetailChartFrames).not.toHaveBeenCalled();
     expect(prefetchDetailChartFramesBatch).not.toHaveBeenCalled();
   });
 
@@ -146,7 +195,7 @@ describe("openDetailWithPrefetch", () => {
     const { openDetailWithPrefetch } = await import("./openDetailWithPrefetch");
     const navigate = vi.fn();
     let resolvePrefetch: (() => void) | null = null;
-    prefetchDetailChartFramesBatch.mockImplementationOnce(
+    prefetchDetailChartFrames.mockImplementationOnce(
       () =>
         new Promise((resolve) => {
           resolvePrefetch = () =>
@@ -192,14 +241,14 @@ describe("openDetailWithPrefetch", () => {
     await pending;
 
     expect(navigate).toHaveBeenCalledWith("/detail/8306", { state: { from: "/ranking" } });
+    expect(prefetchDetailChartFrames).toHaveBeenCalledWith({
+      code: "8306",
+      dailyLimit: 2000,
+      weeklyLimit: 520,
+      monthlyLimit: 240,
+      asof: undefined,
+    });
     expect(prefetchDetailChartFramesBatch).toHaveBeenCalledWith([
-      {
-        code: "8306",
-        dailyLimit: 2000,
-        weeklyLimit: 520,
-        monthlyLimit: 240,
-        asof: undefined,
-      },
       {
         code: "7203",
         dailyLimit: 2000,
