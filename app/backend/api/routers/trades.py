@@ -18,6 +18,7 @@ from app.utils.date_utils import _format_event_timestamp, jst_now
 from app.utils.text_utils import _normalize_code
 from app.backend.infra.files.trade_repo import TradeRepository
 from app.backend.core.text_encoding import repair_cp932_mojibake
+from app.backend.services.holding_review import build_holding_review_bundle
 
 # Re-export or re-implement helpers if needed, or import from services
 # The legacy router imported _calc_* from position_calc.
@@ -199,6 +200,32 @@ def positions_current():
             "all_traded_codes": all_traded_codes,
         }
     )
+
+@router.get("/api/positions/holding-review")
+def positions_holding_review(code: str | None = Query(default=None)):
+    try:
+        with try_get_conn(timeout_sec=0.4) as conn:
+            if conn is None:
+                return _db_retryable_response()
+            return JSONResponse(content=build_holding_review_bundle(conn, code=code))
+    except Exception as exc:
+        if is_transient_duckdb_error(exc):
+            return _db_retryable_response(error_detail=str(exc))
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@router.get("/api/positions/holding-review/{code}")
+def positions_holding_review_by_code(code: str):
+    try:
+        with try_get_conn(timeout_sec=0.4) as conn:
+            if conn is None:
+                return _db_retryable_response()
+            return JSONResponse(content=build_holding_review_bundle(conn, code=code))
+    except Exception as exc:
+        if is_transient_duckdb_error(exc):
+            return _db_retryable_response(error_detail=str(exc))
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
 
 @router.post("/api/positions/rebuild")
 def positions_rebuild():
