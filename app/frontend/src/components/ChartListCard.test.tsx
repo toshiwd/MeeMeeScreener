@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ChartListCard from "./ChartListCard";
+import { buildThumbnailCacheKey, clearThumbnailCache, setThumbnailCache } from "./thumbnailCache";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -22,6 +23,8 @@ describe("ChartListCard", () => {
   const onOpenDetail = vi.fn();
 
   beforeEach(() => {
+    clearThumbnailCache();
+    document.documentElement.setAttribute("data-theme", "light");
     onEnterView.mockReset();
     onOpenDetail.mockReset();
     thumbnailCanvasMock.render.mockReset();
@@ -71,6 +74,103 @@ describe("ChartListCard", () => {
     root = null;
     container = null;
     vi.unstubAllGlobals();
+    clearThumbnailCache();
+  });
+
+  it("does not show a permanent loading label when idle and no chart payload exists", async () => {
+    await act(async () => {
+      root?.render(
+        <ChartListCard
+          code="7203"
+          name="Toyota"
+          payload={null}
+          fallbackSeries={null}
+          status="idle"
+          maSettings={maSettings as unknown as never[]}
+          rangeBars={60}
+          thumbnailTimeframe="daily"
+          onEnterView={onEnterView}
+          onOpenDetail={onOpenDetail}
+        />
+      );
+    });
+
+    expect(container?.textContent).toContain("チャート未取得");
+    expect(container?.textContent).not.toContain("読み込み中...");
+  });
+
+  it("shows loading only while the card chart request is active", async () => {
+    await act(async () => {
+      root?.render(
+        <ChartListCard
+          code="7203"
+          name="Toyota"
+          payload={null}
+          fallbackSeries={null}
+          status="loading"
+          maSettings={maSettings as unknown as never[]}
+          rangeBars={60}
+          thumbnailTimeframe="daily"
+          onEnterView={onEnterView}
+          onOpenDetail={onOpenDetail}
+        />
+      );
+    });
+
+    expect(container?.textContent).toContain("読み込み中...");
+  });
+
+  it("shows a clear error state when the chart request fails", async () => {
+    await act(async () => {
+      root?.render(
+        <ChartListCard
+          code="7203"
+          name="Toyota"
+          payload={null}
+          fallbackSeries={null}
+          status="error"
+          maSettings={maSettings as unknown as never[]}
+          rangeBars={60}
+          thumbnailTimeframe="daily"
+          onEnterView={onEnterView}
+          onOpenDetail={onOpenDetail}
+        />
+      );
+    });
+
+    expect(container?.textContent).toContain("読み込み失敗");
+  });
+
+  it("uses a cached thumbnail instead of an idle placeholder when no live payload exists", async () => {
+    const cacheKey = buildThumbnailCacheKey(
+      "7203",
+      "daily",
+      false,
+      maSettings as unknown as never[],
+      "light"
+    );
+    setThumbnailCache(cacheKey, "data:image/png;base64,ZmFrZQ==");
+
+    await act(async () => {
+      root?.render(
+        <ChartListCard
+          code="7203"
+          name="Toyota"
+          payload={null}
+          fallbackSeries={null}
+          status="idle"
+          maSettings={maSettings as unknown as never[]}
+          rangeBars={60}
+          thumbnailTimeframe="daily"
+          onEnterView={onEnterView}
+          onOpenDetail={onOpenDetail}
+        />
+      );
+    });
+
+    expect(container?.querySelector(".thumb-canvas-image")).not.toBeNull();
+    expect(container?.textContent).not.toContain("チャート未取得");
+    expect(container?.textContent).not.toContain("読み込み中...");
   });
 
   it("re-triggers the visible fetch when the range changes", async () => {

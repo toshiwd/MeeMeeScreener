@@ -1784,6 +1784,7 @@ export default function RankingView() {
                 maSettings={resolvedMaSettings}
                 rangeBars={listRangeBars}
                 densityKey={densityKey}
+                thumbnailTimeframe={listTimeframe}
                 onOpenDetail={handleOpenDetail}
                 tileClassName={selectedSet.has(item.code) ? "is-selected" : ""}
                 maxDate={item.asOf}

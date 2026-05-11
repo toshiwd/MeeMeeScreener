@@ -282,6 +282,32 @@ const waitForNoStuckLoading = async (page: Page, config: TabConfig, timeout: num
   expect(visibleLoadingTexts, `${config.id} stuck loading`).toEqual([]);
 };
 
+
+const waitForNoPermanentCardChartLoading = async (page: Page, config: TabConfig, timeout: number) => {
+  const deadline = performance.now() + timeout;
+  while (performance.now() < deadline) {
+    const visibleLoadingCards = await page.locator(".tile-loading").evaluateAll((elements) =>
+      elements.filter((element) => {
+        const rect = element.getBoundingClientRect();
+        const text = element.textContent ?? "";
+        return rect.width > 0 && rect.height > 0 && text.includes("読み込み中");
+      }).length
+    );
+    if (visibleLoadingCards === 0) return;
+    await page.waitForTimeout(500);
+  }
+  const visibleLoadingTexts = await page.locator(".tile-loading").evaluateAll((elements) =>
+    elements
+      .filter((element) => {
+        const rect = element.getBoundingClientRect();
+        const text = element.textContent ?? "";
+        return rect.width > 0 && rect.height > 0 && text.includes("読み込み中");
+      })
+      .map((element) => element.textContent ?? "")
+  );
+  expect(visibleLoadingTexts, `${config.id} card charts stuck loading`).toEqual([]);
+};
+
 const measureTopTab = async (
   page: Page,
   config: TabConfig,
@@ -304,6 +330,7 @@ const measureTopTab = async (
 
   const settledStart = performance.now();
   await waitForNoStuckLoading(page, config, Math.min(timeout, 15_000));
+  await waitForNoPermanentCardChartLoading(page, config, Math.min(timeout, 15_000));
   await waitForSettledWithoutForbiddenText(page, forbiddenText, Math.min(timeout, 15_000));
   const settledUsableMs = elapsedSince(settledStart);
   const visibleItemCount = await visibleCount(page, config.itemSelector);

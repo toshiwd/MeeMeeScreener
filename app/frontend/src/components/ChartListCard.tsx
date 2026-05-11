@@ -3,7 +3,9 @@ import type { ReactNode } from "react";
 import type { BarsPayload, MaSetting } from "../store";
 import type { SignalChip } from "../utils/signals";
 import { formatEventBadgeDate } from "../utils/events";
+import { getDomTheme } from "../utils/theme";
 import ThumbnailCanvas from "./ThumbnailCanvas";
+import { buildThumbnailCacheKey, getThumbnailCache } from "./thumbnailCache";
 
 type ActionConfig = {
   label: ReactNode;
@@ -28,6 +30,7 @@ type ChartListCardProps = {
   deferUntilInView?: boolean;
   rootMargin?: string;
   densityKey?: string;
+  thumbnailTimeframe?: "monthly" | "weekly" | "daily";
   onOpenDetail: (code: string) => void;
   signals?: SignalChip[];
   action?: ActionConfig | null;
@@ -199,6 +202,7 @@ const ChartListCard = memo(function ChartListCard({
   deferUntilInView = false,
   rootMargin,
   densityKey,
+  thumbnailTimeframe,
   onOpenDetail,
   signals,
   action,
@@ -238,9 +242,15 @@ const ChartListCard = memo(function ChartListCard({
     return { ...basePayload, bars: filteredBars };
   }, [basePayload, livePayload, maxTime]);
   const chartKey = `${code}-${rangeBars ?? "all"}-${densityKey ?? "default"}`;
+  const thumbnailTheme = getDomTheme();
+  const thumbnailCacheKey = thumbnailTimeframe
+    ? buildThumbnailCacheKey(code, thumbnailTimeframe, false, maSettings, thumbnailTheme)
+    : null;
+  const cachedThumb = thumbnailCacheKey ? getThumbnailCache(thumbnailCacheKey) : null;
 
   const handleOpen = () => onOpenDetail(code);
   const showLoading = !barsPayload || barsPayload.bars.length === 0;
+  const hasCachedThumb = Boolean(cachedThumb);
   const earningsLabel = formatEventBadgeDate(eventEarningsDate);
   const rightsLabel = formatEventBadgeDate(eventRightsDate);
   const formatScore = (value: number | null | undefined) =>
@@ -255,7 +265,9 @@ const ChartListCard = memo(function ChartListCard({
       ? "読み込み失敗"
       : status === "empty"
         ? "データなし"
-        : "読み込み中...";
+        : status === "loading"
+          ? "読み込み中..."
+          : "チャート未取得";
 
   useEffect(() => {
     if (!deferUntilInView || !inView || !onEnterView) return;
@@ -336,7 +348,12 @@ const ChartListCard = memo(function ChartListCard({
       )}
       <div className="tile-chart">
         {deferUntilInView && !inView && <div className="rank-chart-placeholder" />}
-        {(!deferUntilInView || inView) && showLoading && (
+        {(!deferUntilInView || inView) && showLoading && hasCachedThumb && (
+          <div className="thumb-canvas">
+            <img className="thumb-canvas-image" src={cachedThumb ?? ""} alt="" />
+          </div>
+        )}
+        {(!deferUntilInView || inView) && showLoading && !hasCachedThumb && (
           <div className="tile-loading">{loadingLabel}</div>
         )}
         {(!deferUntilInView || inView) && !showLoading && barsPayload && (
@@ -346,8 +363,10 @@ const ChartListCard = memo(function ChartListCard({
             boxes={[]}
             showBoxes={false}
             maSettings={maSettings}
+            cacheKey={thumbnailCacheKey ?? undefined}
             maxBars={rangeBars ?? undefined}
             showAxes
+            theme={thumbnailTheme}
           />
         )}
       </div>

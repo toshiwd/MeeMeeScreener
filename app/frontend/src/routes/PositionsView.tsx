@@ -671,6 +671,7 @@ export default function PositionsView() {
         status={status}
         maSettings={resolvedMaSettings}
         rangeBars={listRangeBars}
+        thumbnailTimeframe={listTimeframe}
         eventEarningsDate={ticker?.eventEarningsDate ?? null}
         eventRightsDate={ticker?.eventRightsDate ?? null}
         densityKey={densityKey}
