@@ -65,4 +65,12 @@ describe("routePreload", () => {
     expect(getPrimaryPreloadRoutes()).not.toContain("/detail/:code");
     expect(getPrimaryPreloadRoutes()).not.toContain("/detail-v2/:code");
   });
+
+  it("loads the full detail surface for the detail v2 route instead of the shell route", async () => {
+    const detailModule = await preloadRoute("/detail/7203");
+    const detailV2Module = await preloadRoute("/detail-v2/7203");
+
+    expect(detailV2Module?.default).toBe(detailModule?.default);
+    expect(detailV2Module?.default.name).not.toBe("DetailV2View");
+  });
 });

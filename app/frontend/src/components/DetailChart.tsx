@@ -1857,6 +1857,21 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     lastAppliedVolumeRef.current = next.volume;
     lastAppliedShowVolumeRef.current = next.showVolume;
     if (chart && next.candles.length) {
+      const nextVisibleRange = visibleRangeRef.current;
+      if (isValidVisibleRange(nextVisibleRange)) {
+        suppressVisibleRangeEvents();
+        try {
+          chart.timeScale().setVisibleRange(nextVisibleRange);
+          hasAppliedVisibleRangeRef.current = true;
+          currentVisibleRangeRef.current = nextVisibleRange ?? null;
+        } catch {
+          chart.timeScale().fitContent();
+          currentVisibleRangeRef.current =
+            typeof chart.timeScale().getVisibleRange === "function"
+              ? (chart.timeScale().getVisibleRange() ?? null)
+              : null;
+        }
+      }
       const wrapper = wrapperRef.current;
       if (wrapper) {
         scheduleResizeAndFit(
@@ -2445,6 +2460,13 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
       candleSeriesRef.current = null;
       volumeSeriesRef.current = null;
       lineSeriesRef.current = [];
+      lastAppliedCandlesRef.current = null;
+      lastAppliedVolumeRef.current = null;
+      lastAppliedShowVolumeRef.current = null;
+      lastAppliedMaDataRef.current = [];
+      lastAppliedScaleModeRef.current = null;
+      lastAppliedLineOptionsRef.current = [];
+      hasAppliedVisibleRangeRef.current = false;
       setOverlayTargets({ candleSeries: null, chart: null });
     };
   }, [
@@ -2849,7 +2871,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
           className="chart-info-panel detail-chart-date-chip"
           data-testid="detail-chart-date-chip"
         >
-          <span className="chart-info-label">Date</span>
+          <span className="chart-info-label">日付</span>
           <span className="chart-info-value">{detailChromeSnapshot.chipLabel}</span>
         </div>
       )}
@@ -2858,9 +2880,9 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
           className="chart-info-panel detail-chart-chrome-legend"
           data-testid="detail-chart-legend"
         >
-          <span className="chart-info-label">Date</span>
+          <span className="chart-info-label">日付</span>
           <span className="chart-info-value">{detailChromeSnapshot.legendLabel ?? "--"}</span>
-          <span className="chart-info-label">Close</span>
+          <span className="chart-info-label">終値</span>
           <span className="chart-info-value">{detailChromeSnapshot.legendClose ?? "--"}</span>
           {detailChromeSnapshot.legendValues.flatMap((entry) => [
             <span className="chart-info-label" key={`${entry.key}-label`}>

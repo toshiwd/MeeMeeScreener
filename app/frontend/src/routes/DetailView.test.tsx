@@ -572,7 +572,7 @@ describe("DetailView", () => {
     await flushMicrotasks();
 
     expect(container.querySelector("[data-testid='detail-header-chrome']")).not.toBeNull();
-    expect(container.textContent).toContain("R2 shadow: ON");
+    expect(container.textContent).toContain("検証表示: 有効");
     expect(mocks.apiPost).not.toHaveBeenCalledWith("/jobs/edinet/official-backfill", expect.anything(), expect.anything());
 
     render.cleanup();
@@ -843,9 +843,9 @@ describe("DetailView", () => {
     });
 
     expect(container.textContent).toContain("9202");
-    expect(container.textContent).toContain("Daily: Loading...");
-    expect(container.textContent).toContain("Weekly: Loading...");
-    expect(container.textContent).toContain("Monthly: Loading...");
+    expect(container.textContent).toContain("日足: 読み込み中...");
+    expect(container.textContent).toContain("週足: 読み込み中...");
+    expect(container.textContent).toContain("月足: 読み込み中...");
     const chartNodes = Array.from(container.querySelectorAll("[data-testid='detail-chart']"));
     expect(chartNodes.length).toBeGreaterThan(0);
     expect(chartNodes.every((node) => node.getAttribute("data-detail-chrome") === "on")).toBe(true);
@@ -941,8 +941,8 @@ describe("DetailView", () => {
       await flushMicrotasks();
     });
 
-    expect(container.textContent).toContain("Weekly: No data");
-    expect(container.textContent).not.toContain("Weekly: Loading...");
+    expect(container.textContent).toContain("週足: 表示できるデータがありません");
+    expect(container.textContent).not.toContain("週足: 読み込み中...");
     const chartNodes = Array.from(container.querySelectorAll("[data-testid='detail-chart']"));
     expect(chartNodes.length).toBeGreaterThanOrEqual(3);
     expect((chartNodes[0] as HTMLElement).getAttribute("data-candles")).toBe("1");

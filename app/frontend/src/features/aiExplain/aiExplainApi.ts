@@ -74,9 +74,51 @@ export const defaultAiExplainSettings = (): AiExplainSettings => ({
   debugEnabled: false,
 });
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value) && typeof value === "object" && !Array.isArray(value);
+
+const boolValue = (value: unknown, fallback: boolean) =>
+  typeof value === "boolean" ? value : fallback;
+
+const textValue = (value: unknown, fallback: string) =>
+  typeof value === "string" ? value : fallback;
+
+const numberValue = (value: unknown, fallback: number) =>
+  typeof value === "number" && Number.isFinite(value) ? value : fallback;
+
+const answerLengthValue = (value: unknown, fallback: AiExplainAnswerLength): AiExplainAnswerLength =>
+  value === "short" || value === "medium" || value === "long" ? value : fallback;
+
+const normalizeAiExplainSettingsState = (payload: unknown): AiExplainSettingsState => {
+  const root = isRecord(payload) ? payload : {};
+  const rawSettings = isRecord(root.settings) ? root.settings : {};
+  const defaults = defaultAiExplainSettings();
+  const settings: AiExplainSettings = {
+    uiVisible: boolValue(rawSettings.uiVisible, defaults.uiVisible),
+    enabled: boolValue(rawSettings.enabled, defaults.enabled),
+    providerLabel: textValue(rawSettings.providerLabel, defaults.providerLabel),
+    providerType: textValue(rawSettings.providerType, defaults.providerType),
+    endpointUrl: textValue(rawSettings.endpointUrl, defaults.endpointUrl),
+    model: textValue(rawSettings.model, defaults.model),
+    credentialName: textValue(rawSettings.credentialName, defaults.credentialName),
+    sendImages: boolValue(rawSettings.sendImages, defaults.sendImages),
+    answerLength: answerLengthValue(rawSettings.answerLength, defaults.answerLength),
+    dailyLimit: numberValue(rawSettings.dailyLimit, defaults.dailyLimit),
+    compareEnabled: boolValue(rawSettings.compareEnabled, defaults.compareEnabled),
+    debugEnabled: boolValue(rawSettings.debugEnabled, defaults.debugEnabled),
+  };
+  return {
+    settings,
+    providerReady: boolValue(root.providerReady, false),
+    credentialConfigured: boolValue(root.credentialConfigured, false),
+    canShowUi: boolValue(root.canShowUi, false),
+    canUse: boolValue(root.canUse, false),
+  };
+};
+
 export const loadAiExplainSettings = async (): Promise<AiExplainSettingsState> => {
   const res = await api.get("/ai-explain/settings");
-  return res.data as AiExplainSettingsState;
+  return normalizeAiExplainSettingsState(res.data);
 };
 
 export const saveAiExplainSettings = async (

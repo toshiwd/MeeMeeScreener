@@ -22,12 +22,15 @@ describe("ErrorBoundary", () => {
 
   it("reports fatal render failures to the diagnostics bridge", async () => {
     const ErrorBoundary = (await import("./ErrorBoundary")).default;
-    await renderClient(
+    const render = await renderClient(
       <ErrorBoundary>
         <ThrowingChild />
       </ErrorBoundary>
     );
 
+    expect(render.container.textContent).toContain("画面の表示に問題が発生しました");
+    expect(render.container.textContent).not.toContain("boom");
+    expect(render.container.textContent).not.toContain("componentStack");
     expect(mocks.reportFrontendFatalDiagnostics).toHaveBeenCalledTimes(1);
     expect(mocks.reportFrontendFatalDiagnostics).toHaveBeenCalledWith(
       expect.objectContaining({

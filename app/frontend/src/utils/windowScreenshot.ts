@@ -137,7 +137,7 @@ export const captureWindowBlob = async (
         await waitForRender();
 
         if (shouldForceScreenshotFailure()) {
-            return { success: false, error: "forced fatal diagnostics screenshot failure" };
+            return { success: false, error: "スクリーンショットに失敗しました" };
         }
 
         const root = document.getElementById("root");
@@ -157,7 +157,7 @@ export const captureWindowBlob = async (
             const module = await import("html2canvas");
             html2canvas = module.default;
         } catch {
-            return { success: false, error: "html2canvasの読み込みに失敗しました" };
+            return { success: false, error: "スクリーンショット機能の読み込みに失敗しました" };
         }
 
         // Capture with html2canvas
@@ -187,9 +187,8 @@ export const captureWindowBlob = async (
 
         const filename = buildFilename(options.screenType, options.code);
         return { success: true, blob, filename };
-    } catch (error) {
-        const message = error instanceof Error ? error.message : "スクリーンショットに失敗しました";
-        return { success: false, error: message };
+    } catch {
+        return { success: false, error: "スクリーンショットに失敗しました" };
     }
 };
 
@@ -340,7 +339,7 @@ export const saveBlobToPerfDiagnostics = async (blob: Blob, filename: string): P
         URL.revokeObjectURL(url);
         return { success: true, fileName: filename };
     } catch {
-        return { success: false, error: "菫晏ｭ倥↓螟ｱ謨励＠縺ｾ縺励◆" };
+        return { success: false, error: "保存に失敗しました" };
     }
 };
 

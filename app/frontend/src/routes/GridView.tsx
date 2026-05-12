@@ -60,10 +60,14 @@ import { formatEventDateYmd, parseEventDateMs } from "../utils/events";
 import { downloadChartScreenshots } from "../utils/chartScreenshot";
 import {
   extractTxtUpdateJobId,
+  formatTxtUpdateFailureMessage,
+  formatTxtUpdatePublicDetail,
+  formatTxtUpdateStageLabel,
   formatTxtUpdateStatusLabel,
   isTxtUpdateConflictError,
   type TxtUpdateStartPayload
 } from "../utils/txtUpdate";
+import { formatUserFacingOperationIssue } from "../utils/userFacingErrors";
 import { useResizeObserver } from "./grid/hooks/useResizeObserver";
 import GridIndicatorOverlay from "./grid/components/GridIndicatorOverlay";
 import { useTerminalJobPolling } from "./grid/hooks/useTerminalJobPolling";
@@ -297,6 +301,14 @@ export default function GridView() {
   const eventsAttemptLabel = useMemo(
     () => formatEventDateYmd(eventsLastAttemptAt),
     [eventsLastAttemptAt]
+  );
+  const eventsLastIssueLabel = useMemo(
+    () => formatUserFacingOperationIssue(eventsLastError),
+    [eventsLastError]
+  );
+  const listSnapshotIssueLabel = useMemo(
+    () => formatUserFacingOperationIssue(listSnapshotMeta?.lastError),
+    [listSnapshotMeta?.lastError]
   );
   const eventsLastSuccessLabel = useMemo(() => {
     const earningsMs = parseEventDateMs(eventsEarningsLastSuccessAt);
@@ -870,27 +882,12 @@ export default function GridView() {
     return Math.max(0, Math.min(100, Math.round(raw)));
   }, [txtUpdateJob?.progress]);
   const txtUpdateStageLabel = useMemo(() => {
-    const message = txtUpdateJob?.message?.toLowerCase() ?? "";
-    if (!message) return txtUpdateStatusLabel ?? "待機中";
-    if (message.includes("pan import") || message.includes("launching pan")) return "PAN取込";
-    if (message.includes("pan rolling export") || message.includes("vbs export") || message.includes("export completed")) {
-      return "TXT出力";
-    }
-    if (message.includes("ingesting")) return "TXT取込";
-    if (message.includes("phase")) return "Phase更新";
-    if (message.includes("ml")) return "ML更新";
-    if (message.includes("score")) return "スコア更新";
-    if (message.includes("cache")) return "キャッシュ更新";
-    if (message.includes("walkforward")) return "検証";
-    if (message.includes("final")) return "仕上げ";
-    if (message.includes("queue")) return "待機";
-    return txtUpdateStatusLabel ?? "更新中";
+    return formatTxtUpdateStageLabel(txtUpdateJob?.message, txtUpdateStatusLabel ?? "更新中");
   }, [txtUpdateJob?.message, txtUpdateStatusLabel]);
   const txtUpdateShortDetail = useMemo(() => {
-    const message = txtUpdateJob?.message?.trim();
-    if (!message) return null;
-    return message.length > 72 ? `${message.slice(0, 72)}...` : message;
-  }, [txtUpdateJob?.message]);
+    const detail = formatTxtUpdatePublicDetail(txtUpdateJob?.message, txtUpdateStatusLabel ?? "更新中");
+    return detail === txtUpdateStageLabel ? null : detail;
+  }, [txtUpdateJob?.message, txtUpdateStageLabel, txtUpdateStatusLabel]);
 
   const normalizeWatchCode = useCallback((value: string) => {
     const trimmed = value.trim();
@@ -1961,8 +1958,7 @@ export default function GridView() {
       return;
     }
     txtUpdateDailyFollowupRef.current = false;
-    const detail = payload.error || payload.message || "詳細不明";
-    showToast(`日次更新が失敗しました。(${detail})`, {
+    showToast(formatTxtUpdateFailureMessage(payload.error, payload.message), {
       label: "設定",
       onClick: () => {
         setSettingsPanelMode("general");
@@ -2143,8 +2139,9 @@ export default function GridView() {
         return;
       }
       const omittedLabel = omitted ? ` (残り${omitted}件は省略)` : "";
+      const skippedLabel = result.skipped ? ` データ不足で${result.skipped}件を未作成。` : "";
       showToast(
-        `スクショを${result.created}件作成しました。${omittedLabel}`,
+        `スクショを${result.created}件作成しました。${skippedLabel}${omittedLabel}`,
         result.savedDir && window.pywebview?.api?.open_screenshot_dir
           ? {
               label: "フォルダ",
@@ -2186,7 +2183,7 @@ export default function GridView() {
     showToast("日次更新を開始しました。");
     try {
       const res = await api.post("/jobs/txt-update", null, {
-        params: { completion_mode: "practical_fast", auto_fill_missing_history: true }
+        params: { completion_mode: "practical_fast", auto_fill_missing_history: false }
       });
       const payload = (res.data ?? {}) as TxtUpdateStartPayload;
       if (payload.ok === false) {
@@ -2213,7 +2210,7 @@ export default function GridView() {
           id: jobId,
           status: "queued",
           progress: 0,
-          message: "Waiting in queue..."
+          message: "queue"
         });
         setTxtUpdatePolling(true);
       } else {
@@ -2255,8 +2252,8 @@ export default function GridView() {
         showToast("日次更新は既に終了しています。");
       }
     } catch (err) {
-      const detail = extractErrorDetail(err);
-      showToast(`日次更新のキャンセルに失敗しました。(${detail})`);
+      console.warn("txt update cancel failed", extractErrorDetail(err));
+      showToast("日次更新のキャンセルに失敗しました。しばらく待ってから再試行してください。");
     }
   }, [txtUpdateJob?.id, showToast]);
 
@@ -2656,6 +2653,14 @@ export default function GridView() {
         return "日次更新";
       case "txt_followup":
         return "後続更新";
+      case "signal_tracking_basis_backfill":
+        return "追跡基礎再構築";
+      case "signal_tracking_decision_rebuild":
+        return "売買判断追跡再構築";
+      case "signal_tracking_campaign_rebuild":
+        return "追跡キャンペーン再構築";
+      case "ranking_appearance_rebuild":
+        return "ランキング追跡再構築";
       case "force_sync":
         return "強制同期";
       case "phase_rebuild":
@@ -3765,8 +3770,8 @@ export default function GridView() {
                             <div className="popover-hint">
                               最終試行: {eventsAttemptLabel ?? "--"}
                             </div>
-                            {eventsLastError && (
-                              <div className="popover-hint">エラー: {eventsLastError}</div>
+                            {eventsLastIssueLabel && (
+                              <div className="popover-hint">確認: {eventsLastIssueLabel}</div>
                             )}
                           </div>
                           <AiExplainSettingsSection />
@@ -3911,9 +3916,9 @@ export default function GridView() {
               <span className="event-meta-status">
                 状態: {eventsRefreshing ? "更新中" : "待機中"}
               </span>
-              {eventsLastError && (
-                <span className="event-meta-error" title={eventsLastError}>
-                  エラー: {eventsLastError}
+              {eventsLastIssueLabel && (
+                <span className="event-meta-error" title={eventsLastIssueLabel}>
+                  確認: {eventsLastIssueLabel}
                 </span>
               )}
               <span className="event-meta-last">
@@ -4010,7 +4015,7 @@ export default function GridView() {
         <div className="data-warning subtle">
           一覧は直近の成功スナップショットを表示しています。
           {listSnapshotMeta.updatedAt ? ` 更新時刻: ${listSnapshotMeta.updatedAt}` : ""}
-          {listSnapshotMeta.lastError ? ` / 最新更新失敗: ${listSnapshotMeta.lastError}` : ""}
+          {listSnapshotIssueLabel ? ` / 最新更新: ${listSnapshotIssueLabel}` : ""}
         </div>
       )}
       <div className={`grid-shell ${consultPaddingClass}`} ref={ref}>

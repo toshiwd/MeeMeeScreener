@@ -46,7 +46,7 @@ type BuildInput = {
 
 const parseErrorMessage = (parseStats: ParseStats) =>
   parseStats.parsed === 0 && parseStats.total > 0
-    ? `Date parse failed ${parseStats.invalidTime}`
+    ? `日付を読み取れないデータがあります (${parseStats.invalidTime}件)`
     : null;
 
 export const resolveDetailChartLifecycleFrame = ({
@@ -64,30 +64,32 @@ export const resolveDetailChartLifecycleFrame = ({
   let status: DetailChartLifecycleStatus = "idle";
   let message: string | null = null;
 
-  if (loading || pendingSwap || fetch.status === "loading") {
-    status = "loading";
-    message = "Loading...";
-  } else if (firstError) {
+  if (firstError) {
     status = "error";
     message = firstError;
   } else if (fetch.status === "error") {
     status = "error";
-    message = fetch.errorMessage ?? "Chart data request failed";
+    message = fetch.errorMessage ?? "チャートデータの取得に失敗しました";
   } else if (parseError) {
     status = "error";
     message = parseError;
+  } else if (candleCount > 0) {
+    status = "ready";
+  } else if (loading || pendingSwap || fetch.status === "loading") {
+    status = "loading";
+    message = "読み込み中...";
   } else if (fetch.status === "success" && fetch.responseCount === 0) {
     status = "empty";
-    message = "No data";
+    message = "表示できるデータがありません";
   } else if (contractArea.status === "error" && candleCount === 0) {
     status = "error";
-    message = "Chart data contract error";
+    message = "チャートデータを確認できません";
   } else if (contractArea.status === "missing" && candleCount === 0 && fetch.status !== "idle") {
     status = "missing";
-    message = "Chart data unavailable";
+    message = "チャートデータがまだありません";
   } else if (contractArea.status === "empty" && candleCount === 0 && fetch.status !== "idle") {
     status = "empty";
-    message = "No data";
+    message = "表示できるデータがありません";
   } else if (fetch.status === "success") {
     status = "ready";
   }

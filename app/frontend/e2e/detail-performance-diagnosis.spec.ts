@@ -100,7 +100,7 @@ const waitForFooterBars = async (
     (targetTimeframe) => {
       const footer = document.querySelector('[data-testid="detail-footer"]');
       const text = footer?.textContent ?? "";
-      const match = text.match(/Daily\s+(\d+)\s+bars\s+\|\s+Weekly\s+(\d+)\s+bars\s+\|\s+Monthly\s+(\d+)\s+bars/);
+      const match = text.match(/日足\s+(\d+)本\s+\|\s+週足\s+(\d+)本\s+\|\s+月足\s+(\d+)本/);
       if (!match) return false;
       const [, daily, weekly, monthly] = match;
       const value =

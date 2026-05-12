@@ -1818,9 +1818,9 @@ export default function PracticeView() {
     right.scrollLeft = right.scrollWidth;
   }, [code]);
 
-  const dailyEmptyMessage = dailyCandles.length === 0 ? dailyErrors[0] ?? "No data" : null;
-  const weeklyEmptyMessage = weeklyCandles.length === 0 ? dailyErrors[0] ?? "No data" : null;
-  const monthlyEmptyMessage = monthlyCandles.length === 0 ? dailyErrors[0] ?? "No data" : null;
+  const dailyEmptyMessage = dailyCandles.length === 0 ? dailyErrors[0] ?? "表示できるデータがありません" : null;
+  const weeklyEmptyMessage = weeklyCandles.length === 0 ? dailyErrors[0] ?? "表示できるデータがありません" : null;
+  const monthlyEmptyMessage = monthlyCandles.length === 0 ? dailyErrors[0] ?? "表示できるデータがありません" : null;
 
   return (
     <div className="detail-shell practice-shell">

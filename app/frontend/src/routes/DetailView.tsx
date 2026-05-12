@@ -2227,8 +2227,59 @@ export default function DetailView() {
       monthlyLimit,
       asof: mainAsOf,
     };
+    const applyAvailableFrames = (frames: Partial<ChartPrefetchFrames>) => {
+      let applied = false;
+      if (Array.isArray(frames.daily?.rows)) {
+        const dailyRows = frames.daily.rows;
+        setDailyData(dailyRows);
+        setHasMoreDaily(dailyRows.length >= dailyLimit);
+        setDailyErrors([]);
+        setDailyFetch({
+          status: "success",
+          responseCount: dailyRows.length,
+          errorMessage: null,
+        });
+        applied = true;
+      }
+      if (Array.isArray(frames.weekly?.rows)) {
+        const weeklyRows = frames.weekly.rows;
+        setWeeklyData(weeklyRows);
+        setWeeklyErrors([]);
+        setWeeklyFetch({
+          status: "success",
+          responseCount: weeklyRows.length,
+          errorMessage: null,
+        });
+        applied = true;
+      }
+      if (Array.isArray(frames.monthly?.rows)) {
+        const monthlyRows = frames.monthly.rows;
+        setMonthlyData(monthlyRows);
+        setBoxes(Array.isArray(frames.monthly?.boxes) ? frames.monthly.boxes : []);
+        setHasMoreMonthly(monthlyRows.length >= monthlyLimit);
+        setMonthlyErrors([]);
+        setMonthlyFetch({
+          status: "success",
+          responseCount: monthlyRows.length,
+          errorMessage: null,
+        });
+        applied = true;
+      }
+      if (applied) {
+        setMainChartOverwriteObservability(
+          summarizeDetailOverwriteObservability(frames, "daily", null)
+        );
+        if (frames.dataFreshnessContract) {
+          setDetailDataFreshnessContract(frames.dataFreshnessContract);
+        }
+      }
+      return applied;
+    };
     const applyFrames = (frames: ChartPrefetchFrames) => {
-      if (!hasCompleteDetailChartPrefetch(frames)) return false;
+      if (!hasCompleteDetailChartPrefetch(frames)) {
+        applyAvailableFrames(frames);
+        return false;
+      }
       const dailyRows = Array.isArray(frames.daily?.rows) ? frames.daily.rows : [];
       const weeklyRows = Array.isArray(frames.weekly?.rows) ? frames.weekly.rows : [];
       const monthlyRows = Array.isArray(frames.monthly?.rows) ? frames.monthly.rows : [];
@@ -3197,7 +3248,7 @@ export default function DetailView() {
     chartLifecycle.weekly.status === "missing"
       ? chartLifecycle.weekly.message
       : dailyCandles.length === 0
-        ? dailyError ?? "No data"
+        ? dailyError ?? "表示できるデータがありません"
         : null;
   const tradeWarningItems = useMemo(() => tradeWarnings.items ?? [], [tradeWarnings.items]);
   const marketDataStatusMeta =
@@ -3220,7 +3271,7 @@ export default function DetailView() {
   const warningCount = errors.length + unrecognizedCount + otherWarningsCount;
   const hasIssues = warningCount > 0 || infoCount > 0;
   const bannerTone = warningCount > 0 ? "warning" : "info";
-  const bannerTitle = warningCount > 0 ? "Data issue detected" : "Data notice";
+  const bannerTitle = warningCount > 0 ? "データ確認が必要です" : "データのお知らせ";
 
   const [debugOpen, setDebugOpen] = useState(false);
   const [showInfoDetails, setShowInfoDetails] = useState(false);
@@ -3228,19 +3279,19 @@ export default function DetailView() {
 
   const debugSummary = useMemo(() => {
     const parts: string[] = [];
-    if (errors.length) parts.push(`Errors ${errors.slice(0, 2).join(", ")}`);
-    if (unrecognizedCount) parts.push(`Unrecognized labels ${unrecognizedCount}`);
-    if (otherWarningsCount) parts.push(`Warnings ${otherWarningsCount}`);
-    if (infoCount) parts.push(`Info ${infoCount}`);
-    if (dailyHasEmpty) parts.push("Daily 0 bars");
-    if (dailyHasParsedZero) parts.push("Daily parsed 0");
-    if (dailyInvalidCount > 0) parts.push(`Daily invalid ${dailyInvalidCount}`);
-    if (weeklyHasEmpty) parts.push("Weekly 0 bars");
-    if (weeklyHasParsedZero) parts.push("Weekly parsed 0");
-    if (weeklyInvalidCount > 0) parts.push(`Weekly invalid ${weeklyInvalidCount}`);
-    if (monthlyHasEmpty) parts.push("Monthly 0 bars");
-    if (monthlyHasParsedZero) parts.push("Monthly parsed 0");
-    if (monthlyInvalidCount > 0) parts.push(`Monthly invalid ${monthlyInvalidCount}`);
+    if (errors.length) parts.push(`確認事項 ${errors.length}`);
+    if (unrecognizedCount) parts.push(`未確認ラベル ${unrecognizedCount}`);
+    if (otherWarningsCount) parts.push(`注意 ${otherWarningsCount}`);
+    if (infoCount) parts.push(`補足 ${infoCount}`);
+    if (dailyHasEmpty) parts.push("日足データなし");
+    if (dailyHasParsedZero) parts.push("日足を読み取れません");
+    if (dailyInvalidCount > 0) parts.push(`日足の不整合 ${dailyInvalidCount}`);
+    if (weeklyHasEmpty) parts.push("週足データなし");
+    if (weeklyHasParsedZero) parts.push("週足を読み取れません");
+    if (weeklyInvalidCount > 0) parts.push(`週足の不整合 ${weeklyInvalidCount}`);
+    if (monthlyHasEmpty) parts.push("月足データなし");
+    if (monthlyHasParsedZero) parts.push("月足を読み取れません");
+    if (monthlyInvalidCount > 0) parts.push(`月足の不整合 ${monthlyInvalidCount}`);
     return parts;
   }, [
     errors,
@@ -3264,7 +3315,7 @@ export default function DetailView() {
         const parts = item.split(":");
         const code = parts[1] || "-";
         const count = parts[2] || "0";
-        return `Trades: OK (dedup ${count} rows for ${code})`;
+        return `取引履歴: 重複 ${count} 件を除外 (${code})`;
       }
       return item;
     });
@@ -3273,52 +3324,46 @@ export default function DetailView() {
   const debugLines = useMemo(() => {
     const lines: string[] = [];
     lines.push(
-      `Daily(${dailyFetch.status}) API ${dailyFetch.responseCount} | Parsed ${dailyParse.stats.parsed} | Range ${dailyRangeCount} | InvalidRow ${dailyParse.stats.invalidRow} | InvalidTime ${dailyParse.stats.invalidTime} | InvalidValue ${dailyParse.stats.invalidValue} | Error ${dailyError ?? "-"}`
+      `日足: 取得 ${dailyFetch.responseCount}件 | 読取 ${dailyParse.stats.parsed}件 | 表示 ${dailyRangeCount}件 | 不整合 ${dailyInvalidCount}件 | 状態 ${dailyError ?? "-"}`
     );
     lines.push(
-      `Weekly(${weeklyFetch.status}) API ${weeklyFetch.responseCount} | Parsed ${weeklyParse.stats.parsed} | Range ${weeklyRangeCount} | InvalidRow ${weeklyParse.stats.invalidRow} | InvalidTime ${weeklyParse.stats.invalidTime} | InvalidValue ${weeklyParse.stats.invalidValue} | Error ${weeklyError ?? "-"}`
+      `週足: 取得 ${weeklyFetch.responseCount}件 | 読取 ${weeklyParse.stats.parsed}件 | 表示 ${weeklyRangeCount}件 | 不整合 ${weeklyInvalidCount}件 | 状態 ${weeklyError ?? "-"}`
     );
     lines.push(
-      `Monthly(${monthlyFetch.status}) API ${monthlyFetch.responseCount} | Parsed ${monthlyParse.stats.parsed} | Range ${monthlyRangeCount} | InvalidRow ${monthlyParse.stats.invalidRow} | InvalidTime ${monthlyParse.stats.invalidTime} | InvalidValue ${monthlyParse.stats.invalidValue} | Error ${monthlyError ?? "-"}`
+      `月足: 取得 ${monthlyFetch.responseCount}件 | 読取 ${monthlyParse.stats.parsed}件 | 表示 ${monthlyRangeCount}件 | 不整合 ${monthlyInvalidCount}件 | 状態 ${monthlyError ?? "-"}`
     );
     if (tradeWarningItems.length > 0) {
-      lines.push(`Trades warnings: ${tradeWarningItems.slice(0, 5).join(", ")}`);
+      lines.push(`取引履歴の注意: ${tradeWarningItems.slice(0, 5).join(", ")}`);
     }
     if (showInfoDetails && tradeInfoLines.length > 0) {
-      lines.push(`Trades info: ${tradeInfoLines.slice(0, 5).join(", ")}`);
+      lines.push(`取引履歴の補足: ${tradeInfoLines.slice(0, 5).join(", ")}`);
     }
     if (tradeWarnings.unrecognized_labels) {
       lines.push(
-        `Unrecognized labels ${tradeWarnings.unrecognized_labels.count} samples: ${tradeWarnings.unrecognized_labels.samples.join(", ")}`
+        `未確認ラベル ${tradeWarnings.unrecognized_labels.count} 件: ${tradeWarnings.unrecognized_labels.samples.join(", ")}`
       );
     }
     if (tradeErrors.length > 0) {
-      lines.push(`Trades errors: ${tradeErrors.slice(0, 3).join(", ")}`);
+      lines.push(`取引履歴の確認事項: ${tradeErrors.slice(0, 3).join(", ")}`);
     }
     return lines;
   }, [
     dailyFetch.status,
     dailyFetch.responseCount,
     dailyParse.stats.parsed,
-    dailyParse.stats.invalidRow,
-    dailyParse.stats.invalidTime,
-    dailyParse.stats.invalidValue,
+    dailyInvalidCount,
     dailyRangeCount,
     dailyError,
     weeklyFetch.status,
     weeklyFetch.responseCount,
     weeklyParse.stats.parsed,
-    weeklyParse.stats.invalidRow,
-    weeklyParse.stats.invalidTime,
-    weeklyParse.stats.invalidValue,
+    weeklyInvalidCount,
     weeklyRangeCount,
     weeklyError,
     monthlyFetch.status,
     monthlyFetch.responseCount,
     monthlyParse.stats.parsed,
-    monthlyParse.stats.invalidRow,
-    monthlyParse.stats.invalidTime,
-    monthlyParse.stats.invalidValue,
+    monthlyInvalidCount,
     monthlyRangeCount,
     monthlyError,
     tradeWarningItems,
@@ -4834,10 +4879,10 @@ export default function DetailView() {
   const loadMoreDisabled = loadingDaily || loadingMonthly || (!canLoadMoreDaily && !canLoadMoreMonthly);
   const loadMoreLabel =
     loadingDaily || loadingMonthly
-      ? "Loading..."
+      ? "読み込み中..."
       : canLoadMoreDaily || canLoadMoreMonthly
-        ? "Load more daily/monthly"
-        : "All loaded";
+        ? "日足・月足を追加読み込み"
+        : "すべて読込済み";
 
   const toggleRange = (months: number) => {
     setRangeMonths((prev) => (prev === months ? null : months));
@@ -4965,7 +5010,7 @@ export default function DetailView() {
       }
       await loadList();
       if (nextCode) {
-        navigate(`/detail/${nextCode}`, { state: { from: listBackPath } });
+        navigate(`/${detailRouteTarget}/${nextCode}`, { state: { from: listBackPath } });
       } else {
         navigate(listBackPath);
       }
@@ -5040,7 +5085,7 @@ export default function DetailView() {
 
   const dailyEmptyMessage =
     dailyCandles.length === 0
-      ? chartLifecycle.daily.message ?? (chartLifecycle.daily.status === "idle" ? "No data" : null)
+      ? chartLifecycle.daily.message ?? (chartLifecycle.daily.status === "idle" ? "表示できるデータがありません" : null)
       : null;
   const weeklyEmptyMessage =
     weeklyCandles.length === 0
@@ -5048,7 +5093,7 @@ export default function DetailView() {
       : null;
   const monthlyEmptyMessage =
     monthlyCandles.length === 0
-      ? chartLifecycle.monthly.message ?? (chartLifecycle.monthly.status === "idle" ? "No data" : null)
+      ? chartLifecycle.monthly.message ?? (chartLifecycle.monthly.status === "idle" ? "表示できるデータがありません" : null)
       : null;
   const chartNoticeKind = (status: string): ProductStateNoticeKind => {
     if (status === "loading") return "loading";
@@ -5060,11 +5105,12 @@ export default function DetailView() {
 
   const monthlyRatio = 1 - weeklyRatio;
   const focusTitle =
-    focusPanel === "daily" ? "Daily (Focused)" : focusPanel === "weekly" ? "Weekly (Focused)" : "Monthly (Focused)";
+    focusPanel === "daily" ? "日足（拡大）" : focusPanel === "weekly" ? "週足（拡大）" : "月足（拡大）";
   const listBackPath = useMemo(() => {
     const state = location.state as { from?: string } | null;
     return readDetailListBackPath(state);
   }, [location.state]);
+  const detailRouteTarget = location.pathname.startsWith("/detail-v2/") ? "detail-v2" : "detail";
   const listCodes = useMemo(() => {
     return readDetailListCodes();
   }, []);
@@ -5204,12 +5250,12 @@ export default function DetailView() {
           }
 
           if (!result.copied) {
-            setToastMessage("Screenshot clipboard write failed");
+            setToastMessage("スクショをクリップボードにコピーできませんでした。");
             setToastAction(null);
             return;
           }
 
-          setToastMessage("Screenshot copied to clipboard");
+          setToastMessage("スクショをコピーしました。");
           setToastAction(null);
         } finally {
           setScreenshotBusy(false);
@@ -5439,6 +5485,7 @@ export default function DetailView() {
                   asof: mainAsOf,
                   backendReady,
                   prefetchWaitMs: 120,
+                  targetRoute: detailRouteTarget,
                 });
               }}
               disabled={!prevCode}
@@ -5460,6 +5507,7 @@ export default function DetailView() {
                   asof: mainAsOf,
                   backendReady,
                   prefetchWaitMs: 120,
+                  targetRoute: detailRouteTarget,
                 });
               }}
               disabled={!nextCode}
@@ -5579,7 +5627,7 @@ export default function DetailView() {
                     {monthlyEmptyMessage && (
                       <ProductStateNotice
                         kind={chartNoticeKind(chartLifecycle.monthly.status)}
-                        prefix="Monthly"
+                        prefix="月足"
                         className="detail-chart-empty"
                       >
                         {monthlyEmptyMessage}
@@ -5636,15 +5684,15 @@ export default function DetailView() {
                       />
                     )}
                     {(compareLoading || compareChartPendingSwap) && compareMonthlyCandles.length === 0 && (
-                      <ProductStateNotice kind="loading" className="detail-chart-empty">Loading...</ProductStateNotice>
+                      <ProductStateNotice kind="loading" className="detail-chart-empty">読み込み中...</ProductStateNotice>
                     )}
                     {!compareLoading && !compareChartPendingSwap && compareMonthlyErrors.length > 0 && (
-                      <ProductStateNotice kind="error" prefix="Monthly" className="detail-chart-empty">
+                      <ProductStateNotice kind="error" prefix="月足" className="detail-chart-empty">
                         {compareMonthlyErrors[0]}
                       </ProductStateNotice>
                     )}
                     {!compareLoading && !compareChartPendingSwap && compareMonthlyErrors.length === 0 && compareMonthlyCandles.length === 0 && (
-                      <ProductStateNotice kind="empty" prefix="Monthly" className="detail-chart-empty">
+                      <ProductStateNotice kind="empty" prefix="月足" className="detail-chart-empty">
                         データがありません
                       </ProductStateNotice>
                     )}
@@ -5716,7 +5764,7 @@ export default function DetailView() {
                     {dailyEmptyMessage && (
                       <ProductStateNotice
                         kind={chartNoticeKind(chartLifecycle.daily.status)}
-                        prefix="Daily"
+                        prefix="日足"
                         className="detail-chart-empty"
                       >
                         {dailyEmptyMessage}
@@ -5783,12 +5831,12 @@ export default function DetailView() {
                       <ProductStateNotice kind="loading" className="detail-chart-empty">一致期間のデータを読み込み中...</ProductStateNotice>
                     )}
                     {!compareDailyLoading && !compareChartPendingSwap && compareDailyErrors.length > 0 && (
-                      <ProductStateNotice kind="error" prefix="Daily" className="detail-chart-empty">
+                      <ProductStateNotice kind="error" prefix="日足" className="detail-chart-empty">
                         {compareDailyErrors[0]}
                       </ProductStateNotice>
                     )}
                     {!compareDailyLoading && !compareChartPendingSwap && compareDailyErrors.length === 0 && compareDailyCandles.length === 0 && (
-                      <ProductStateNotice kind="empty" prefix="Daily" className="detail-chart-empty">
+                      <ProductStateNotice kind="empty" prefix="日足" className="detail-chart-empty">
                         データがありません
                       </ProductStateNotice>
                     )}
@@ -5975,7 +6023,7 @@ export default function DetailView() {
                 {focusPanel === "daily" && dailyEmptyMessage && (
                   <ProductStateNotice
                     kind={chartNoticeKind(chartLifecycle.daily.status)}
-                    prefix="Daily"
+                    prefix="日足"
                     className="detail-chart-empty"
                   >
                     {dailyEmptyMessage}
@@ -5987,7 +6035,7 @@ export default function DetailView() {
                 {focusPanel === "weekly" && weeklyEmptyMessage && (
                   <ProductStateNotice
                     kind={chartNoticeKind(chartLifecycle.weekly.status)}
-                    prefix="Weekly"
+                    prefix="週足"
                     className="detail-chart-empty"
                   >
                     {weeklyEmptyMessage}
@@ -5996,7 +6044,7 @@ export default function DetailView() {
                 {focusPanel === "monthly" && monthlyEmptyMessage && (
                   <ProductStateNotice
                     kind={chartNoticeKind(chartLifecycle.monthly.status)}
-                    prefix="Monthly"
+                    prefix="月足"
                     className="detail-chart-empty"
                   >
                     {monthlyEmptyMessage}
@@ -6007,7 +6055,7 @@ export default function DetailView() {
                   className="detail-focus-back"
                   onClick={() => setFocusPanel(null)}
                 >
-                  Back to 3 charts
+                  3画面に戻る
                 </button>
               </div>
             </div>
@@ -6015,7 +6063,7 @@ export default function DetailView() {
             <>
               <div className="detail-row detail-row-top" style={{ flex: `${DETAIL_DAILY_ROW_RATIO} 1 0%` }}>
                 <div className="detail-pane-header">
-                  <span>Daily</span>
+                  <span>日足</span>
                   <DataFreshnessBadges contract={detailDataFreshnessContract} scope="chart" timeframe="daily" compact />
                 </div>
                 <div
@@ -6081,7 +6129,7 @@ export default function DetailView() {
                   {dailyEmptyMessage && (
                     <ProductStateNotice
                       kind={chartNoticeKind(chartLifecycle.daily.status)}
-                      prefix="Daily"
+                      prefix="日足"
                       className="detail-chart-empty"
                     >
                       {dailyEmptyMessage}
@@ -6096,7 +6144,7 @@ export default function DetailView() {
               >
                 <div className="detail-pane" style={{ flex: `${weeklyRatio} 1 0%` }}>
                   <div className="detail-pane-header">
-                    <span>Weekly</span>
+                    <span>週足</span>
                     <DataFreshnessBadges contract={detailDataFreshnessContract} scope="chart" timeframe="weekly" compact />
                   </div>
                   <div
@@ -6145,14 +6193,14 @@ export default function DetailView() {
                         onVisibleRangeChange={handleWeeklyVisibleRangeChange}
                       />
                     ) : (
-                      <ProductStateNotice kind="loading" prefix="Weekly" className="detail-chart-empty">
+                      <ProductStateNotice kind="loading" prefix="週足" className="detail-chart-empty">
                         準備中...
                       </ProductStateNotice>
                     )}
                     {weeklyEmptyMessage && (
                       <ProductStateNotice
                         kind={chartNoticeKind(chartLifecycle.weekly.status)}
-                        prefix="Weekly"
+                        prefix="週足"
                         className="detail-chart-empty"
                       >
                         {weeklyEmptyMessage}
@@ -6167,7 +6215,7 @@ export default function DetailView() {
                 />
                 <div className="detail-pane" style={{ flex: `${monthlyRatio} 1 0%` }}>
                   <div className="detail-pane-header">
-                    <span>Monthly</span>
+                    <span>月足</span>
                     <DataFreshnessBadges contract={detailDataFreshnessContract} scope="chart" timeframe="monthly" compact />
                   </div>
                   <div
@@ -6216,14 +6264,14 @@ export default function DetailView() {
                         onVisibleRangeChange={handleMonthlyVisibleRangeChange}
                       />
                     ) : (
-                      <ProductStateNotice kind="loading" prefix="Monthly" className="detail-chart-empty">
+                      <ProductStateNotice kind="loading" prefix="月足" className="detail-chart-empty">
                         準備中...
                       </ProductStateNotice>
                     )}
                     {monthlyEmptyMessage && (
                       <ProductStateNotice
                         kind={chartNoticeKind(chartLifecycle.monthly.status)}
-                        prefix="Monthly"
+                        prefix="月足"
                         className="detail-chart-empty"
                       >
                         {monthlyEmptyMessage}
@@ -6365,7 +6413,7 @@ export default function DetailView() {
           </div>
           <div className="detail-footer-right">
             <div className="detail-hint">
-              Daily {dailyCandles.length} bars | Weekly {weeklyCandles.length} bars | Monthly {monthlyCandles.length} bars
+              日足 {dailyCandles.length}本 | 週足 {weeklyCandles.length}本 | 月足 {monthlyCandles.length}本
             </div>
             {aiExplainDockMounted && (
               <Suspense fallback={null}>

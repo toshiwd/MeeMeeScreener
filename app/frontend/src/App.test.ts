@@ -9,8 +9,11 @@ describe("shouldEnableAiExplainProvider", () => {
     expect(shouldEnableAiExplainProvider("/detail/8053")).toBe(true);
   });
 
-  it("does not initialize AI provider state for the lightweight detail v2 route", () => {
-    expect(shouldEnableAiExplainProvider("/detail-v2/8053")).toBe(false);
+  it("initializes AI provider state for detail v2 because it uses the full detail surface", () => {
+    expect(shouldEnableAiExplainProvider("/detail-v2/8053")).toBe(true);
+  });
+
+  it("does not initialize AI provider state for non-detail routes", () => {
     expect(shouldEnableAiExplainProvider("/favorites")).toBe(false);
     expect(shouldEnableAiExplainProvider("/market")).toBe(false);
   });

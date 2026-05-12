@@ -48,7 +48,7 @@ describe("detailChartLifecycle", () => {
     });
 
     expect(frame.status).toBe("empty");
-    expect(frame.message).toBe("No data");
+    expect(frame.message).toBe("表示できるデータがありません");
     expect(isDetailChartLifecycleSettled(frame)).toBe(true);
   });
 
@@ -145,6 +145,20 @@ describe("detailChartLifecycle", () => {
     });
 
     expect(frame.status).toBe("error");
-    expect(frame.message).toBe("Date parse failed 2");
+    expect(frame.message).toBe("日付を読み取れないデータがあります (2件)");
+  });
+
+  it("keeps cached candles visible while a refresh is still loading", () => {
+    const frame = resolveDetailChartLifecycleFrame({
+      ...baseFrame,
+      fetch: fetchState({ status: "loading", responseCount: 120 }),
+      candleCount: 120,
+      parseStats: parseStats({ total: 120, parsed: 120 }),
+      loading: true,
+      pendingSwap: true,
+    });
+
+    expect(frame.status).toBe("ready");
+    expect(frame.message).toBeNull();
   });
 });

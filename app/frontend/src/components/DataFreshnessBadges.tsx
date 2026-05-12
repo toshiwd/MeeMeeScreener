@@ -3,6 +3,7 @@ import {
   getChartArea,
   normalizeMeeMeeDataFreshnessContract,
   shouldShowResearchOnlyWarning,
+  type DataFreshnessBadgeItem,
   type DataFreshnessTimeframe,
   type MeeMeeDataFreshnessContract,
 } from "../dataFreshnessContract";
@@ -12,6 +13,25 @@ type Props = {
   scope: "ranking" | "detail" | "chart";
   timeframe?: DataFreshnessTimeframe;
   compact?: boolean;
+};
+
+const compactVisibleKeys = new Set(["classification", "status", "freshness"]);
+
+const filterCompactItems = (items: DataFreshnessBadgeItem[]) =>
+  items.filter((item) => {
+    if (!compactVisibleKeys.has(item.key)) return false;
+    if (item.tone === "ok") return false;
+    return true;
+  });
+
+const dedupeBadgeItems = (items: DataFreshnessBadgeItem[]) => {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = `${item.tone}:${item.label}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 };
 
 export default function DataFreshnessBadges({
@@ -27,11 +47,14 @@ export default function DataFreshnessBadges({
       : scope === "detail"
         ? normalized.detail
         : getChartArea(normalized, timeframe);
-  const items = buildDataFreshnessBadgeItems(area);
+  const items = dedupeBadgeItems(
+    compact ? filterCompactItems(buildDataFreshnessBadgeItems(area)) : buildDataFreshnessBadgeItems(area)
+  );
+  if (compact && items.length === 0) return null;
   if (shouldShowResearchOnlyWarning(area)) {
     return (
       <span className={`data-freshness-badges ${compact ? "is-compact" : ""}`}>
-        <span className="data-freshness-badge is-error">internal source blocked</span>
+        <span className="data-freshness-badge is-error">通常表示対象外</span>
       </span>
     );
   }

@@ -40,7 +40,7 @@ describe("formatTxtUpdateStatusLabel", () => {
     expect(formatTxtUpdateStatusLabel("canceled")).toBe("TXT更新: キャンセル");
   });
 
-  it("returns passthrough for unknown statuses", () => {
-    expect(formatTxtUpdateStatusLabel("queued_custom")).toBe("TXT更新: queued_custom");
+  it("returns a generic user-facing label for unknown statuses", () => {
+    expect(formatTxtUpdateStatusLabel("queued_custom")).toBe("TXT更新: 状態確認中");
   });
 });

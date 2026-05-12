@@ -8,6 +8,12 @@ import { useStore } from "../store";
 import { saveBlobToFile } from "../utils/windowScreenshot";
 
 const WAIT_FRAMES = 20; // Increased for chart rendering
+const SCREENSHOT_TARGET_MISSING_MESSAGE = "スクショ対象がありません。";
+const SCREENSHOT_DATA_LOAD_FAILED_MESSAGE = "チャートデータを取得できませんでした。";
+const SCREENSHOT_CAPTURE_FAILED_MESSAGE = "スクショの画像生成に失敗しました。";
+const SCREENSHOT_SAVE_FAILED_MESSAGE = "スクショの保存に失敗しました。";
+const SCREENSHOT_SAVE_TIMEOUT_MESSAGE = "スクショの保存に時間がかかりすぎています。";
+const SCREENSHOT_GENERIC_FAILED_MESSAGE = "スクショ作成中に問題が発生しました。";
 
 // Helper to wait for frames
 const waitForFrames = (count: number) => {
@@ -36,7 +42,7 @@ export const useConsultScreenshot = () => {
     const showBoxes = settings.showBoxes;
 
     const generateScreenshots = useCallback(async (codes: string[]) => {
-        if (codes.length === 0) return { success: false, error: "No codes specified" };
+        if (codes.length === 0) return { success: false, error: SCREENSHOT_TARGET_MISSING_MESSAGE };
 
         setIsProcessing(true);
         setProgress({ current: 0, total: codes.length });
@@ -97,7 +103,7 @@ export const useConsultScreenshot = () => {
                     const monthlyPayload = barsItem?.monthly;
 
                     if (!dailyPayload || !weeklyPayload || !monthlyPayload) {
-                        throw new Error("Failed to fetch bars data");
+                        throw new Error(SCREENSHOT_DATA_LOAD_FAILED_MESSAGE);
                     }
 
                     // Helper to parse candles from bars array
@@ -201,7 +207,7 @@ export const useConsultScreenshot = () => {
                         });
                     } catch (err) {
                         console.error("html2canvas failed:", err);
-                        lastError = "Capture failed: " + String(err);
+                        lastError = SCREENSHOT_CAPTURE_FAILED_MESSAGE;
                         continue;
                     }
 
@@ -217,7 +223,7 @@ export const useConsultScreenshot = () => {
                             // Add timeout to prevent infinite hang
                             const savePromise = saveBlobToFile(blob, filename);
                             const timeoutPromise = new Promise<never>((_, reject) =>
-                                setTimeout(() => reject(new Error("Save timeout")), 15000)
+                                setTimeout(() => reject(new Error(SCREENSHOT_SAVE_TIMEOUT_MESSAGE)), 15000)
                             );
 
                             const res = await Promise.race([savePromise, timeoutPromise]);
@@ -227,22 +233,22 @@ export const useConsultScreenshot = () => {
                                 if (res.savedDir) lastSavedDir = res.savedDir;
                             } else {
                                 console.error("Save failed:", res.error);
-                                lastError = res.error || "Save failed";
+                                lastError = res.error || SCREENSHOT_SAVE_FAILED_MESSAGE;
                             }
                         } catch (e: any) {
                             console.error("Save exception:", e);
-                            lastError = e.message;
+                            lastError = e?.message || SCREENSHOT_SAVE_FAILED_MESSAGE;
                         }
                     }
                 } catch (e: any) {
                     console.error(`Error processing code ${code}:`, e);
-                    if (!lastError) lastError = `Error with ${code}: ${e.message || String(e)}`;
+                    if (!lastError) lastError = `${code} のスクショ作成に失敗しました。`;
                 }
             }
 
         } catch (e: any) {
             console.error("Global screenshot error:", e);
-            lastError = e.message;
+            lastError = e?.message || SCREENSHOT_GENERIC_FAILED_MESSAGE;
         } finally {
             setIsProcessing(false);
             setProgress(null);

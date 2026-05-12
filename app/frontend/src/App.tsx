@@ -125,6 +125,7 @@ export const shouldEnableAiExplainProvider = (pathname: string) => {
   if (pathname === "/") return true;
   if (pathname === "/ranking") return true;
   if (pathname.startsWith("/detail/")) return true;
+  if (pathname.startsWith("/detail-v2/")) return true;
   return false;
 };
 

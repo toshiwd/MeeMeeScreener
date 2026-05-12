@@ -8,6 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test:e2e": "playwright test",
+    "test:e2e:runtime-menu": "playwright test e2e/meemee-runtime-menu.spec.ts",
     "test:e2e:meemee-boundary": "playwright test --project=chromium e2e/meemee-boundary.vrt.spec.ts",
     "test:e2e:real": "playwright test e2e/ops-publish.real-backend.smoke.spec.ts",
     "test": "vitest run --config vitest.config.ts",

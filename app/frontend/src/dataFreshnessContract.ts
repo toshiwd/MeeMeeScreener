@@ -200,20 +200,26 @@ const stateTone = (state: DataFreshnessState | DataFreshnessStatus): DataFreshne
 };
 
 export const classificationLabel = (classification: DataFreshnessClassification) => {
-  if (classification === "mixed") return "mixed / partly provisional";
-  if (classification === "research-only") return "internal only";
-  return classification;
+  if (classification === "confirmed") return "確定";
+  if (classification === "provisional") return "暫定";
+  if (classification === "mixed") return "一部暫定";
+  if (classification === "research-only") return "研究用";
+  return "未確認";
 };
 
 const freshnessLabel = (state: DataFreshnessState) => {
-  if (state === "missing") return "freshness missing";
-  if (state === "error") return "freshness error";
-  return state;
+  if (state === "fresh") return "最新";
+  if (state === "stale") return "更新確認";
+  if (state === "error") return "確認エラー";
+  return "未確認";
 };
 
 const statusLabel = (status: DataFreshnessStatus) => {
-  if (status === "missing") return "status missing";
-  return status;
+  if (status === "ready") return "表示可";
+  if (status === "loading") return "読込中";
+  if (status === "empty") return "データなし";
+  if (status === "error") return "確認エラー";
+  return "未確認";
 };
 
 export const buildDataFreshnessBadgeItems = (
@@ -241,14 +247,14 @@ export const buildDataFreshnessBadgeItems = (
   if ("right_edge_date" in area && area.right_edge_date) {
     items.push({
       key: "right-edge",
-      label: `right edge ${area.right_edge_date}`,
+      label: `右端 ${area.right_edge_date}`,
       tone: "muted",
     });
   }
   if ("snapshot_as_of" in area && area.snapshot_as_of) {
     items.push({
       key: "snapshot",
-      label: `asOf ${area.snapshot_as_of}`,
+      label: `基準日 ${area.snapshot_as_of}`,
       tone: "muted",
     });
   }

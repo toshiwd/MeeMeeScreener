@@ -306,8 +306,8 @@ describe("DetailChart MeeMee chrome", () => {
     const legend = render.container.querySelector("[data-testid='detail-chart-legend']");
     expect(chip).toBeNull();
     expect(legend).not.toBeNull();
-    expect(legend?.textContent).toContain("Date");
-    expect(legend?.textContent).toContain("Close");
+    expect(legend?.textContent).toContain("日付");
+    expect(legend?.textContent).toContain("終値");
     expect(legend?.textContent).toContain("MA5");
 
     render.cleanup();
@@ -415,6 +415,55 @@ describe("DetailChart MeeMee chrome", () => {
     });
 
     expect(render.container.querySelector("[data-testid='detail-chart-date-chip']")).toBeNull();
+
+    render.cleanup();
+  });
+
+  it("applies the visible range when data arrives after an empty first render", async () => {
+    const range = {
+      from: baseCandles[0].time,
+      to: baseCandles[baseCandles.length - 1].time
+    };
+    const render = await renderClient(
+      <DetailChart
+        candles={[]}
+        volume={[]}
+        maLines={[]}
+        showVolume={false}
+        boxes={[]}
+        showBoxes={false}
+        visibleRange={range}
+        meeMeeDetailChrome={{ timeframe: "weekly" }}
+      />
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const chart = chartMocks[0];
+    expect(chart.timeScaleApi.setVisibleRange).not.toHaveBeenCalled();
+
+    await act(async () => {
+      render.root.render(
+        <DetailChart
+          candles={baseCandles}
+          volume={baseVolume}
+          maLines={baseMaLines}
+          showVolume={false}
+          boxes={[]}
+          showBoxes={false}
+          visibleRange={range}
+          meeMeeDetailChrome={{ timeframe: "weekly" }}
+        />
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(chart.candlestickSeries.setData).toHaveBeenLastCalledWith(baseCandles);
+    expect(chart.timeScaleApi.setVisibleRange).toHaveBeenCalledWith(range);
 
     render.cleanup();
   });

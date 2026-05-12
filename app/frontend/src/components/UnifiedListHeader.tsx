@@ -4,6 +4,7 @@ import TopNav from "./TopNav";
 import { useStore } from "../store";
 import { DENSITY_PRESET_OPTIONS, type DensityPreset } from "../density";
 import { formatEventDateYmd, parseEventDateMs } from "../utils/events";
+import { formatUserFacingOperationIssue } from "../utils/userFacingErrors";
 
 type ListTimeframe = "monthly" | "weekly" | "daily";
 
@@ -135,6 +136,11 @@ export default function UnifiedListHeader({
     const oldest = candidates.reduce((prev, next) => (next.ms < prev.ms ? next : prev));
     return formatEventDateYmd(oldest.value);
   }, [eventsEarningsLastSuccessAt, eventsRightsLastSuccessAt]);
+
+  const eventsLastIssueLabel = useMemo(
+    () => formatUserFacingOperationIssue(eventsLastError),
+    [eventsLastError]
+  );
 
   const rightsCoverageLabel = useMemo(() => {
     const maxMs = parseEventDateMs(eventsRightsMaxDate);
@@ -515,9 +521,9 @@ export default function UnifiedListHeader({
             <span className="event-meta-status">
               状態: {eventsRefreshing ? "更新中" : "待機中"}
             </span>
-            {eventsLastError && (
-              <span className="event-meta-error" title={eventsLastError}>
-                エラー: {eventsLastError}
+            {eventsLastIssueLabel && (
+              <span className="event-meta-error" title={eventsLastIssueLabel}>
+                確認: {eventsLastIssueLabel}
               </span>
             )}
             <span className="event-meta-last">

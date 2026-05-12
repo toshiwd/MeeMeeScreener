@@ -45,14 +45,14 @@ export default function DetailDebugBanner({
       {debugOpen && (
         <div className="detail-debug-panel">
           <div className="detail-debug-header">
-            <div className="detail-debug-title">Debug Details</div>
+            <div className="detail-debug-title">確認詳細</div>
             <div className="detail-debug-actions">
               <button
                 type="button"
                 className="detail-debug-copy"
                 onClick={onCopy}
-                title="Copy"
-                aria-label="Copy"
+                title="コピー"
+                aria-label="コピー"
               >
                 <IconCopy size={16} />
               </button>
@@ -61,14 +61,14 @@ export default function DetailDebugBanner({
                 className="detail-debug-info-toggle"
                 onClick={onToggleInfoDetails}
               >
-                {showInfoDetails ? "Info: ON" : "Info: OFF"}
+                {showInfoDetails ? "補足: 表示" : "補足: 非表示"}
               </button>
               <button
                 type="button"
                 className="detail-debug-close"
                 onClick={onClose}
               >
-                Close
+                閉じる
               </button>
             </div>
           </div>
@@ -79,7 +79,7 @@ export default function DetailDebugBanner({
           </div>
           {copyFallbackText && (
             <div className="detail-debug-fallback">
-              <div className="detail-debug-fallback-title">Copy failed</div>
+              <div className="detail-debug-fallback-title">コピーできませんでした</div>
               <textarea readOnly value={copyFallbackText} />
             </div>
           )}

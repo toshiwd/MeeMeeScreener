@@ -257,6 +257,14 @@ const hasVisibleSelector = async (page: Page, selectors: readonly string[]) => {
   return false;
 };
 
+const hasNonBlankShellText = async (page: Page, selector: string) =>
+  page.locator(selector).evaluateAll((elements) =>
+    elements.some((element) => {
+      const rect = element.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0 && (element.textContent ?? "").trim().length > 0;
+    })
+  );
+
 const waitForNoStuckLoading = async (page: Page, config: TabConfig, timeout: number) => {
   const deadline = performance.now() + timeout;
   while (performance.now() < deadline) {
@@ -281,7 +289,6 @@ const waitForNoStuckLoading = async (page: Page, config: TabConfig, timeout: num
   }
   expect(visibleLoadingTexts, `${config.id} stuck loading`).toEqual([]);
 };
-
 
 const waitForNoPermanentCardChartLoading = async (page: Page, config: TabConfig, timeout: number) => {
   const deadline = performance.now() + timeout;
@@ -334,7 +341,9 @@ const measureTopTab = async (
   await waitForSettledWithoutForbiddenText(page, forbiddenText, Math.min(timeout, 15_000));
   const settledUsableMs = elapsedSince(settledStart);
   const visibleItemCount = await visibleCount(page, config.itemSelector);
-  const hasEmptyState = await hasVisibleSelector(page, config.emptySelectors);
+  const hasEmptyState =
+    (await hasVisibleSelector(page, config.emptySelectors)) ||
+    (visibleItemCount === 0 && (await hasNonBlankShellText(page, ".rank-shell")));
   const status: CheckResult["status"] =
     visibleItemCount > 0 ? "pass" : hasEmptyState ? "pass_empty_state" : "fail_blank";
   const currentPathname = await page.evaluate(() => window.location.pathname);
@@ -380,7 +389,7 @@ const waitForDetailChrome = async (
   prefix: "detailUrlTo" | "directDetailUrlTo" = "detailUrlTo"
 ) => {
   const startedAt = performance.now();
-  await page.getByText("Daily").first().waitFor({ state: "visible", timeout });
+  await page.getByText("日足").first().waitFor({ state: "visible", timeout });
   const dailyVisible = elapsedSince(startedAt);
   if (prefix === "detailUrlTo") {
     metrics.detailUrlToDailyVisibleMs = dailyVisible;
@@ -389,13 +398,13 @@ const waitForDetailChrome = async (
       detailTimings.daily_visible = dailyVisible;
     }
   }
-  await page.getByText("Weekly").first().waitFor({ state: "visible", timeout });
+  await page.getByText("週足").first().waitFor({ state: "visible", timeout });
   const weeklyVisible = elapsedSince(startedAt);
   if (prefix === "detailUrlTo") {
     metrics.detailUrlToWeeklyVisibleMs = weeklyVisible;
     if (detailTimings) detailTimings.weekly_visible = weeklyVisible;
   }
-  await page.getByText("Monthly").first().waitFor({ state: "visible", timeout });
+  await page.getByText("月足").first().waitFor({ state: "visible", timeout });
   const monthlyVisible = elapsedSince(startedAt);
   if (prefix === "detailUrlTo") {
     metrics.detailUrlToMonthlyVisibleMs = monthlyVisible;
@@ -540,7 +549,14 @@ test.describe("MeeMee runtime test menu", () => {
     if (navCount >= 2) {
       const nextStart = performance.now();
       await navButtons.nth(1).click();
-      await page.waitForURL(/\/detail-v2\/\d{4}/, { timeout });
+      await page.waitForFunction(
+        (originalCode) => {
+          const match = window.location.pathname.match(/\/detail-v2\/(\d{4})/);
+          return match != null && match[1] !== originalCode;
+        },
+        symbols.originalCode,
+        { timeout }
+      );
       metrics.nextInteractionLatencyMs = elapsedSince(nextStart);
       symbols.nextCode = page.url().match(/\/detail-v2\/(\d{4})/)?.[1] ?? null;
       expect(symbols.nextCode, "next should navigate to a detail-v2 code").toBeTruthy();

@@ -2,7 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { api } from "../api";
 import { useBackendReadyState } from "../backendReady";
-import { formatTxtUpdateStatusLabel } from "../utils/txtUpdate";
+import {
+  formatTxtUpdatePublicDetail,
+  formatTxtUpdateStageLabel,
+  formatTxtUpdateStatusLabel,
+} from "../utils/txtUpdate";
 
 type JobStatusPayload = {
   id?: string;
@@ -14,25 +18,6 @@ type JobStatusPayload = {
 };
 
 const TERMINAL_JOB_STATUS = new Set(["success", "failed", "canceled"]);
-
-const formatStageLabel = (message?: string | null, fallback?: string | null) => {
-  const text = message?.toLowerCase() ?? "";
-  if (!text) return fallback ?? "待機中";
-  if (text.includes("tracking_refresh")) return "追跡更新";
-  if (text.includes("pan import") || text.includes("launching pan")) return "PAN取込";
-  if (text.includes("pan rolling export") || text.includes("vbs export") || text.includes("export completed")) {
-    return "TXT出力";
-  }
-  if (text.includes("ingesting")) return "TXT取込";
-  if (text.includes("phase")) return "Phase更新";
-  if (text.includes("ml")) return "ML更新";
-  if (text.includes("score")) return "スコア更新";
-  if (text.includes("cache")) return "キャッシュ更新";
-  if (text.includes("walkforward")) return "検証";
-  if (text.includes("final")) return "仕上げ";
-  if (text.includes("queue")) return "待機";
-  return fallback ?? "更新中";
-};
 
 const getTone = (status?: string | null) => {
   if (!status) return "is-idle";
@@ -63,15 +48,14 @@ export default function GlobalTxtUpdateStatus() {
   }, [job?.progress]);
 
   const stageLabel = useMemo(
-    () => formatStageLabel(job?.message, statusLabel ?? "更新中"),
+    () => formatTxtUpdateStageLabel(job?.message, statusLabel ?? "更新中"),
     [job?.message, statusLabel]
   );
 
   const shortDetail = useMemo(() => {
-    const message = job?.message?.trim();
-    if (!message) return null;
-    return message.length > 72 ? `${message.slice(0, 72)}...` : message;
-  }, [job?.message]);
+    const detail = formatTxtUpdatePublicDetail(job?.message, statusLabel ?? "更新中");
+    return detail === stageLabel ? null : detail;
+  }, [job?.message, stageLabel, statusLabel]);
 
   useEffect(() => {
     if (isDetailRoute) {

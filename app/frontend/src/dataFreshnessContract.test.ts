@@ -29,7 +29,7 @@ describe("data freshness contract parser", () => {
 
     expect(contract.ranking.snapshot_as_of).toBe("2026-04-20");
     expect(contract.ranking.classification).toBe("confirmed");
-    expect(buildDataFreshnessBadgeItems(contract.ranking).map((item) => item.label)).toContain("fresh");
+    expect(buildDataFreshnessBadgeItems(contract.ranking).map((item) => item.label)).toContain("最新");
   });
 
   it("labels provisional and mixed chart data as warning-class display states", () => {
@@ -52,12 +52,12 @@ describe("data freshness contract parser", () => {
     const dailyBadges = buildDataFreshnessBadgeItems(contract.charts.daily);
     expect(dailyBadges).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ label: "mixed / partly provisional", tone: "warn" }),
-        expect.objectContaining({ label: "stale", tone: "warn" }),
+        expect.objectContaining({ label: "一部暫定", tone: "warn" }),
+        expect.objectContaining({ label: "更新確認", tone: "warn" }),
       ])
     );
     expect(buildDataFreshnessBadgeItems(contract.charts.weekly)).toContainEqual(
-      expect.objectContaining({ label: "provisional", tone: "warn" })
+      expect.objectContaining({ label: "暫定", tone: "warn" })
     );
   });
 
@@ -77,12 +77,12 @@ describe("data freshness contract parser", () => {
     });
 
     expect(buildDataFreshnessBadgeItems(contract.detail)).toContainEqual(
-      expect.objectContaining({ label: "empty", tone: "muted" })
+      expect.objectContaining({ label: "データなし", tone: "muted" })
     );
     expect(buildDataFreshnessBadgeItems(contract.charts.monthly)).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ label: "error", tone: "error" }),
-        expect.objectContaining({ label: "freshness error", tone: "error" }),
+        expect.objectContaining({ label: "確認エラー", tone: "error" }),
+        expect.objectContaining({ label: "確認エラー", tone: "error" }),
       ])
     );
   });
@@ -97,7 +97,7 @@ describe("data freshness contract parser", () => {
 
     expect(shouldShowResearchOnlyWarning(contract.detail)).toBe(true);
     expect(buildDataFreshnessBadgeItems(contract.detail)).toContainEqual(
-      expect.objectContaining({ label: "internal only", tone: "error" })
+      expect.objectContaining({ label: "研究用", tone: "error" })
     );
   });
 });

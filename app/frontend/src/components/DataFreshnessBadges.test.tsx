@@ -47,15 +47,15 @@ describe("DataFreshnessBadges", () => {
 
     const view = render(<DataFreshnessBadges contract={contract} scope="chart" timeframe="daily" />);
 
-    expect(view.textContent).toContain("mixed / partly provisional");
-    expect(view.textContent).toContain("stale");
-    expect(view.textContent).not.toContain("confirmed");
+    expect(view.textContent).toContain("一部暫定");
+    expect(view.textContent).toContain("更新確認");
+    expect(view.textContent).not.toContain("確定");
   });
 
   it("renders absent contracts as unavailable/missing without crashing", () => {
     const view = render(<DataFreshnessBadges contract={null} scope="ranking" />);
 
-    expect(view.textContent).toContain("missing");
+    expect(view.textContent).toContain("未確認");
   });
 
   it("blocks research-only from normal product labeling", () => {
@@ -68,6 +68,6 @@ describe("DataFreshnessBadges", () => {
 
     const view = render(<DataFreshnessBadges contract={contract} scope="detail" />);
 
-    expect(view.textContent).toContain("internal source blocked");
+    expect(view.textContent).toContain("通常表示対象外");
   });
 });

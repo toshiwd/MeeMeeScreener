@@ -25,7 +25,7 @@ const routeImporters: Record<RouteKey, () => Promise<RouteModule>> = {
   "/market": () => import("./routes/MarketView"),
   "/ranking/tracking": () => import("./routes/TrackingView"),
   "/detail/:code": () => import("./routes/DetailView"),
-  "/detail-v2/:code": () => import("./routes/DetailV2View"),
+  "/detail-v2/:code": () => import("./routes/DetailView"),
   "/practice/:code": () => import("./routes/PracticeView"),
 };
 

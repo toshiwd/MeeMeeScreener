@@ -114,7 +114,7 @@ export const OffscreenDetailView = ({
                         <IconButton icon={<IconPointer size={18} />} label="カーソル ON" variant="iconLabel" selected={true} onClick={noop} />
                     </div>
                     <div className="detail-controls-group detail-controls-icons">
-                        <IconButton label="Indicators" icon={<IconAdjustments size={18} />} onClick={noop} />
+                        <IconButton label="表示" icon={<IconAdjustments size={18} />} onClick={noop} />
                         <IconButton label="スクショ" icon={<IconCamera size={18} />} onClick={noop} />
                         <IconButton label="AI出力" icon={<IconSparkles size={18} />} onClick={noop} />
                     </div>
@@ -123,7 +123,7 @@ export const OffscreenDetailView = ({
 
             <div className="detail-content">
                 <div className="detail-row detail-row-top" style={{ flex: `${DAILY_ROW_RATIO} 1 0%` }}>
-                    <div className="detail-pane-header">Daily</div>
+                    <div className="detail-pane-header">日足</div>
                     <div className="detail-chart">
                         <DetailChart
                             candles={dailyCandles}
@@ -141,7 +141,7 @@ export const OffscreenDetailView = ({
                                 hoverTime: null,
                             }}
                         />
-                        {/* DailyMemoPanel as Left/Overlay Box */}
+                        {/* スクショ用のメモ表示位置を固定する。 */}
                         <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, zIndex: 20 }}>
                             <DailyMemoPanel
                                 code={code}
@@ -159,7 +159,7 @@ export const OffscreenDetailView = ({
                 </div>
                 <div className="detail-row detail-row-bottom" style={{ flex: `${1 - DAILY_ROW_RATIO} 1 0%` }}>
                     <div className="detail-pane" style={{ flex: '1 1 0%' }}>
-                        <div className="detail-pane-header">Monthly</div>
+                        <div className="detail-pane-header">月足</div>
                         <div className="detail-chart">
                             <DetailChart
                                 candles={monthlyCandles}
@@ -177,7 +177,7 @@ export const OffscreenDetailView = ({
             <div className="detail-footer">
                 <div className="detail-footer-left"></div>
                 <div className="detail-hint">
-                    Daily {dailyCandles.length} bars | Monthly {monthlyCandles.length} bars
+                    日足 {dailyCandles.length}本 | 月足 {monthlyCandles.length}本
                 </div>
             </div>
         </div>

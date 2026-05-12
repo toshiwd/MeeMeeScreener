@@ -23,6 +23,9 @@ export default function StartupOverlay({
   onRetry
 }: StartupOverlayProps) {
   const isError = Boolean(error);
+  const userErrorMessage = lastRequest
+    ? "MeeMeeの起動確認に失敗しました。再試行してください。"
+    : error;
   const elapsedSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
   const progress = Math.min(0.9, elapsedMs / 60000);
   const progressPct = `${Math.round(progress * 100)}%`;
@@ -92,7 +95,7 @@ export default function StartupOverlay({
 
         {isError && (
           <div className="startup-error">
-            <div className="startup-error-message">{error}</div>
+            <div className="startup-error-message">{userErrorMessage}</div>
             <div className="startup-error-actions">
               <button type="button" className="startup-retry" onClick={onRetry}>
                 再試行
@@ -102,17 +105,8 @@ export default function StartupOverlay({
               </button>
             </div>
             {lastRequest && (
-              <div className="startup-error-grid">
-                <div className="startup-error-label">Endpoint</div>
-                <div className="startup-error-value">{lastRequest.url}</div>
-                <div className="startup-error-label">Method</div>
-                <div className="startup-error-value">{lastRequest.method}</div>
-                <div className="startup-error-label">Status</div>
-                <div className="startup-error-value">{lastRequest.status ?? "--"}</div>
-                <div className="startup-error-label">Request ID</div>
-                <div className="startup-error-value">{lastRequest.requestId ?? "--"}</div>
-                <div className="startup-error-label">Response</div>
-                <pre className="startup-error-response">{lastRequest.response ?? "--"}</pre>
+              <div className="startup-error-note">
+                詳細な接続情報は「詳細をコピー」に含めています。
               </div>
             )}
             {errorDetails && !lastRequest && (

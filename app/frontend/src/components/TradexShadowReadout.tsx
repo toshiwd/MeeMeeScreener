@@ -34,27 +34,22 @@ export default function TradexShadowReadout({ className, variant = "ranking" }: 
     .filter(Boolean)
     .join(" ");
 
-  if (shadow.unavailable) {
-    return (
-      <div className={rootClassName} data-testid="tradex-shadow-readout" aria-label="R2 shadow unavailable">
-        <Badge tone="warn">shadow unavailable</Badge>
-      </div>
-    );
-  }
+  if (shadow.unavailable) return null;
 
   if (!shadow.isReady) return null;
 
-  const acceptanceLabel = shadow.adoptionReadiness?.replaceAll("_", "-") ?? "shadow-only";
-  const compareMethodLabel = shadow.compareMethod ?? "boundary_local_rerank";
+  const readinessLabel =
+    shadow.adoptionReadiness === "ready"
+      ? "確認済み"
+      : shadow.adoptionReadiness
+        ? "確認中"
+        : null;
 
   return (
-    <div className={rootClassName} data-testid="tradex-shadow-readout" aria-label="R2 shadow active">
-      <Badge tone="ok">R2 shadow: ON</Badge>
-      <Badge tone="neutral">acceptance: {acceptanceLabel}</Badge>
-      <Badge tone="neutral">method: {compareMethodLabel}</Badge>
-      <Badge tone={shadow.outsideTop20Locked === true ? "ok" : "warn"}>
-        outside_top20_locked: {shadow.outsideTop20Locked === true ? "true" : "false"}
-      </Badge>
+    <div className={rootClassName} data-testid="tradex-shadow-readout" aria-label="検証表示が有効">
+      <Badge tone="ok">検証表示: 有効</Badge>
+      {readinessLabel && <Badge tone="neutral">状態: {readinessLabel}</Badge>}
+      {shadow.outsideTop20Locked === false && <Badge tone="warn">表示範囲を確認</Badge>}
     </div>
   );
 }

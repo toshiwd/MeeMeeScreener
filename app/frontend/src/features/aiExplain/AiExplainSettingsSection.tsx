@@ -119,7 +119,7 @@ export default function AiExplainSettingsSection() {
           />
         </label>
         <label className="ai-explain-field ai-explain-field-wide">
-          <span className="popover-hint">Endpoint</span>
+          <span className="popover-hint">接続先URL</span>
           <input
             className="popover-input"
             type="text"
@@ -129,7 +129,7 @@ export default function AiExplainSettingsSection() {
           />
         </label>
         <label className="ai-explain-field">
-          <span className="popover-hint">Model</span>
+          <span className="popover-hint">モデル名</span>
           <input
             className="popover-input"
             type="text"

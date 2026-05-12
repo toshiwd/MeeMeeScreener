@@ -9,12 +9,12 @@ export type ApiErrorInfo = {
 
 export const formatApiErrorText = (info: ApiErrorInfo) => {
   const lines = [
-    `Endpoint: ${info.url}`,
-    `Method: ${info.method}`,
-    `Status: ${info.status ?? "unknown"}`,
-    `Response: ${info.response ?? "unknown"}`,
-    `Request ID: ${info.requestId ?? "unknown"}`,
-    `Time: ${info.time}`
+    `接続先: ${info.url}`,
+    `方法: ${info.method}`,
+    `状態: ${info.status ?? "unknown"}`,
+    `応答: ${info.response ?? "unknown"}`,
+    `リクエストID: ${info.requestId ?? "unknown"}`,
+    `時刻: ${info.time}`
   ];
   return lines.join("\n");
 };
