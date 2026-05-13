@@ -77,12 +77,15 @@ def test_percent_rank_desc_tie_and_missing() -> None:
     assert ranks["A"] > ranks["C"]
 
 
-def test_get_rankings_rule_mode_backward_compatible() -> None:
+def test_get_rankings_rule_mode_backward_compatible(monkeypatch) -> None:
     now = datetime.now(timezone.utc)
+    rankings_cache._RESULT_CACHE = {}  # type: ignore[attr-defined]
+    rankings_cache._RESULT_CACHE_GENERATION = 0  # type: ignore[attr-defined]
     rankings_cache._CACHE = {  # type: ignore[attr-defined]
         ("D", "latest", "up"): [{"code": "1111", "changePct": 0.1}],
     }
     rankings_cache._LAST_UPDATED = now  # type: ignore[attr-defined]
+    monkeypatch.setattr(rankings_cache, "_ensure_cache_fresh_stale_ok", lambda key: None)
     result = rankings_cache.get_rankings("D", "latest", "up", 50, mode="rule")
     assert result["mode"] == "rule"
     assert result["items"][0]["code"] == "1111"

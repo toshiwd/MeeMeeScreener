@@ -7425,30 +7425,6 @@ def _get_cached_rankings_response(
     risk_mode: RankRiskMode,
     include_provisional: bool = False,
 ) -> dict[str, Any]:
-    (
-        last_updated_key,
-        db_path_key,
-        legacy_disabled_key,
-        edinet_flag_key,
-        current_ymd_key,
-        provisional_key,
-        provisional_bucket_key,
-    ) = _current_result_cache_variant(include_provisional=include_provisional)
-    result_key: RankResultCacheKey = (
-        tf,
-        which,
-        direction,
-        mode,
-        risk_mode,
-        limit,
-        last_updated_key,
-        db_path_key,
-        legacy_disabled_key,
-        edinet_flag_key,
-        current_ymd_key,
-        provisional_key,
-        provisional_bucket_key,
-    )
     base_cache_key: RankBaseCacheKey = (tf, which, direction)
     cold_started_at = time.perf_counter()
     freshness_wait_ms = 0.0
@@ -7456,6 +7432,30 @@ def _get_cached_rankings_response(
         freshness_started_at = time.perf_counter()
         _ensure_cache_fresh_stale_ok(key=base_cache_key)
         freshness_wait_ms += round((time.perf_counter() - freshness_started_at) * 1000.0, 3)
+        (
+            last_updated_key,
+            db_path_key,
+            legacy_disabled_key,
+            edinet_flag_key,
+            current_ymd_key,
+            provisional_key,
+            provisional_bucket_key,
+        ) = _current_result_cache_variant(include_provisional=include_provisional)
+        result_key: RankResultCacheKey = (
+            tf,
+            which,
+            direction,
+            mode,
+            risk_mode,
+            limit,
+            last_updated_key,
+            db_path_key,
+            legacy_disabled_key,
+            edinet_flag_key,
+            current_ymd_key,
+            provisional_key,
+            provisional_bucket_key,
+        )
         with _LOCK:
             cached = _RESULT_CACHE.get(result_key)
             if cached is not None:

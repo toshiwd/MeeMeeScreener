@@ -2077,7 +2077,7 @@ export default function RankingView() {
               </div>
               {rankingFreshness?.state === "stale" && (
                 <div className="rank-top-summary is-warn">
-                  {`ランキングは古いスナップショットです${rankingFreshness.snapshotAsOf ? ` (asOf=${rankingFreshness.snapshotAsOf})` : ""}${rankingFreshness.days != null ? ` / ${rankingFreshness.days}日経過` : ""}`}
+                  {`ランキングは古いデータです${rankingFreshness.snapshotAsOf ? `（基準日 ${rankingFreshness.snapshotAsOf}）` : ""}${rankingFreshness.days != null ? ` / ${rankingFreshness.days}日経過` : ""}`}
                 </div>
               )}
               {qualificationFilterRelaxed && (

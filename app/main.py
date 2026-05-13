@@ -47,11 +47,11 @@ def _rankings_warmup_delay_sec() -> float:
 
 
 def _rankings_result_warmup_delay_sec() -> float:
-    raw = os.getenv("MEEMEE_RANKINGS_RESULT_WARMUP_DELAY_SEC", "3")
+    raw = os.getenv("MEEMEE_RANKINGS_RESULT_WARMUP_DELAY_SEC", "0")
     try:
         return max(0.0, float(raw))
     except Exception:
-        return 3.0
+        return 0.0
 
 
 def _warm_rankings_result_cache_async() -> None:
