@@ -107,6 +107,7 @@ import {
   buildVisibleRequestSignature,
   isGridBarsDependentSortKey,
   resolveGridFastSortValue,
+  resolveGridChartPrefetchWindow,
   resolveGridRefineWindow,
   mergeHealthStatus,
   normalizeHealthStatus,
@@ -121,6 +122,12 @@ import { resolveListThumbnailMaSettings } from "../storeHelpers";
 import type { Ticker } from "../storeTypes";
 
 const SCREENSHOT_LIMIT = 10;
+const GRID_CHART_PREFETCH_AHEAD_VIEWPORTS = 3;
+const GRID_CHART_PREFETCH_BEHIND_VIEWPORTS = 1;
+const GRID_CHART_BACKGROUND_PREFETCH_LIMIT = 240;
+const GRID_CHART_BACKGROUND_PREFETCH_CHUNK_SIZE = 48;
+const GRID_CHART_BACKGROUND_PREFETCH_INITIAL_DELAY_MS = 300;
+const GRID_CHART_BACKGROUND_PREFETCH_STEP_DELAY_MS = 700;
 
 type GridSortEntry = {
   ticker: Ticker;
@@ -406,6 +413,8 @@ export default function GridView() {
   const lastVisibleRequestKeyRef = useRef<string | null>(null);
   const refinedSortSignatureRef = useRef<string | null>(null);
   const deferredVisibleRequestTimerRef = useRef<number | null>(null);
+  const backgroundChartPrefetchTimerRef = useRef<number | null>(null);
+  const backgroundChartPrefetchRunRef = useRef(0);
   const barsErrorRetryCooldownRef = useRef<Record<string, number>>({});
   const undoTimerRef = useRef<number | null>(null);
   const txtUpdateTerminalStatusRef = useRef<string | null>(null);
@@ -1495,17 +1504,19 @@ export default function GridView() {
   const onItemsRendered = ({
     visibleRowStartIndex,
     visibleRowStopIndex,
-    visibleColumnStartIndex,
-    visibleColumnStopIndex
   }: GridOnItemsRenderedProps) => {
     if (!backendReady) return;
-    const rowsPerViewport = Math.max(1, Math.floor(gridHeight / rowHeight));
-    const prefetchStop = visibleRowStopIndex + rowsPerViewport;
-    const start = visibleRowStartIndex * columns + visibleColumnStartIndex;
-    const stop = Math.min(
-      sortedTickers.length - 1,
-      prefetchStop * columns + visibleColumnStopIndex
+    const prefetchWindow = resolveGridChartPrefetchWindow(
+      visibleRowStartIndex,
+      visibleRowStopIndex,
+      sortedTickers.length,
+      rows,
+      columns,
+      GRID_CHART_PREFETCH_AHEAD_VIEWPORTS,
+      GRID_CHART_PREFETCH_BEHIND_VIEWPORTS
     );
+    if (!prefetchWindow) return;
+    const { start, stop } = prefetchWindow;
     if (start > stop) return;
     const codes: string[] = [];
     for (let index = start; index <= stop; index += 1) {
@@ -1530,8 +1541,17 @@ export default function GridView() {
     if (!backendReady || sortedTickers.length === 0 || columns <= 0 || rows <= 0) return;
     const startRow = Math.max(0, Math.floor(gridScrollTop / rowHeight));
     const stopRow = Math.min(rowCount - 1, startRow + Math.max(1, rows) - 1);
-    const start = startRow * columns;
-    const stop = Math.min(sortedTickers.length - 1, (stopRow + 1) * columns - 1);
+    const prefetchWindow = resolveGridChartPrefetchWindow(
+      startRow,
+      stopRow,
+      sortedTickers.length,
+      rows,
+      columns,
+      GRID_CHART_PREFETCH_AHEAD_VIEWPORTS,
+      GRID_CHART_PREFETCH_BEHIND_VIEWPORTS
+    );
+    if (!prefetchWindow) return;
+    const { start, stop } = prefetchWindow;
     if (start > stop) return;
     const codes: string[] = [];
     for (let index = start; index <= stop; index += 1) {
@@ -1568,6 +1588,59 @@ export default function GridView() {
     if (!lastVisibleCodesRef.current.length) return;
     requestVisibleBars(lastVisibleCodesRef.current, "timeframe-or-range-change", "deferred");
   }, [backendReady, gridTimeframe, listRangeBars, maSettings, requestVisibleBars]);
+
+  useEffect(() => {
+    if (backgroundChartPrefetchTimerRef.current !== null) {
+      window.clearTimeout(backgroundChartPrefetchTimerRef.current);
+      backgroundChartPrefetchTimerRef.current = null;
+    }
+    const runId = backgroundChartPrefetchRunRef.current + 1;
+    backgroundChartPrefetchRunRef.current = runId;
+    if (!backendReady || sortedCodes.length === 0) return;
+
+    const codes = normalizeVisibleCodes(
+      sortedCodes.slice(0, GRID_CHART_BACKGROUND_PREFETCH_LIMIT)
+    );
+    if (!codes.length) return;
+
+    let cursor = 0;
+    let disposed = false;
+    const scheduleNextChunk = (delayMs: number) => {
+      backgroundChartPrefetchTimerRef.current = window.setTimeout(async () => {
+        backgroundChartPrefetchTimerRef.current = null;
+        if (disposed || backgroundChartPrefetchRunRef.current !== runId) return;
+        const chunk = codes.slice(cursor, cursor + GRID_CHART_BACKGROUND_PREFETCH_CHUNK_SIZE);
+        cursor += GRID_CHART_BACKGROUND_PREFETCH_CHUNK_SIZE;
+        if (chunk.length) {
+          try {
+            await ensureBarsForVisible(gridTimeframe, chunk, "grid-background");
+          } catch {
+            return;
+          }
+        }
+        if (!disposed && backgroundChartPrefetchRunRef.current === runId && cursor < codes.length) {
+          scheduleNextChunk(GRID_CHART_BACKGROUND_PREFETCH_STEP_DELAY_MS);
+        }
+      }, delayMs);
+    };
+
+    scheduleNextChunk(GRID_CHART_BACKGROUND_PREFETCH_INITIAL_DELAY_MS);
+    return () => {
+      disposed = true;
+      if (backgroundChartPrefetchTimerRef.current !== null) {
+        window.clearTimeout(backgroundChartPrefetchTimerRef.current);
+        backgroundChartPrefetchTimerRef.current = null;
+      }
+    };
+  }, [
+    backendReady,
+    ensureBarsForVisible,
+    gridTimeframe,
+    listRangeBars,
+    normalizeVisibleCodes,
+    sortedCodes,
+    visibleMaSignature
+  ]);
 
   useEffect(() => {
     if (!backendReady) return;
@@ -1621,6 +1694,9 @@ export default function GridView() {
     return () => {
       if (deferredVisibleRequestTimerRef.current !== null) {
         window.clearTimeout(deferredVisibleRequestTimerRef.current);
+      }
+      if (backgroundChartPrefetchTimerRef.current !== null) {
+        window.clearTimeout(backgroundChartPrefetchTimerRef.current);
       }
     };
   }, []);

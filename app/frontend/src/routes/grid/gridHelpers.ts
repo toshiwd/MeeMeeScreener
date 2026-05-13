@@ -108,6 +108,32 @@ export const resolveGridRefineWindow = (
   return { start, stop };
 };
 
+export const resolveGridChartPrefetchWindow = (
+  visibleRowStartIndex: number,
+  visibleRowStopIndex: number,
+  totalCount: number,
+  rows: number,
+  columns: number,
+  aheadViewports = 3,
+  behindViewports = 1
+) => {
+  if (
+    !Number.isFinite(visibleRowStartIndex) ||
+    !Number.isFinite(visibleRowStopIndex) ||
+    totalCount <= 0
+  ) {
+    return null;
+  }
+  const rowCountPerViewport = Math.max(1, Math.floor(rows));
+  const columnCount = Math.max(1, Math.floor(columns));
+  const startRow = Math.max(0, Math.floor(visibleRowStartIndex) - rowCountPerViewport * Math.max(0, behindViewports));
+  const stopRow = Math.floor(visibleRowStopIndex) + rowCountPerViewport * Math.max(0, aheadViewports);
+  const start = startRow * columnCount;
+  const stop = Math.min(totalCount - 1, (stopRow + 1) * columnCount - 1);
+  if (start > stop) return null;
+  return { start, stop };
+};
+
 export const resolveGridFastSortValue = (
   ticker: Ticker,
   sortKey: string,

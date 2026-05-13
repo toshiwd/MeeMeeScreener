@@ -9,6 +9,7 @@ import {
   isGridBarsDependentSortKey,
   resolveGridPrimaryChangeValue,
   resolveGridFastSortValue,
+  resolveGridChartPrefetchWindow,
   resolveGridRefineWindow,
   resolveGridSignalSortScore,
   resolveGridRangeBars,
@@ -203,6 +204,20 @@ describe("resolveGridFastSortValue", () => {
 describe("resolveGridRefineWindow", () => {
   it("expands the visible window by one viewport", () => {
     expect(resolveGridRefineWindow(10, 20, 100, 3, 3)).toEqual({ start: 1, stop: 29 });
+  });
+});
+
+describe("resolveGridChartPrefetchWindow", () => {
+  it("loads the visible rows plus nearby rows so chart tiles are ready before scrolling into view", () => {
+    expect(resolveGridChartPrefetchWindow(5, 7, 180, 3, 3)).toEqual({ start: 6, stop: 50 });
+  });
+
+  it("clamps the prefetch window to the available list", () => {
+    expect(resolveGridChartPrefetchWindow(0, 2, 20, 3, 3)).toEqual({ start: 0, stop: 19 });
+  });
+
+  it("returns null when the list is empty", () => {
+    expect(resolveGridChartPrefetchWindow(0, 2, 0, 3, 3)).toBeNull();
   });
 });
 
