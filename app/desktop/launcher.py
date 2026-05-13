@@ -107,7 +107,9 @@ def _apply_packaged_backend_defaults(env: dict[str, str]) -> None:
     env["MEEMEE_YF_DAILY_INGEST_ENABLED"] = "0"
     env["MEEMEE_YF_DAILY_INGEST_INTRADAY_ENABLED"] = "0"
     env["MEEMEE_SCREENER_SNAPSHOT_ENABLED"] = "0"
-    env["MEEMEE_RANKINGS_WARMUP_ENABLED"] = "0"
+    env.setdefault("MEEMEE_RANKINGS_WARMUP_ENABLED", "1")
+    env.setdefault("MEEMEE_RANKINGS_RESULT_WARMUP_DELAY_SEC", "0")
+    env.setdefault("MEEMEE_RANKINGS_WARMUP_DELAY_SEC", "120")
     env["MEEMEE_ANALYSIS_PREWARM_ENABLED"] = "0"
     env["MEEMEE_RANK_QUALITY_ENABLED"] = "0"
     env["MEEMEE_PUBLISH_CANDIDATE_MAINTENANCE_ENABLED"] = "0"
