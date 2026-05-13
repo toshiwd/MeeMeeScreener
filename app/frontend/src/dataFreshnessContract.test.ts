@@ -52,12 +52,12 @@ describe("data freshness contract parser", () => {
     const dailyBadges = buildDataFreshnessBadgeItems(contract.charts.daily);
     expect(dailyBadges).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ label: "一部暫定", tone: "warn" }),
+        expect.objectContaining({ label: "一部当日反映", tone: "warn" }),
         expect.objectContaining({ label: "更新確認", tone: "warn" }),
       ])
     );
     expect(buildDataFreshnessBadgeItems(contract.charts.weekly)).toContainEqual(
-      expect.objectContaining({ label: "暫定", tone: "warn" })
+      expect.objectContaining({ label: "当日反映", tone: "warn" })
     );
   });
 
@@ -97,7 +97,7 @@ describe("data freshness contract parser", () => {
 
     expect(shouldShowResearchOnlyWarning(contract.detail)).toBe(true);
     expect(buildDataFreshnessBadgeItems(contract.detail)).toContainEqual(
-      expect.objectContaining({ label: "研究用", tone: "error" })
+      expect.objectContaining({ label: "確認用", tone: "error" })
     );
   });
 });

@@ -121,7 +121,7 @@ describe("GlobalTxtUpdateStatus", () => {
     });
 
     expect(render.container.querySelector(".txt-update-meta")).not.toBeNull();
-    expect(render.container.textContent).toContain("TXT更新");
+    expect(render.container.textContent).toContain("日次更新");
 
     render.cleanup();
   });

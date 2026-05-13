@@ -201,9 +201,9 @@ const stateTone = (state: DataFreshnessState | DataFreshnessStatus): DataFreshne
 
 export const classificationLabel = (classification: DataFreshnessClassification) => {
   if (classification === "confirmed") return "確定";
-  if (classification === "provisional") return "暫定";
-  if (classification === "mixed") return "一部暫定";
-  if (classification === "research-only") return "研究用";
+  if (classification === "provisional") return "当日反映";
+  if (classification === "mixed") return "一部当日反映";
+  if (classification === "research-only") return "確認用";
   return "未確認";
 };
 
@@ -247,7 +247,7 @@ export const buildDataFreshnessBadgeItems = (
   if ("right_edge_date" in area && area.right_edge_date) {
     items.push({
       key: "right-edge",
-      label: `右端 ${area.right_edge_date}`,
+      label: `最新日 ${area.right_edge_date}`,
       tone: "muted",
     });
   }

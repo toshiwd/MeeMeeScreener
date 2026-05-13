@@ -20,13 +20,13 @@ export const isTxtUpdateConflictError = (error?: string): boolean => {
 
 export const formatTxtUpdateStatusLabel = (status?: string | null): string | null => {
   if (!status) return null;
-  if (status === "queued") return "TXT更新: 待機中";
-  if (status === "running") return "TXT更新: 実行中";
-  if (status === "cancel_requested") return "TXT更新: 停止要求中";
-  if (status === "success") return "TXT更新: 完了";
-  if (status === "failed") return "TXT更新: 失敗";
-  if (status === "canceled") return "TXT更新: キャンセル";
-  return "TXT更新: 状態確認中";
+  if (status === "queued") return "日次更新: 待機中";
+  if (status === "running") return "日次更新: 実行中";
+  if (status === "cancel_requested") return "日次更新: 停止中";
+  if (status === "success") return "日次更新: 完了";
+  if (status === "failed") return "日次更新: 失敗";
+  if (status === "canceled") return "日次更新: 停止済み";
+  return "日次更新: 状態確認中";
 };
 
 export const formatTxtUpdateStageLabel = (
@@ -65,10 +65,10 @@ export const formatTxtUpdateFailureMessage = (error?: string | null, message?: s
     return "日次更新が失敗しました。データベースが一時的に使用中です。少し待ってから再試行してください。";
   }
   if (text.includes("code_txt_missing")) {
-    return "日次更新が失敗しました。code.txt が見つかりません。";
+    return "日次更新が失敗しました。必要な銘柄リストが見つかりません。設定を確認してください。";
   }
   if (text.includes("vbs_not_found")) {
-    return "日次更新が失敗しました。更新スクリプトが見つかりません。";
+    return "日次更新が失敗しました。必要な更新処理が見つかりません。設定を確認してください。";
   }
   if (text.includes("cancel")) {
     return "日次更新は停止されました。";

@@ -272,6 +272,8 @@ const RANK_FETCH_CACHE_PREFIX = "rankingFetchCache";
 const RANK_LIMIT = 50;
 const SCREENSHOT_LIMIT = 10;
 const RANK_FETCH_TIMEOUT_MS = 60000;
+const RANK_SUPPORT_SUMMARY_DELAY_MS = 750;
+const RANK_SUPPORT_SESSION_DELAY_MS = 10000;
 const TIMEFRAME_LABELS: Record<RankTimeframe, string> = {
   D: "日足",
   W: "週足",
@@ -369,6 +371,36 @@ const buildRankingFetchCacheKey = (params: {
   mode: RankMode;
   riskMode: RankRiskMode;
 }) => `${RANK_FETCH_CACHE_PREFIX}:${params.tf}:${params.which}:${params.dir}:${params.mode}:${params.riskMode}:${RANK_LIMIT}`;
+
+const scheduleRankingSupportFetch = (callback: () => void, delayMs: number) => {
+  if (typeof window === "undefined") {
+    callback();
+    return () => undefined;
+  }
+  let idleHandle: number | null = null;
+  const timeoutHandle = window.setTimeout(() => {
+    if ("requestIdleCallback" in window) {
+      idleHandle = window.requestIdleCallback(callback, { timeout: 2000 });
+      return;
+    }
+    callback();
+  }, delayMs);
+  return () => {
+    window.clearTimeout(timeoutHandle);
+    if (idleHandle != null && "cancelIdleCallback" in window) {
+      window.cancelIdleCallback(idleHandle);
+    }
+  };
+};
+
+const formatProvisionalFreshnessLabel = (state?: string | null) => {
+  if (state === "fresh") return "最新";
+  if (state === "partial") return "一部反映";
+  if (state === "stale") return "古い可能性";
+  if (state === "missing" || state === "unavailable") return "未取得";
+  if (state === "error") return "確認エラー";
+  return "確認中";
+};
 
 const resolveRankFetchTimeframe = (value: "daily" | "weekly" | "monthly"): RankTimeframe => {
   if (value === "weekly") return "W";
@@ -737,6 +769,7 @@ export default function RankingView() {
   const filterMtfStrictOnly = true;
   const mtfStrictness: MtfStrictness = "auto";
   const [loading, setLoading] = useState(() => initialFetchCache == null);
+  const [rankingRefreshInFlight, setRankingRefreshInFlight] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(() => initialFetchCache?.errorMessage ?? null);
   const [tradeSummary, setTradeSummary] = useState<TradeDirectionSummary | null>(null);
   const [rankingFreshness, setRankingFreshness] = useState<RankingFreshnessState | null>(null);
@@ -762,6 +795,7 @@ export default function RankingView() {
     : "";
   const [useFallback, setUseFallback] = useState(() => initialFetchCache?.useFallback ?? false);
   const itemsRef = useRef<RankItem[]>(initialFetchCache?.items ?? []);
+  const rankingRefreshInFlightRef = useRef(false);
   const favoriteCodeSet = useMemo(() => new Set(favoriteCodes), [favoriteCodes]);
   const [rankSession, setRankSession] = useState<RankSessionBundle | null>(null);
   const syncFavoriteFlags = useCallback(
@@ -1251,7 +1285,11 @@ export default function RankingView() {
   }, [rankingCacheKey, syncFavoriteFlags]);
 
   useEffect(() => {
-    if (!backendReady) return;
+    if (!backendReady) {
+      rankingRefreshInFlightRef.current = false;
+      setRankingRefreshInFlight(false);
+      return;
+    }
     const cached = readRankingFetchCache(rankingCacheKey);
     if (cached) {
       recordPerfEvent("ranking_fetch_using_stale_cache", {
@@ -1266,6 +1304,8 @@ export default function RankingView() {
       setErrorMessage(null);
       setUseFallback(false);
     }
+    rankingRefreshInFlightRef.current = true;
+    setRankingRefreshInFlight(true);
     recordPerfEvent("ranking_fetch_start", {
       cacheKey: rankingCacheKey,
       visibleCount,
@@ -1384,6 +1424,8 @@ export default function RankingView() {
       } finally {
         if (!cancelled) {
           setLoading(false);
+          rankingRefreshInFlightRef.current = false;
+          setRankingRefreshInFlight(false);
           recordPerfEvent("ranking_loading_complete", {
             cacheKey: rankingCacheKey,
             visibleCount: itemsRef.current.length,
@@ -1401,48 +1443,87 @@ export default function RankingView() {
       setTradeSummary(null);
       return;
     }
+    setTradeSummary(null);
+    if (rankingRefreshInFlight || rankingRefreshInFlightRef.current || items.length === 0) return;
     let cancelled = false;
-    (async () => {
-      try {
-        const res = await api.get("/rankings/trade-summary", {
-          params: { tf: rankingTf, which: rankWhich, risk_mode: riskMode, limit: RANK_LIMIT, top_n: 5 },
-          timeout: RANK_FETCH_TIMEOUT_MS,
-        });
-        if (!cancelled) {
-          setTradeSummary((res.data ?? null) as TradeDirectionSummary | null);
+    recordPerfEvent("ranking_trade_summary_fetch_deferred", {
+      delayMs: RANK_SUPPORT_SUMMARY_DELAY_MS,
+      count: items.length,
+    });
+    const cancelSchedule = scheduleRankingSupportFetch(() => {
+      void (async () => {
+        try {
+          recordPerfEvent("ranking_trade_summary_fetch_start", {
+            tf: rankingTf,
+            which: rankWhich,
+          });
+          const res = await api.get("/rankings/trade-summary", {
+            params: { tf: rankingTf, which: rankWhich, risk_mode: riskMode, limit: RANK_LIMIT, top_n: 5 },
+            timeout: RANK_FETCH_TIMEOUT_MS,
+          });
+          if (!cancelled) {
+            setTradeSummary((res.data ?? null) as TradeDirectionSummary | null);
+            recordPerfEvent("ranking_trade_summary_fetch_end", {
+              hasSummary: Boolean(res.data),
+            });
+          }
+        } catch {
+          if (!cancelled) {
+            setTradeSummary(null);
+            recordPerfEvent("ranking_trade_summary_fetch_failed");
+          }
         }
-      } catch {
-        if (!cancelled) setTradeSummary(null);
-      }
-    })();
+      })();
+    }, RANK_SUPPORT_SUMMARY_DELAY_MS);
     return () => {
       cancelled = true;
+      cancelSchedule();
     };
-  }, [backendReady, rankMode, rankWhich, riskMode, rankingTf]);
+  }, [backendReady, rankMode, rankWhich, riskMode, rankingTf, rankingRefreshInFlight, items.length]);
 
   useEffect(() => {
     if (!backendReady || rankMode !== "trade") {
       setRankSession(null);
       return;
     }
+    setRankSession(null);
+    if (rankingRefreshInFlight || rankingRefreshInFlightRef.current || items.length === 0) return;
     let cancelled = false;
-    (async () => {
-      try {
-        const res = await api.get("/rankings/session", {
-          params: { tf: rankingTf, which: rankWhich, dir, mode: rankMode, risk_mode: riskMode, limit: RANK_LIMIT },
-          timeout: RANK_FETCH_TIMEOUT_MS,
-        });
-        if (!cancelled) {
-          setRankSession((res.data ?? null) as RankSessionBundle | null);
+    recordPerfEvent("ranking_session_fetch_deferred", {
+      delayMs: RANK_SUPPORT_SESSION_DELAY_MS,
+      count: items.length,
+    });
+    const cancelSchedule = scheduleRankingSupportFetch(() => {
+      void (async () => {
+        try {
+          recordPerfEvent("ranking_session_fetch_start", {
+            tf: rankingTf,
+            which: rankWhich,
+            dir,
+          });
+          const res = await api.get("/rankings/session", {
+            params: { tf: rankingTf, which: rankWhich, dir, mode: rankMode, risk_mode: riskMode, limit: RANK_LIMIT },
+            timeout: RANK_FETCH_TIMEOUT_MS,
+          });
+          if (!cancelled) {
+            setRankSession((res.data ?? null) as RankSessionBundle | null);
+            recordPerfEvent("ranking_session_fetch_end", {
+              hasSession: Boolean(res.data),
+            });
+          }
+        } catch {
+          if (!cancelled) {
+            setRankSession(null);
+            recordPerfEvent("ranking_session_fetch_failed");
+          }
         }
-      } catch {
-        if (!cancelled) setRankSession(null);
-      }
-    })();
+      })();
+    }, RANK_SUPPORT_SESSION_DELAY_MS);
     return () => {
       cancelled = true;
+      cancelSchedule();
     };
-  }, [backendReady, dir, rankMode, rankWhich, riskMode, rankingTf]);
+  }, [backendReady, dir, rankMode, rankWhich, riskMode, rankingTf, rankingRefreshInFlight, items.length]);
 
   useEffect(() => {
     if (rankMode === "trade") return;
@@ -1852,7 +1933,7 @@ export default function RankingView() {
                   <div className="rank-header-meta">
                     {item.is_provisional ? (
                       <span className="rank-score-badge rank-qualification is-warn">
-                        {`暫定${typeof (item.rank_delta ?? item.rankDelta) === "number" ? ` Δ${(item.rank_delta ?? item.rankDelta) > 0 ? "+" : ""}${item.rank_delta ?? item.rankDelta}` : ""}`}
+                        {`当日反映${typeof (item.rank_delta ?? item.rankDelta) === "number" ? ` ${(item.rank_delta ?? item.rankDelta) > 0 ? "+" : ""}${item.rank_delta ?? item.rankDelta}` : ""}`}
                       </span>
                     ) : null}
                     {resolveRankSummaryScore(item) != null ? (
@@ -2039,7 +2120,7 @@ export default function RankingView() {
           )}
           {rankMode === "trade" && rankSession && (
             <div className="rank-overview-row">
-              <span className="rank-overview-section-title">暫定 / provisional</span>
+              <span className="rank-overview-section-title">当日反映</span>
               <div className="rank-top-summary">
                 <DataFreshnessBadges
                   contract={rankSession.data_freshness_contract ?? null}
@@ -2047,9 +2128,9 @@ export default function RankingView() {
                   compact
                 />
               </div>
-              <div className="rank-top-summary">Yahoo更新 {formatDateTimeLabel(rankSession.provisional_fetched_at ?? null)}</div>
+              <div className="rank-top-summary">市場データ更新 {formatDateTimeLabel(rankSession.provisional_fetched_at ?? null)}</div>
               <div className="rank-top-summary">
-                確認 asOf {rankSession.confirmed_snapshot_as_of ?? "--"} / 暫定 asOf {rankSession.provisional_snapshot_as_of ?? "--"}
+                確定データ {rankSession.confirmed_snapshot_as_of ?? "--"} / 当日データ {rankSession.provisional_snapshot_as_of ?? "--"}
               </div>
               <div
                 className={`rank-top-summary ${
@@ -2059,29 +2140,29 @@ export default function RankingView() {
                     : "is-warn"
                 }`}
               >
-                {`暫定状態 ${rankSession.provisional_freshness_state ?? "unavailable"}`}
+                {`当日データ ${formatProvisionalFreshnessLabel(rankSession.provisional_freshness_state)}`}
               </div>
               <div className="rank-top-summary">
-                {`暫定カバレッジ ${rankSession.provisional_covered_symbols ?? 0}/${rankSession.provisional_requested_symbols ?? 0}`}
+                {`当日データ取得 ${rankSession.provisional_covered_symbols ?? 0}/${rankSession.provisional_requested_symbols ?? 0}`}
                 {typeof rankSession.provisional_coverage_ratio === "number"
                   ? ` (${Math.round(rankSession.provisional_coverage_ratio * 1000) / 10}%)`
                   : ""}
               </div>
               <div className="rank-top-summary">
-                {`未取得 ${rankSession.provisional_missing_symbols ?? 0} / 完全OHLCV ${rankSession.provisional_complete_ohlcv_symbols ?? 0}`}
+                {`未取得 ${rankSession.provisional_missing_symbols ?? 0} / 必要データそろい ${rankSession.provisional_complete_ohlcv_symbols ?? 0}`}
               </div>
               <div className="rank-top-summary">
-                {`同日 ${rankSession.provisional_same_day_symbols ?? 0}/${rankSession.provisional_covered_symbols ?? 0}`}
+                {`当日一致 ${rankSession.provisional_same_day_symbols ?? 0}/${rankSession.provisional_covered_symbols ?? 0}`}
                 {typeof rankSession.provisional_same_day_ratio === "number"
                   ? ` (${Math.round(rankSession.provisional_same_day_ratio * 1000) / 10}%)`
                   : ""}
                 {typeof rankSession.provisional_min_same_day_ratio === "number"
-                  ? ` / 閾値 ${Math.round(rankSession.provisional_min_same_day_ratio * 1000) / 10}%`
+                  ? ` / 目安 ${Math.round(rankSession.provisional_min_same_day_ratio * 1000) / 10}%`
                   : ""}
               </div>
               {hasProvisionalSession && (
                 <div className="rank-top-summary">
-                  暫定候補 {provisionalItems.length}件 / 買い {rankSession.provisional_trade_summary?.actionable_buy?.count ?? 0}件 / 短期売り {rankSession.provisional_trade_summary?.actionable_short?.count ?? 0}件 / 注意 {rankSession.provisional_trade_summary?.caution_watch?.count ?? 0}件
+                  当日候補 {provisionalItems.length}件 / 買い {rankSession.provisional_trade_summary?.actionable_buy?.count ?? 0}件 / 短期売り {rankSession.provisional_trade_summary?.actionable_short?.count ?? 0}件 / 注意 {rankSession.provisional_trade_summary?.caution_watch?.count ?? 0}件
                 </div>
               )}
             </div>
@@ -2095,9 +2176,9 @@ export default function RankingView() {
         {hasProvisionalSession && (
           <div className="rank-subsection">
             <div className="rank-subsection-head">
-              <div className="rank-subsection-title">暫定ランキング</div>
+              <div className="rank-subsection-title">当日反映ランキング</div>
               <div className="rank-subsection-note">
-                confirmed の上に Yahoo intraday を重ねた session view です。未取得シンボルは confirmed fallback として残ります。
+                確定データに当日の値動きを反映した候補です。まだ当日データがない銘柄は確定データで表示します。
               </div>
             </div>
             <VirtualizedCardGrid

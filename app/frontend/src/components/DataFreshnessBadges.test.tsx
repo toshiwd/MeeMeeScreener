@@ -47,7 +47,7 @@ describe("DataFreshnessBadges", () => {
 
     const view = render(<DataFreshnessBadges contract={contract} scope="chart" timeframe="daily" />);
 
-    expect(view.textContent).toContain("一部暫定");
+    expect(view.textContent).toContain("一部当日反映");
     expect(view.textContent).toContain("更新確認");
     expect(view.textContent).not.toContain("確定");
   });

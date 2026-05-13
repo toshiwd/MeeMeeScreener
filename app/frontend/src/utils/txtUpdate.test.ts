@@ -32,15 +32,15 @@ describe("isTxtUpdateConflictError", () => {
 
 describe("formatTxtUpdateStatusLabel", () => {
   it("returns Japanese label for known statuses", () => {
-    expect(formatTxtUpdateStatusLabel("queued")).toBe("TXT更新: 待機中");
-    expect(formatTxtUpdateStatusLabel("running")).toBe("TXT更新: 実行中");
-    expect(formatTxtUpdateStatusLabel("cancel_requested")).toBe("TXT更新: 停止要求中");
-    expect(formatTxtUpdateStatusLabel("success")).toBe("TXT更新: 完了");
-    expect(formatTxtUpdateStatusLabel("failed")).toBe("TXT更新: 失敗");
-    expect(formatTxtUpdateStatusLabel("canceled")).toBe("TXT更新: キャンセル");
+    expect(formatTxtUpdateStatusLabel("queued")).toBe("日次更新: 待機中");
+    expect(formatTxtUpdateStatusLabel("running")).toBe("日次更新: 実行中");
+    expect(formatTxtUpdateStatusLabel("cancel_requested")).toBe("日次更新: 停止中");
+    expect(formatTxtUpdateStatusLabel("success")).toBe("日次更新: 完了");
+    expect(formatTxtUpdateStatusLabel("failed")).toBe("日次更新: 失敗");
+    expect(formatTxtUpdateStatusLabel("canceled")).toBe("日次更新: 停止済み");
   });
 
   it("returns a generic user-facing label for unknown statuses", () => {
-    expect(formatTxtUpdateStatusLabel("queued_custom")).toBe("TXT更新: 状態確認中");
+    expect(formatTxtUpdateStatusLabel("queued_custom")).toBe("日次更新: 状態確認中");
   });
 });

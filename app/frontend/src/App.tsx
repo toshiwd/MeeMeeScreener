@@ -37,7 +37,7 @@ function RouteTransitionFallback() {
 
   return (
     <div className="route-transition-indicator" role="status" aria-live="polite">
-      画面を切替中...
+      画面を準備中...
     </div>
   );
 }

@@ -25,11 +25,11 @@ describe("TradexListSummary", () => {
       />
     );
 
-    expect(markup).toContain("TRADEX 買い");
-    expect(markup).toContain("confidence 84%");
-    expect(markup).toContain("publish readiness: ready");
-    expect(markup).toContain("tone=up");
-    expect(markup).toContain("pattern=breakout");
+    expect(markup).toContain("検証 買い");
+    expect(markup).toContain("信頼度 84%");
+    expect(markup).toContain("採用確認: 確認済み");
+    expect(markup).not.toContain("tone=up");
+    expect(markup).not.toContain("pattern=breakout");
     expect(markup).not.toContain("ignored");
   });
 
@@ -49,6 +49,7 @@ describe("TradexListSummary", () => {
       />
     );
 
-    expect(markup).toContain("TRADEX: analysis unavailable");
+    expect(markup).toContain("分析を確認できません");
+    expect(markup).toContain("分析データ未準備");
   });
 });

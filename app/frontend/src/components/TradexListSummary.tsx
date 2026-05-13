@@ -3,6 +3,7 @@ import {
   formatTradexListSummaryConfidence,
   formatTradexListSummaryReadinessLabel,
   formatTradexListSummaryToneLabel,
+  formatTradexListSummaryUnavailableReason,
   type TradexListSummaryItem,
 } from "../routes/list/tradexSummary";
 
@@ -30,7 +31,7 @@ export default function TradexListSummary({ summary, loading = false, className 
     return (
       <div className={["tradex-list-summary", className].filter(Boolean).join(" ")}>
         <div className="rank-badges">
-          {summaryBadge("TRADEX summary loading...", "rank-qualification is-warn")}
+          {summaryBadge("分析を確認中...", "rank-qualification is-warn")}
         </div>
       </div>
     );
@@ -41,7 +42,9 @@ export default function TradexListSummary({ summary, loading = false, className 
       <div className={["tradex-list-summary", className].filter(Boolean).join(" ")}>
         <div className="rank-badges">
           {summaryBadge(
-            summary.reason ? `TRADEX: analysis unavailable (${summary.reason})` : "TRADEX: analysis unavailable",
+            summary.reason
+              ? `分析を確認できません (${formatTradexListSummaryUnavailableReason(summary.reason) ?? "詳細確認中"})`
+              : "分析を確認できません",
             "rank-qualification is-warn"
           )}
         </div>
@@ -52,19 +55,22 @@ export default function TradexListSummary({ summary, loading = false, className 
   const toneLabel = formatTradexListSummaryToneLabel(summary.dominantTone);
   const toneBadgeClass = summary.dominantTone ? toneClassName[summary.dominantTone] : "";
   const readiness = summary.publishReadiness;
-  const readinessLabel = readiness?.ready ? "publish readiness: ready" : formatTradexListSummaryReadinessLabel(summary);
+  const readinessLabel = formatTradexListSummaryReadinessLabel(summary);
   const readinessClass = readiness ? readinessClassName(readiness.ready) : "is-warn";
+  const userFacingReasons = summary.reasons
+    .filter((reason) => /[\u3040-\u30ff\u3400-\u9fff]/.test(reason) && !/[=_]/.test(reason))
+    .slice(0, 2);
 
   return (
     <div className={["tradex-list-summary", className].filter(Boolean).join(" ")}>
       <div className="rank-badges">
-        {summaryBadge(`TRADEX ${toneLabel}`, toneBadgeClass)}
-        {summaryBadge(`confidence ${formatTradexListSummaryConfidence(summary.confidence)}`)}
+        {summaryBadge(`検証 ${toneLabel}`, toneBadgeClass)}
+        {summaryBadge(`信頼度 ${formatTradexListSummaryConfidence(summary.confidence)}`)}
         {summaryBadge(readinessLabel, `rank-qualification ${readinessClass}`)}
       </div>
-      {summary.reasons.length > 0 && (
+      {userFacingReasons.length > 0 && (
         <div className="signal-chips">
-          {summary.reasons.slice(0, 2).map((reason) => (
+          {userFacingReasons.map((reason) => (
             <span key={reason} className="signal-chip achieved">
               {reason}
             </span>

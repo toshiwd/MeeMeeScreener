@@ -88,14 +88,34 @@ export const formatTradexListSummaryConfidence = (value: number | null | undefin
   return `${Math.round((Number(value) || 0) * 100)}%`;
 };
 
+export const formatTradexListSummaryUnavailableReason = (reason: string | null | undefined) => {
+  const text = toText(reason).toLowerCase();
+  if (!text) return null;
+  if (text.includes("unavailable") || text.includes("not available")) return "分析データ未準備";
+  if (text.includes("missing") || text.includes("not_found") || text.includes("not found")) return "データ未取得";
+  if (text.includes("timeout")) return "確認に時間がかかっています";
+  return "詳細確認中";
+};
+
+const formatPublishReadinessStatus = (status?: string | null) => {
+  const text = toText(status).toLowerCase();
+  if (text === "ready" || text === "ok" || text === "pass") return "確認済み";
+  if (text === "blocked" || text === "failed" || text === "error") return "要確認";
+  if (text === "pending" || text === "unknown" || !text) return "確認中";
+  return "確認中";
+};
+
 export const formatTradexListSummaryReadinessLabel = (
   item: Pick<TradexListSummaryItem, "available" | "publishReadiness" | "reason">
 ) => {
-  if (!item.available) return item.reason ? `analysis unavailable: ${item.reason}` : "analysis unavailable";
+  if (!item.available) {
+    const reason = formatTradexListSummaryUnavailableReason(item.reason);
+    return reason ? `分析を確認できません: ${reason}` : "分析を確認できません";
+  }
   const readiness = item.publishReadiness;
-  if (!readiness) return "publish readiness: unknown";
-  if (readiness.ready) return "publish readiness: ready";
-  return `publish readiness: ${readiness.status || "unknown"}`;
+  if (!readiness) return "採用確認: 確認中";
+  if (readiness.ready) return "採用確認: 確認済み";
+  return `採用確認: ${formatPublishReadinessStatus(readiness.status)}`;
 };
 
 export const shouldShowTradexListSummary = (

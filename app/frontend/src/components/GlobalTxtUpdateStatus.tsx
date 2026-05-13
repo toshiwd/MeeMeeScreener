@@ -160,7 +160,7 @@ export default function GlobalTxtUpdateStatus() {
       <div className="txt-update-meta" title={job.message ?? undefined} style={{ pointerEvents: "auto" }}>
         <div className={`txt-update-status ${tone}`}>
           <span className="txt-update-dot" />
-          <span>{statusLabel ?? "TXT更新: 実行中"}</span>
+          <span>{statusLabel ?? "日次更新: 実行中"}</span>
           {progressValue != null && <span className="txt-update-percent">{progressValue}%</span>}
         </div>
         <div className="txt-update-detail">{stageLabel}</div>

@@ -20,6 +20,11 @@ describe("formatUserFacingOperationIssue", () => {
     );
   });
 
+  it("hides internal daily update file names", () => {
+    expect(formatUserFacingOperationIssue("code_txt_missing")).toBe("必要な銘柄リストが見つかりません");
+    expect(formatUserFacingOperationIssue("vbs_not_found")).toBe("日次更新に必要な更新処理が見つかりません");
+  });
+
   it("keeps already user-facing Japanese messages", () => {
     expect(formatUserFacingOperationIssue("日次更新を確認しています")).toBe(
       "日次更新を確認しています"

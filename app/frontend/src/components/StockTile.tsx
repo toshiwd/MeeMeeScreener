@@ -188,7 +188,7 @@ const StockTile = memo(function StockTile({
             <span className="tile-header-badges">
               {asofLabel && (
                 <span className="asof-badge provisional" data-tooltip={asofTooltip ?? ""}>
-                  暫定 {asofLabel}
+                  当日反映 {asofLabel}
                 </span>
               )}
               {(showRightsBadge || showEarningsBadge) && (
@@ -246,7 +246,7 @@ const StockTile = memo(function StockTile({
           <span className={`tile-meta-item tile-meta-change ${changeTone}`}>前日比 {dayChangeLabel}</span>
           {asofLabel && (
             <span className="asof-badge provisional" data-tooltip={asofTooltip ?? ""}>
-              暫定 {asofLabel}
+              当日反映 {asofLabel}
             </span>
           )}
           {(showRightsBadge || showEarningsBadge) && (

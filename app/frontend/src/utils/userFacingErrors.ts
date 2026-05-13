@@ -35,11 +35,11 @@ export const formatUserFacingOperationIssue = (value?: string | null): string | 
   }
 
   if (normalized.includes("code_txt_missing")) {
-    return "code.txt が見つかりません";
+    return "必要な銘柄リストが見つかりません";
   }
 
   if (normalized.includes("vbs_not_found")) {
-    return "日次更新スクリプトが見つかりません";
+    return "日次更新に必要な更新処理が見つかりません";
   }
 
   if (
