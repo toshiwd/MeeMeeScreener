@@ -9,6 +9,7 @@ import {
   buildSectorMemberIndex,
   buildWatchlistSectorIndex,
   enrichMarketItems,
+  resolveMarketTickerRate,
   type MarketMetricKey,
   type MarketPeriodKey,
   type MarketSectorViewItem,
@@ -302,6 +303,29 @@ export default function MarketView() {
   );
 
   const panelItems = selectedSectorFallbackItems;
+  const renderPanelItem = useCallback(
+    (item: (typeof panelItems)[number]) => {
+      const rate = resolveMarketTickerRate(item, period);
+      const rateTone = rate == null ? "neutral" : rate > 0 ? "positive" : rate < 0 ? "negative" : "neutral";
+      return (
+        <button
+          key={item.code}
+          type="button"
+          className="market-side-row"
+          onClick={() => handleDetailOpen(item.code)}
+        >
+          <span className="market-side-row-main">
+            <span className="market-side-row-code">{item.code}</span>
+            <span className="market-side-row-name">{item.name}</span>
+          </span>
+          <span className={`market-side-row-rate is-${rateTone}`}>
+            {rate == null ? "--" : formatMarketRate(rate)}
+          </span>
+        </button>
+      );
+    },
+    [handleDetailOpen, period]
+  );
 
   return (
     <div className="app-shell market-view">
@@ -422,34 +446,14 @@ export default function MarketView() {
 
               {selectedSectorItem.watchlistCount > 0 ? (
                 <div className="market-side-list">
-                  {panelItems.map((item) => (
-                    <button
-                      key={item.code}
-                      type="button"
-                      className="market-side-row"
-                      onClick={() => handleDetailOpen(item.code)}
-                    >
-                      <span className="market-side-row-code">{item.code}</span>
-                      <span className="market-side-row-name">{item.name}</span>
-                    </button>
-                  ))}
+                  {panelItems.map(renderPanelItem)}
                 </div>
               ) : (
                 <>
                   <div className="market-side-empty">このセクターに一覧銘柄はありません。</div>
                   {panelItems.length > 0 ? (
                     <div className="market-side-list">
-                      {panelItems.map((item) => (
-                        <button
-                          key={item.code}
-                          type="button"
-                          className="market-side-row"
-                          onClick={() => handleDetailOpen(item.code)}
-                        >
-                          <span className="market-side-row-code">{item.code}</span>
-                          <span className="market-side-row-name">{item.name}</span>
-                        </button>
-                      ))}
+                      {panelItems.map(renderPanelItem)}
                     </div>
                   ) : null}
                 </>

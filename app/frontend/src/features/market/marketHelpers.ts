@@ -76,7 +76,10 @@ export type MarketTimelineFrame = {
   items: MarketTimelineItem[];
 };
 
-export type MarketWatchlistTicker = Pick<Ticker, "code" | "name" | "sector33Code" | "sector33Name">;
+export type MarketWatchlistTicker = Pick<
+  Ticker,
+  "code" | "name" | "sector33Code" | "sector33Name" | "chg1D" | "chg1W" | "chg1M"
+>;
 
 export type MarketSectorViewItem = MarketTimelineItem & {
   sector33_code: string;
@@ -115,7 +118,10 @@ export const buildSectorMemberIndex = (tickers: Ticker[]) => {
       code: ticker.code,
       name: ticker.name,
       sector33Code: ticker.sector33Code ?? null,
-      sector33Name: ticker.sector33Name ?? null
+      sector33Name: ticker.sector33Name ?? null,
+      chg1D: ticker.chg1D ?? null,
+      chg1W: ticker.chg1W ?? null,
+      chg1M: ticker.chg1M ?? null
     });
     map.set(code, bucket);
   });
@@ -138,7 +144,10 @@ export const buildWatchlistSectorIndex = (keepList: string[], tickers: Ticker[])
       code: ticker.code,
       name: ticker.name,
       sector33Code: ticker.sector33Code ?? null,
-      sector33Name: ticker.sector33Name ?? null
+      sector33Name: ticker.sector33Name ?? null,
+      chg1D: ticker.chg1D ?? null,
+      chg1W: ticker.chg1W ?? null,
+      chg1M: ticker.chg1M ?? null
     });
     sectors.set(sectorCode, bucket);
   });
@@ -218,6 +227,15 @@ export const formatMarketRate = (value: number) => {
   if (rounded > 0) return `+${rounded.toFixed(1)}%`;
   if (rounded < 0) return `${rounded.toFixed(1)}%`;
   return "0.0%";
+};
+
+export const resolveMarketTickerRate = (
+  ticker: MarketWatchlistTicker,
+  period: MarketPeriodKey
+) => {
+  const raw = period === "1w" ? ticker.chg1W : period === "1m" ? ticker.chg1M : ticker.chg1D;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
 };
 
 export const formatMarketValue = (value: number) => {

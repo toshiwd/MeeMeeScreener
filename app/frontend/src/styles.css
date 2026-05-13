@@ -206,7 +206,9 @@ body {
   border-radius: 12px;
   padding: 10px 12px;
   display: grid;
-  gap: 4px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
   text-align: left;
   cursor: pointer;
 }
@@ -216,13 +218,39 @@ body {
 }
 
 .market-side-row-code {
+  display: block;
   font-size: 11px;
   color: var(--theme-text-secondary);
 }
 
 .market-side-row-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 13px;
   font-weight: 600;
+}
+
+.market-side-row-rate {
+  justify-self: end;
+  min-width: 54px;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.market-side-row-rate.is-positive {
+  color: var(--color-pnl-up, #ef4444);
+}
+
+.market-side-row-rate.is-negative {
+  color: var(--color-pnl-down, #22c55e);
+}
+
+.market-side-row-rate.is-neutral {
+  color: var(--theme-text-secondary);
 }
 
 .market-side-empty,
