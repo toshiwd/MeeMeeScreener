@@ -690,8 +690,7 @@ export default function ThumbnailCanvas({
     hoverIndex !== null && displayBars.length
       ? Math.min(hoverIndex, displayBars.length - 1)
       : null;
-  const activeIndex =
-    safeHoverIndex !== null ? safeHoverIndex : displayBars.length ? displayBars.length - 1 : null;
+  const activeIndex = safeHoverIndex !== null ? safeHoverIndex : null;
   const activeBar = activeIndex !== null ? displayBars[activeIndex] : null;
   const prevBar = activeIndex !== null && activeIndex > 0 ? displayBars[activeIndex - 1] : null;
   const dayChange =

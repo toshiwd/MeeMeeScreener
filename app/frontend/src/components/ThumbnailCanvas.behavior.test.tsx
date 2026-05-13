@@ -312,4 +312,37 @@ describe("ThumbnailCanvas", () => {
     expect(crosshair).not.toBeNull();
     expect(crosshair?.style.left).toBe(resolveThumbnailCrosshairLeft(1, 240, 2, true));
   });
+
+  it("keeps the value overlay hidden until the user hovers the chart", async () => {
+    renderCanvas();
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(render?.container.querySelector(".thumb-overlay")).toBeNull();
+
+    const thumb = render?.container.querySelector(".thumb-canvas") as HTMLDivElement | null;
+    vi.spyOn(thumb!, "getBoundingClientRect").mockReturnValue({
+      x: 0,
+      y: 0,
+      width: 240,
+      height: 120,
+      top: 0,
+      right: 240,
+      bottom: 120,
+      left: 0,
+      toJSON: () => ({})
+    } as DOMRect);
+
+    act(() => {
+      thumb?.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientX: 145, clientY: 40 }));
+    });
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(render?.container.querySelector(".thumb-overlay")).not.toBeNull();
+  });
 });

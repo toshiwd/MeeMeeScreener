@@ -1052,10 +1052,15 @@ export const useStore = create<StoreState>((set, get) => ({
           throw new Error(`batch_bars_v3 failed with status ${res.status}`);
         }
 
-        await applyChartDataVersion(res.data?.meta?.data_version ?? null);
-        const settledCodes = missingCodes.filter((code) =>
+        const settledCodesBeforeVersionUpdate = missingCodes.filter((code) =>
           hasCurrentBarsLoadingToken(timeframe, code, requestToken)
         );
+        const versionResult = await applyChartDataVersion(res.data?.meta?.data_version ?? null);
+        const settledCodes = versionResult.changed
+          ? settledCodesBeforeVersionUpdate
+          : missingCodes.filter((code) =>
+            hasCurrentBarsLoadingToken(timeframe, code, requestToken)
+          );
         if (!settledCodes.length) {
           return;
         }
@@ -1219,7 +1224,6 @@ export const useStore = create<StoreState>((set, get) => ({
           const requiredWithRange = Math.max(requiredBars, state.settings.listRangeBars);
           const listKey = `${buildBatchKey(timeframe, requiredWithRange, mergedCodes)}|boxes:${includeBoxes ? 1 : 0}`;
           if (lastEnsureKeyByTimeframe[timeframe] !== listKey) {
-            abortInFlightForTimeframe(timeframe);
             lastEnsureKeyByTimeframe[timeframe] = listKey;
           }
           const missing = mergedCodes.filter((code) => {
