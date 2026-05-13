@@ -49,7 +49,7 @@ def test_health_live_is_db_independent():
     assert payload["message"] == "alive"
 
 
-def test_health_returns_not_ready_503_when_db_temporarily_busy():
+def test_health_returns_not_ready_200_when_db_temporarily_busy_after_boot():
     readiness = {
         "missing_tables": [],
         "errors": ["db_unavailable"],
@@ -64,7 +64,38 @@ def test_health_returns_not_ready_503_when_db_temporarily_busy():
     ):
         response = health_router.health()
 
-    assert response.status_code == 503
+    assert response.status_code == 200
+    payload = json.loads(response.body)
+    assert payload["ok"] is False
+    assert payload["status"] == "db_busy"
+    assert payload["ready"] is False
+    assert payload["phase"] == "db_busy"
+    assert payload["message"] == "database is temporarily busy"
+    assert payload["retryAfterMs"] == 1000
+    assert payload["db_retryable"] is True
+    assert payload["transient_db_busy"] is True
+    assert payload["errors"] == ["db_unavailable"]
+
+
+def test_health_deep_returns_not_ready_200_when_db_temporarily_busy_after_boot():
+    stats = {
+        "tickers": None,
+        "daily_rows": None,
+        "monthly_rows": None,
+        "missing_tables": [],
+        "errors": ["db_unavailable"],
+        "db_retryable": True,
+        "db_connect_stats": {"open_calls": 3},
+    }
+
+    with (
+        patch.object(health_router, "_collect_db_stats", return_value=stats),
+        patch.object(health_router, "get_readiness_state", return_value={"boot_ready": True, "db_ready": True}),
+        patch.object(health_router, "get_txt_status", return_value={"txt_count": None, "last_updated": None, "code_txt_missing": None}),
+    ):
+        response = health_router.health_deep()
+
+    assert response.status_code == 200
     payload = json.loads(response.body)
     assert payload["ok"] is False
     assert payload["status"] == "db_busy"

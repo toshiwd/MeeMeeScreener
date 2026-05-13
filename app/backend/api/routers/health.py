@@ -140,6 +140,8 @@ def health():
     )
     if ready:
         return payload
+    if transient_db_busy:
+        return JSONResponse(status_code=200, content=payload)
     return JSONResponse(status_code=503, content=payload)
 
 
@@ -149,6 +151,13 @@ def health_deep():
     stats = _collect_db_stats()
     missing_tables = list(stats.get("missing_tables") or [])
     errors = list(stats.get("errors") or [])
+    readiness_state = get_readiness_state()
+    transient_db_busy = (
+        bool(stats.get("db_retryable"))
+        and not missing_tables
+        and bool(errors)
+        and bool(readiness_state.get("boot_ready") or readiness_state.get("db_ready"))
+    )
     backend_ready = not missing_tables and not errors
     has_daily = (stats.get("daily_rows") or 0) > 0
     has_monthly = (stats.get("monthly_rows") or 0) > 0
@@ -160,14 +169,16 @@ def health_deep():
 
     payload = _health_payload(
         ok=backend_ready,
-        status="ok" if data_initialized else "degraded",
+        status="db_busy" if transient_db_busy else "ok" if data_initialized else "degraded",
         ready=backend_ready,
-        phase="ready" if backend_ready else "starting",
+        phase="ready" if backend_ready else "db_busy" if transient_db_busy else "starting",
         message=(
             "ready"
             if backend_ready and data_initialized
             else "data is not initialized yet"
             if backend_ready
+            else "database is temporarily busy"
+            if transient_db_busy
             else "backend is starting"
         ),
         errors=[] if backend_ready else detail_errors,
@@ -180,6 +191,9 @@ def health_deep():
             "pan_out_txt_dir": resolve_pan_out_txt_dir(),
             "last_updated": txt_status.get("last_updated"),
             "code_txt_missing": txt_status.get("code_txt_missing"),
+            "db_retryable": bool(stats.get("db_retryable")),
+            "transient_db_busy": transient_db_busy,
+            "readiness_state": readiness_state,
             **_resolved_runtime_extra(),
         },
     )
@@ -187,6 +201,8 @@ def health_deep():
         if not data_initialized:
             payload["error_code"] = "DATA_NOT_INITIALIZED"
         return payload
+    if transient_db_busy:
+        return JSONResponse(status_code=200, content=payload)
     return JSONResponse(status_code=503, content=payload)
 
 

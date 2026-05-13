@@ -37,3 +37,14 @@ def test_get_job_status_returns_cached_status_when_db_is_temporarily_unavailable
         payload = jobs_router.get_job_status("job-1")
 
     assert payload == cached
+
+
+def test_get_current_job_returns_empty_when_db_is_temporarily_unavailable_without_cache():
+    with (
+        patch.object(jobs_router, "try_get_conn", return_value=_NullConnContext()),
+        patch.object(jobs_router.job_manager, "get_cached_current", return_value=None),
+    ):
+        response = jobs_router.get_current_job()
+
+    assert response.status_code == 200
+    assert response.body == b"null"

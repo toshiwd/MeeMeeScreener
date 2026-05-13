@@ -1138,7 +1138,7 @@ def get_current_job():
             return cached
         with try_get_conn(timeout_sec=0.4) as conn:
             if conn is None:
-                return _db_retryable_response(message="Database is temporarily unavailable")
+                return JSONResponse(content=None)
             row = conn.execute(
                 "SELECT id, type, status, created_at, started_at, progress, message "
                 "FROM sys_jobs WHERE status IN ('queued', 'running', 'cancel_requested') "
@@ -1160,7 +1160,7 @@ def get_current_job():
             cached = job_manager.get_cached_current()
             if cached is not None:
                 return cached
-            return _db_retryable_response(message="Database is temporarily unavailable", error_detail=str(exc))
+            return JSONResponse(content=None)
         logger.exception("Error current job: %s", exc)
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
