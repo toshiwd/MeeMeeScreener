@@ -101,7 +101,7 @@ body {
 }
 
 .market-layout.has-side-panel {
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 360px);
 }
 
 .market-layout:not(.has-side-panel) .market-side-panel {
@@ -116,15 +116,11 @@ body {
 }
 
 .market-side-panel {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 5;
+  align-self: stretch;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  width: min(360px, calc(100vw - 48px));
+  width: 100%;
   min-height: 0;
   max-height: 100%;
   overflow: hidden;
@@ -132,7 +128,7 @@ body {
   border: 1px solid var(--border-subtle);
   border-radius: 16px;
   background: var(--bg-surface);
-  box-shadow: 0 18px 42px rgba(9, 49, 78, 0.16);
+  box-shadow: 0 10px 26px rgba(9, 49, 78, 0.08);
 }
 
 .market-side-panel-header {
@@ -592,8 +588,13 @@ body {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .market-layout.has-side-panel {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .market-side-panel {
-    width: min(360px, calc(100vw - 32px));
+    width: 100%;
+    min-height: 220px;
   }
 
   .market-grid-heatmap {
