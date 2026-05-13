@@ -230,10 +230,16 @@ export const formatMarketFlow = (value: number) => {
 };
 
 export const getMarketDirectionColor = (value: number, maxAbs: number) => {
-  if (!Number.isFinite(value) || maxAbs <= 0) return "var(--theme-text-muted)";
+  if (!Number.isFinite(value) || maxAbs <= 0) {
+    return "color-mix(in srgb, var(--theme-text-muted) 16%, var(--bg-surface) 84%)";
+  }
   const normalized = Math.max(-1, Math.min(1, value / maxAbs));
-  if (Math.abs(normalized) < MARKET_NEUTRAL_TONE_THRESHOLD) return "var(--theme-text-muted)";
-  return normalized > 0 ? "var(--color-pnl-up)" : "var(--color-pnl-down)";
+  if (Math.abs(normalized) < MARKET_NEUTRAL_TONE_THRESHOLD) {
+    return "color-mix(in srgb, var(--theme-text-muted) 16%, var(--bg-surface) 84%)";
+  }
+  const accent = normalized > 0 ? "var(--color-pnl-up)" : "var(--color-pnl-down)";
+  const accentPercent = Math.round(22 + Math.abs(normalized) * 26);
+  return `color-mix(in srgb, ${accent} ${accentPercent}%, var(--bg-surface) ${100 - accentPercent}%)`;
 };
 
 export const getMarketDirectionTone = (value: number, maxAbs: number): MarketDirectionTone => {

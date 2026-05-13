@@ -365,7 +365,7 @@ export default function MarketView() {
         </div>
       </div>
 
-      <main className="market-main market-layout">
+      <main className={`market-main market-layout${selectedSectorItem ? " has-side-panel" : ""}`}>
         <section className="market-main-panel">
           <MarketHeatmapPanel
             loading={loading}

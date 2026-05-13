@@ -258,10 +258,12 @@ export default function MarketHeatmapPanel({
                   {bandColor ? (
                     <span className="market-grid-tile-band" style={{ background: bandColor }} aria-hidden="true" />
                   ) : null}
-                  {watched ? <span className="market-grid-tile-badge">監視あり</span> : null}
                   <div className="market-grid-tile-header">
                     <div className="market-grid-tile-label">{item.label}</div>
-                    <div className="market-grid-tile-code">{item.sector33_code}</div>
+                    <div className="market-grid-tile-side">
+                      <div className="market-grid-tile-code">{item.sector33_code}</div>
+                      {watched ? <span className="market-grid-tile-badge">監視あり</span> : null}
+                    </div>
                   </div>
                   <div className="market-grid-tile-value">{metricLine}</div>
                   <div className="market-grid-tile-meta">

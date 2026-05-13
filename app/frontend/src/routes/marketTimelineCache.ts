@@ -94,5 +94,5 @@ export const clearMarketTimelineCache = (
 
 export const describeMarketTimelineSource = (source: MarketTimelineCacheSource | null) => {
   if (source !== "snapshot_fallback") return null;
-  return "Snapshot fallback shown. Timeline history is currently unavailable.";
+  return "市場推移の取得に時間がかかっているため、直近の市場状態を表示しています。";
 };

@@ -75,6 +75,6 @@ describe("market timeline cache", () => {
 describe("describeMarketTimelineSource", () => {
   it("only emits a note for snapshot fallback", () => {
     expect(describeMarketTimelineSource("timeline")).toBeNull();
-    expect(describeMarketTimelineSource("snapshot_fallback")).toContain("Snapshot fallback");
+    expect(describeMarketTimelineSource("snapshot_fallback")).toContain("直近の市場状態");
   });
 });
