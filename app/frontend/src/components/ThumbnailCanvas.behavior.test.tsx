@@ -6,7 +6,8 @@ import {
   buildThumbnailSizeKey,
   buildThumbnailSnapshotCacheKey,
   clearThumbnailCache,
-  getThumbnailCache
+  getThumbnailCache,
+  setThumbnailCache
 } from "./thumbnailCache";
 import type { BarsPayload } from "../store";
 import { installCanvasMock, type CanvasMockHandle } from "../test/canvasMock";
@@ -117,6 +118,63 @@ describe("ThumbnailCanvas", () => {
       );
     });
   };
+
+  it("shows a saved thumbnail image while the first canvas draw is pending", async () => {
+    render?.cleanup();
+    render = null;
+    clearThumbnailCache();
+    setThumbnailCache("thumbnail", "data:image/png;base64,saved");
+
+    render = await renderClient(
+      <ThumbnailCanvas
+        payload={makePayload()}
+        boxes={[]}
+        showBoxes={false}
+        maSettings={[]}
+        showAxes={true}
+        theme="dark"
+        cacheKey="thumbnail"
+      />
+    );
+
+    const img = render.container.querySelector("img.thumb-canvas-image");
+    expect(img?.getAttribute("src")).toBe("data:image/png;base64,saved");
+    expect(render.container.querySelector("canvas")?.style.opacity).toBe("0");
+  });
+
+  it("keeps a size-matched cached thumbnail visible instead of exposing a blank canvas", async () => {
+    render?.cleanup();
+    render = null;
+    clearThumbnailCache();
+    const payload = makePayload();
+    const renderKey = buildRenderKey(payload);
+    const sizeKey = buildThumbnailSizeKey(240, 120, 2);
+    setThumbnailCache(
+      buildThumbnailSnapshotCacheKey("thumbnail", renderKey, sizeKey),
+      "data:image/png;base64,sized"
+    );
+
+    render = await renderClient(
+      <ThumbnailCanvas
+        payload={payload}
+        boxes={[]}
+        showBoxes={false}
+        maSettings={[]}
+        showAxes={true}
+        theme="dark"
+        cacheKey="thumbnail"
+      />
+    );
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    const img = render.container.querySelector("img.thumb-canvas-image");
+    expect(img?.getAttribute("src")).toBe("data:image/png;base64,sized");
+    expect(render.container.querySelector("canvas")?.style.opacity).toBe("0");
+    expect(canvasMock?.ctx.fillRect).not.toHaveBeenCalled();
+  });
 
   it("keeps the backing store aligned to the measured client size", async () => {
     renderCanvas();

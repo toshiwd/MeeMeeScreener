@@ -173,6 +173,72 @@ describe("ChartListCard", () => {
     expect(container?.textContent).not.toContain("読み込み中...");
   });
 
+  it("keeps a cached thumbnail visible while a deferred card is outside the viewport", async () => {
+    class OutsideIntersectionObserverMock {
+      constructor(
+        private readonly callback: IntersectionObserverCallback
+      ) {}
+
+      observe = vi.fn((element: Element) => {
+        this.callback(
+          [
+            {
+              isIntersecting: false,
+              target: element,
+              intersectionRatio: 0,
+              time: performance.now(),
+              boundingClientRect: element.getBoundingClientRect(),
+              intersectionRect: element.getBoundingClientRect(),
+              rootBounds: null
+            } as IntersectionObserverEntry
+          ],
+          this as unknown as IntersectionObserver
+        );
+      });
+
+      disconnect = vi.fn();
+      unobserve = vi.fn();
+      takeRecords = vi.fn(() => []);
+    }
+
+    vi.stubGlobal(
+      "IntersectionObserver",
+      OutsideIntersectionObserverMock as unknown as typeof IntersectionObserver
+    );
+
+    const cacheKey = buildThumbnailCacheKey(
+      "7203",
+      "daily",
+      false,
+      maSettings as unknown as never[],
+      "light"
+    );
+    setThumbnailCache(cacheKey, "data:image/png;base64,ZmFrZQ==");
+
+    await act(async () => {
+      root?.render(
+        <ChartListCard
+          code="7203"
+          name="Toyota"
+          payload={null}
+          fallbackSeries={null}
+          status="idle"
+          maSettings={maSettings as unknown as never[]}
+          rangeBars={60}
+          deferUntilInView={true}
+          thumbnailTimeframe="daily"
+          onEnterView={onEnterView}
+          onOpenDetail={onOpenDetail}
+        />
+      );
+    });
+
+    expect(container?.querySelector(".thumb-canvas-image")).not.toBeNull();
+    expect(container?.querySelector(".rank-chart-placeholder")).toBeNull();
+    expect(onEnterView).not.toHaveBeenCalled();
+    expect(thumbnailCanvasMock.render).not.toHaveBeenCalled();
+  });
+
   it("re-triggers the visible fetch when the range changes", async () => {
     await act(async () => {
       root?.render(

@@ -347,7 +347,12 @@ const ChartListCard = memo(function ChartListCard({
         </div>
       )}
       <div className="tile-chart">
-        {deferUntilInView && !inView && <div className="rank-chart-placeholder" />}
+        {deferUntilInView && !inView && hasCachedThumb && (
+          <div className="thumb-canvas">
+            <img className="thumb-canvas-image" src={cachedThumb ?? ""} alt="" />
+          </div>
+        )}
+        {deferUntilInView && !inView && !hasCachedThumb && <div className="rank-chart-placeholder" />}
         {(!deferUntilInView || inView) && showLoading && hasCachedThumb && (
           <div className="thumb-canvas">
             <img className="thumb-canvas-image" src={cachedThumb ?? ""} alt="" />

@@ -173,7 +173,7 @@ describe("StockTile", () => {
     expect(markup).toContain("\u65e5\u4ed8 26/03/19 (\u6728)");
     expect(markup).toContain("\u7d42\u5024 110");
     expect(markup).toContain("\u524d\u65e5\u6bd4 +10.0%");
-    expect(markup).toContain("\u66ab\u5b9a 2026/03/19");
+    expect(markup).toContain("\u5f53\u65e5\u53cd\u6620 2026/03/19");
     expect(markup).toContain("\u5019\u88dc\u304b\u3089\u5916\u3059");
     expect(markup).toContain("\u2713");
     expect(markup).toContain("\u6a29\u5229 3/10");

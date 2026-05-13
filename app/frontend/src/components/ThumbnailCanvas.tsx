@@ -446,7 +446,9 @@ export default function ThumbnailCanvas({
   const hoverPendingRef = useRef<number | null>(null);
   const [hasDrawn, setHasDrawn] = useState(false);
   const [layoutSizeKey, setLayoutSizeKey] = useState<string | null>(null);
-  const [cachedSnapshot, setCachedSnapshot] = useState<string | null>(null);
+  const [cachedSnapshot, setCachedSnapshot] = useState<string | null>(() =>
+    cacheKey ? getThumbnailCache(cacheKey) ?? null : null
+  );
   const maxBarsValue = Math.max(1, Math.floor(maxBars ?? DEFAULT_MAX_BARS));
   const displayBars = useMemo(() => {
     const allBars = payload.bars ?? [];
@@ -480,14 +482,14 @@ export default function ThumbnailCanvas({
       setHasDrawn(true);
       return true;
     }
-    lastDrawFingerprintRef.current = drawFingerprint;
     const snapshotCacheKey = cacheKey ? buildThumbnailSnapshotCacheKey(cacheKey, renderKey, sizeKey) : null;
     const cachedSizeSnapshot = snapshotCacheKey ? getThumbnailCache(snapshotCacheKey) : null;
     if (cachedSizeSnapshot) {
       setCachedSnapshot(cachedSizeSnapshot);
-      setHasDrawn(true);
+      setHasDrawn(false);
       return true;
     }
+    lastDrawFingerprintRef.current = drawFingerprint;
     drawChart(
       canvas,
       payload,
@@ -645,19 +647,18 @@ export default function ThumbnailCanvas({
   }, [renderKey, scheduleDraw]);
 
   useEffect(() => {
+    const fallbackSnapshot = cacheKey ? getThumbnailCache(cacheKey) ?? null : null;
+    const sizedSnapshot =
+      cacheKey && layoutSizeKey
+        ? getThumbnailCache(buildThumbnailSnapshotCacheKey(cacheKey, renderKey, layoutSizeKey)) ?? null
+        : null;
+    setCachedSnapshot(sizedSnapshot ?? fallbackSnapshot);
     if (isScrollingRef.current) {
       pendingDrawRef.current = true;
       return;
     }
     setHasDrawn(false);
     lastDrawFingerprintRef.current = "";
-    if (!cacheKey || !layoutSizeKey) {
-      return;
-    }
-    const nextSnapshot = getThumbnailCache(buildThumbnailSnapshotCacheKey(cacheKey, renderKey, layoutSizeKey));
-    if (nextSnapshot) {
-      setCachedSnapshot(nextSnapshot);
-    }
   }, [cacheKey, layoutSizeKey, renderKey]);
 
   const scheduleHoverIndex = (index: number | null) => {
