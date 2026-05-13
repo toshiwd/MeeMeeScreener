@@ -489,6 +489,17 @@ def _is_retryable_db_lock_detail(payload: dict[str, object]) -> bool:
     return bool(text) and any(keyword in text for keyword in _RETRYABLE_DB_LOCK_KEYWORDS)
 
 
+def _is_launchable_transient_db_busy(payload: dict[str, object]) -> bool:
+    if payload.get("transient_db_busy") is not True:
+        return False
+    if str(payload.get("phase") or "") != "db_busy":
+        return False
+    readiness_state = payload.get("readiness_state")
+    if not isinstance(readiness_state, dict):
+        return False
+    return bool(readiness_state.get("boot_ready") or readiness_state.get("db_ready"))
+
+
 def _wait_for_health_detail(
     port: int,
     timeout_seconds: int,
@@ -518,7 +529,7 @@ def _wait_for_health_detail(
                         payload = {}
                 is_http_ok = 200 <= int(response.status) < 300
                 is_ready = payload.get("ready")
-                if is_http_ok and is_ready is True:
+                if is_http_ok and (is_ready is True or _is_launchable_transient_db_busy(payload)):
                     return True, None
                 phase = str(payload.get("phase") or "")
                 message = str(payload.get("message") or "")
