@@ -91,21 +91,13 @@ body {
 
 .market-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 360px);
   align-items: stretch;
   gap: 16px;
   flex: 1;
   min-height: 0;
   overflow: hidden;
   position: relative;
-}
-
-.market-layout.has-side-panel {
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 360px);
-}
-
-.market-layout:not(.has-side-panel) .market-side-panel {
-  display: none;
 }
 
 .market-main-panel {
@@ -585,10 +577,6 @@ body {
 
 @media (max-width: 1100px) {
   .market-layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .market-layout.has-side-panel {
     grid-template-columns: minmax(0, 1fr);
   }
 
