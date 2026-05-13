@@ -6,6 +6,8 @@ export type MarketDisplayMode = "heatmap" | "bubble";
 export type MarketDirectionTone = "positive" | "negative" | "neutral";
 
 export const MARKET_NEUTRAL_TONE_THRESHOLD = 0.08;
+export const MARKET_CANDLE_UP_COLOR = "#ef4444";
+export const MARKET_CANDLE_DOWN_COLOR = "#22c55e";
 
 export const MARKET_SECTOR_MATRIX_ROWS = 5;
 export const MARKET_SECTOR_MATRIX_COLS = 7;
@@ -154,15 +156,24 @@ export const buildWatchlistSectorIndex = (keepList: string[], tickers: Ticker[])
 export const isWatchedSector = (item: MarketSectorViewItem) => item.watchlistCount > 0;
 
 export const buildMarketSectorMatrix = (items: MarketSectorViewItem[]) => {
-  const matrix: (MarketSectorViewItem | null)[][] = Array.from({ length: MARKET_SECTOR_MATRIX_ROWS }, () =>
-    Array.from({ length: MARKET_SECTOR_MATRIX_COLS }, () => null)
-  );
-  items.forEach((item) => {
-    const position = MARKET_SECTOR_POSITION_MAP.get(item.sector33_code);
-    if (!position) return;
-    matrix[position.row][position.col] = item;
+  const sortedItems = [...items].sort((a, b) => {
+    const positionA = MARKET_SECTOR_POSITION_MAP.get(a.sector33_code);
+    const positionB = MARKET_SECTOR_POSITION_MAP.get(b.sector33_code);
+    const orderA = positionA
+      ? positionA.row * MARKET_SECTOR_MATRIX_COLS + positionA.col
+      : Number.MAX_SAFE_INTEGER;
+    const orderB = positionB
+      ? positionB.row * MARKET_SECTOR_MATRIX_COLS + positionB.col
+      : Number.MAX_SAFE_INTEGER;
+    if (orderA !== orderB) return orderA - orderB;
+    return a.sector33_code.localeCompare(b.sector33_code, "ja");
   });
-  return matrix;
+
+  const rows: MarketSectorViewItem[][] = [];
+  for (let index = 0; index < sortedItems.length; index += MARKET_SECTOR_MATRIX_COLS) {
+    rows.push(sortedItems.slice(index, index + MARKET_SECTOR_MATRIX_COLS));
+  }
+  return rows;
 };
 
 export const enrichMarketItems = (
@@ -231,15 +242,15 @@ export const formatMarketFlow = (value: number) => {
 
 export const getMarketDirectionColor = (value: number, maxAbs: number) => {
   if (!Number.isFinite(value) || maxAbs <= 0) {
-    return "color-mix(in srgb, var(--theme-text-muted) 16%, var(--bg-surface) 84%)";
+    return "var(--market-tile-neutral)";
   }
   const normalized = Math.max(-1, Math.min(1, value / maxAbs));
   if (Math.abs(normalized) < MARKET_NEUTRAL_TONE_THRESHOLD) {
-    return "color-mix(in srgb, var(--theme-text-muted) 16%, var(--bg-surface) 84%)";
+    return "var(--market-tile-neutral)";
   }
-  const accent = normalized > 0 ? "var(--color-pnl-up)" : "var(--color-pnl-down)";
-  const accentPercent = Math.round(22 + Math.abs(normalized) * 26);
-  return `color-mix(in srgb, ${accent} ${accentPercent}%, var(--bg-surface) ${100 - accentPercent}%)`;
+  const accent = normalized > 0 ? MARKET_CANDLE_UP_COLOR : MARKET_CANDLE_DOWN_COLOR;
+  const accentPercent = Math.round(24 + Math.abs(normalized) * 34);
+  return `color-mix(in srgb, ${accent} ${accentPercent}%, var(--market-tile-base) ${100 - accentPercent}%)`;
 };
 
 export const getMarketDirectionTone = (value: number, maxAbs: number): MarketDirectionTone => {

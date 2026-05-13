@@ -25,6 +25,10 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  --market-candle-up: #ef4444;
+  --market-candle-down: #22c55e;
+  --market-tile-base: #fff9f0;
+  --market-tile-neutral: #f1f5f9;
 }
 
 .dynamic-header {
@@ -93,10 +97,11 @@ body {
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  position: relative;
 }
 
 .market-layout.has-side-panel {
-  grid-template-columns: minmax(0, 1fr) 340px;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .market-layout:not(.has-side-panel) .market-side-panel {
@@ -111,12 +116,15 @@ body {
 }
 
 .market-side-panel {
-  align-self: stretch;
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  flex: 0 0 340px;
-  width: 340px;
+  width: min(360px, calc(100vw - 48px));
   min-height: 0;
   max-height: 100%;
   overflow: hidden;
@@ -124,7 +132,7 @@ body {
   border: 1px solid var(--border-subtle);
   border-radius: 16px;
   background: var(--bg-surface);
-  box-shadow: none;
+  box-shadow: 0 18px 42px rgba(9, 49, 78, 0.16);
 }
 
 .market-side-panel-header {
@@ -309,7 +317,7 @@ body {
 }
 
 .market-heatmap-surface {
-  background: linear-gradient(180deg, #fffdf8 0%, #f8f1e5 100%);
+  background: linear-gradient(180deg, #fffaf2 0%, #f7f2e8 100%);
 }
 
 .market-grid-heatmap {
@@ -317,9 +325,9 @@ body {
   z-index: 1;
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
-  grid-template-rows: repeat(5, minmax(92px, 1fr));
-  gap: 8px;
-  padding: 12px;
+  grid-auto-rows: minmax(104px, 1fr);
+  gap: 7px;
+  padding: 10px;
   min-height: 100%;
   overflow: auto;
   align-content: stretch;
@@ -328,8 +336,8 @@ body {
 .market-grid-tile {
   position: relative;
   border: 1px solid rgba(9, 49, 78, 0.14);
-  border-radius: 14px;
-  padding: 10px 11px 9px;
+  border-radius: 12px;
+  padding: 9px 10px 8px;
   color: var(--text-primary);
   text-align: left;
   cursor: pointer;
@@ -369,8 +377,8 @@ body {
   left: 0;
   right: 0;
   height: 12px;
-  border-top-left-radius: 13px;
-  border-top-right-radius: 13px;
+  border-top-left-radius: 11px;
+  border-top-right-radius: 11px;
   opacity: 0.92;
   pointer-events: none;
 }
@@ -585,9 +593,11 @@ body {
   }
 
   .market-side-panel {
-    width: auto;
-    flex-basis: auto;
-    min-height: 240px;
+    width: min(360px, calc(100vw - 32px));
+  }
+
+  .market-grid-heatmap {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 
