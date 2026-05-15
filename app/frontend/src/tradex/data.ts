@@ -11,6 +11,7 @@ import type {
   TradexForecastSurfaceProjectionEnvelope,
   TradexRankingImpact,
   TradexLiveStrategyJudgement,
+  TradexReadonlyReflections,
   TradexSummaryStrip,
   TradexValidationResult
 } from "./contracts";
@@ -85,6 +86,7 @@ type AnalysisBridgeStatus = {
 };
 
 type ForecastSurfaceProjectionEnvelope = TradexForecastSurfaceProjectionEnvelope;
+type ReadonlyReflectionsResponse = TradexReadonlyReflections;
 
 type ActionQueueItem = {
   kind: string;
@@ -377,6 +379,7 @@ const loadTradexBootstrapFromBackend = async (): Promise<TradexBootstrapData> =>
     candidates: response.candidates,
     live_strategy_judgement: (response.live_strategy_judgement ?? null) as TradexLiveStrategyJudgement | null,
     forecast_surface_projection: response.forecast_surface_projection ?? null,
+    readonly_reflections: (response.readonly_reflections ?? null) as ReadonlyReflectionsResponse | null,
     raw: response.raw
   };
 };
@@ -402,6 +405,7 @@ export const loadTradexBootstrapFromLegacySources = async (): Promise<TradexBoot
     candidates,
     live_strategy_judgement: null,
     forecast_surface_projection: forecastSurfaceProjection,
+    readonly_reflections: null,
     raw: {
       analysis_status: analysisStatus as unknown as Record<string, unknown>,
       runtime_selection: runtimeSelection as unknown as Record<string, unknown>,
@@ -410,7 +414,8 @@ export const loadTradexBootstrapFromLegacySources = async (): Promise<TradexBoot
       replay_progress: replayProgress as unknown as Record<string, unknown>,
       action_queue: actionQueue as unknown as Record<string, unknown>,
       live_strategy_judgement: null,
-      forecast_surface_projection: forecastSurfaceProjection as unknown as Record<string, unknown>
+      forecast_surface_projection: forecastSurfaceProjection as unknown as Record<string, unknown>,
+      readonly_reflections: null
     }
   };
 };

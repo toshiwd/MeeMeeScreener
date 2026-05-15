@@ -79,6 +79,51 @@ export type TradexLiveStrategyJudgement = {
   is_buy_signal: boolean;
 };
 
+export type TradexReadonlyReflectionItem = {
+  candidate_name: string;
+  candidate_version: string | null;
+  status: string;
+  decision: string | null;
+  side: string | null;
+  display_level: string | null;
+  source_run_root: string | null;
+  source_decision_artifact: string | null;
+  source_compare_artifact: string | null;
+  source_contract_artifact: string | null;
+  reflectability_decision_artifact: string | null;
+  no_lookahead_pass: boolean;
+  production_ranking_changed: boolean;
+  active_ranking_changed: boolean;
+  publish_run: boolean;
+  old_candidate_status: string | null;
+  allowed_meemee_usage: string[];
+  forbidden_meemee_usage: string[];
+  key_metrics: Record<string, unknown>;
+  remaining_risks: string[];
+  visible_warning: string;
+  family_status?: string | null;
+  meemee_readonly_status?: string | null;
+  shadow_trade_candidate?: boolean | null;
+  full_period_result_summary?: Record<string, unknown>[] | null;
+  max_drawdown_summary?: Record<string, unknown>[] | null;
+  added_bad_pick_impact?: Record<string, unknown> | null;
+  supersedes_readonly_reflection_root?: string | null;
+  authoritative_drop_root?: string | null;
+  supersession_reason?: string | null;
+  drop_reason?: string | null;
+  guardrail_failures: string[];
+  manifest_path: string | null;
+};
+
+export type TradexReadonlyReflections = {
+  available: boolean;
+  reason: string | null;
+  items: TradexReadonlyReflectionItem[];
+  production_ranking_changed: boolean;
+  active_ranking_changed: boolean;
+  publish_run: boolean;
+};
+
 export type TradexBaseline = {
   logic_id: string | null;
   version: string | null;
@@ -183,6 +228,7 @@ export type TradexBootstrapData = {
   candidates: TradexCandidate[];
   live_strategy_judgement: TradexLiveStrategyJudgement | null;
   forecast_surface_projection: TradexForecastSurfaceProjectionEnvelope | null;
+  readonly_reflections: TradexReadonlyReflections | null;
   raw: {
     analysis_status: Record<string, unknown> | null;
     runtime_selection: Record<string, unknown> | null;
@@ -192,6 +238,7 @@ export type TradexBootstrapData = {
     action_queue: Record<string, unknown> | null;
     live_strategy_judgement: Record<string, unknown> | null;
     forecast_surface_projection: Record<string, unknown> | null;
+    readonly_reflections: Record<string, unknown> | null;
   };
 };
 

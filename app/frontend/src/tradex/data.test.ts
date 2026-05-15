@@ -226,6 +226,40 @@ describe("loadTradexBootstrap", () => {
               watchlist_promotions: []
             }
           },
+          readonly_reflections: {
+            available: true,
+            reason: null,
+            production_ranking_changed: false,
+            active_ranking_changed: false,
+            publish_run: false,
+            items: [
+              {
+                candidate_name: "sell_failed_followthrough_after_break_same_month_refill_liquidity_guard_no_lookahead_v1",
+                candidate_version: "v1",
+                status: "available",
+                decision: "meemee_reflectable_candidate",
+                side: "sell",
+                display_level: "read_only_research_candidate",
+                source_run_root: "G:/Tradex/source",
+                source_decision_artifact: "G:/Tradex/source/no_lookahead_clean_decision.json",
+                source_compare_artifact: "G:/Tradex/source/no_lookahead_clean_compare.json",
+                source_contract_artifact: "G:/Tradex/source/no_lookahead_clean_contract.json",
+                reflectability_decision_artifact: "G:/Tradex/source/meemee_reflectability_decision.json",
+                no_lookahead_pass: true,
+                production_ranking_changed: false,
+                active_ranking_changed: false,
+                publish_run: false,
+                old_candidate_status: "lookahead_contaminated_excluded",
+                allowed_meemee_usage: ["show not active ranking"],
+                forbidden_meemee_usage: ["do not use for production ranking"],
+                key_metrics: { mean_ret20_delta: 0.0103 },
+                remaining_risks: ["added_bad_pick remains visible"],
+                visible_warning: "This is not active ranking and not a live sell signal.",
+                guardrail_failures: [],
+                manifest_path: "G:/Tradex/manifest.json"
+              }
+            ]
+          },
           raw: {
             analysis_status: {},
             runtime_selection: {},
@@ -233,7 +267,8 @@ describe("loadTradexBootstrap", () => {
             publish_queue: {},
             replay_progress: {},
             action_queue: {},
-            forecast_surface_projection: {}
+            forecast_surface_projection: {},
+            readonly_reflections: {}
           }
         };
       }
@@ -244,5 +279,7 @@ describe("loadTradexBootstrap", () => {
 
     expect(payload.forecast_surface_projection?.projection?.summary.coverage_ratio).toBe(1);
     expect(payload.live_strategy_judgement?.human_readable_judgement).toBe("buy");
+    expect(payload.readonly_reflections?.available).toBe(true);
+    expect(payload.readonly_reflections?.items[0]?.visible_warning).toContain("not active ranking");
   });
 });

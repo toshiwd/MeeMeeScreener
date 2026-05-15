@@ -19,6 +19,10 @@ from app.backend.api.routers.system import _raise_mutation_failure, _run_operato
 from app.backend.services.analysis_bridge.reader import get_analysis_bridge_snapshot
 from app.backend.services.publish_promotion_service import build_publish_promotion_snapshot, promote_logic_key
 from app.backend.services.runtime_selection_service import build_runtime_selection_snapshot
+from app.backend.services.tradex_readonly_reflection_service import (
+    ReadonlyReflectionError,
+    build_readonly_reflection_snapshot,
+)
 from app.backend.services.tradex_research_bridge_service import (
     get_internal_forecast_surface_projection,
     get_internal_forecast_surface_review,
@@ -631,6 +635,7 @@ def get_tradex_bootstrap(
     replay_progress = get_internal_replay_progress()
     action_queue = get_internal_state_eval_action_queue()
     live_strategy_judgement = get_latest_strategy_judgement_summary()
+    readonly_reflections = build_readonly_reflection_snapshot()
     raw_candidates = list_publish_candidate_bundles(db_path=db_path)
     baseline = _build_baseline(analysis_status, runtime_selection, publish_state)
     baseline_publish_id = _resolve_baseline_publish_id(analysis_status, publish_state)
@@ -650,6 +655,7 @@ def get_tradex_bootstrap(
         "candidates": candidates,
         "live_strategy_judgement": live_strategy_judgement,
         "forecast_surface_projection": forecast_surface_projection,
+        "readonly_reflections": readonly_reflections,
         "raw": {
             "analysis_status": analysis_status,
             "runtime_selection": runtime_selection,
@@ -659,8 +665,17 @@ def get_tradex_bootstrap(
             "action_queue": action_queue,
             "live_strategy_judgement": live_strategy_judgement,
             "forecast_surface_projection": forecast_surface_projection,
+            "readonly_reflections": readonly_reflections,
         },
     }
+
+
+@router.get("/readonly-reflections", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
+def get_tradex_readonly_reflections():
+    try:
+        return build_readonly_reflection_snapshot(strict=True)
+    except ReadonlyReflectionError as exc:
+        raise HTTPException(status_code=503, detail={"ok": False, "reason": str(exc)}) from exc
 
 
 @router.post("/adopt", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)

@@ -4,7 +4,8 @@ import { tradexCandidateStatusLabel, tradexFreshnessLabel } from "../labels";
 import type {
   TradexForecastSurfaceProjection,
   TradexForecastSurfaceProjectionRow,
-  TradexLiveStrategyJudgement
+  TradexLiveStrategyJudgement,
+  TradexReadonlyReflections
 } from "../contracts";
 import { readTradexLocal, tradexStorageKeys, writeTradexLocal } from "../storage";
 import { useTradexBootstrap } from "../useTradexBootstrap";
@@ -12,6 +13,16 @@ import { useTradexBootstrap } from "../useTradexBootstrap";
 const formatNumber = (value: number | null | undefined, digits = 3) => {
   if (typeof value !== "number" || !Number.isFinite(value)) return "--";
   return value.toFixed(digits);
+};
+
+const metricNumber = (metrics: Record<string, unknown>, key: string): number | null => {
+  const value = metrics[key];
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
 };
 
 function CandidateCard({
@@ -181,6 +192,90 @@ function LiveStrategyJudgementPreview({ judgement }: { judgement: TradexLiveStra
   );
 }
 
+function ReadonlyReflectionPreview({ reflections }: { reflections: TradexReadonlyReflections | null }) {
+  const item = reflections?.items?.[0] ?? null;
+  if (!item) return null;
+  const metrics = item.key_metrics ?? {};
+  const remainingRisks = item.remaining_risks.slice(0, 3);
+  const isDropped = item.meemee_readonly_status === "dropped_after_multiyear_replay" || item.decision === "drop_after_multiyear_replay";
+  const fullPeriod = item.full_period_result_summary?.slice(0, 4) ?? [];
+  const addedBadPickImpact = item.added_bad_pick_impact ?? {};
+
+  return (
+    <section className="tradex-panel">
+      <div className="tradex-panel-head">
+        <div>
+          <div className="tradex-panel-title">{isDropped ? "Dropped research candidate" : "Read-only research candidate"}</div>
+          <div className="tradex-panel-caption">{item.visible_warning}</div>
+        </div>
+        <div className="tradex-panel-actions">
+          <span className="tradex-pill is-warn">not active ranking</span>
+          {isDropped ? <span className="tradex-pill is-warn">dropped after replay</span> : null}
+          <span className="tradex-pill is-muted">{item.side ?? "sell"}</span>
+          <span className={`tradex-pill ${isDropped ? "is-warn" : "is-ok"}`}>{item.decision ?? "unknown"}</span>
+        </div>
+      </div>
+      <div className="tradex-flow-grid">
+        <article className="tradex-flow-card">
+          <div className="tradex-flow-title">Candidate</div>
+          <div className="tradex-flow-text">
+            <div>{item.candidate_name}</div>
+            <div>display: {item.display_level ?? "--"}</div>
+            <div>status: {item.meemee_readonly_status ?? item.status ?? "--"}</div>
+            <div>shadow trade: {item.shadow_trade_candidate === false ? "false" : item.shadow_trade_candidate === true ? "true" : "--"}</div>
+            <div>no-lookahead clean: {item.no_lookahead_pass ? "passed" : "failed"}</div>
+            <div>old candidate: {item.old_candidate_status ?? "--"}</div>
+          </div>
+        </article>
+        <article className="tradex-flow-card">
+          <div className="tradex-flow-title">Metrics</div>
+          <div className="tradex-flow-text">
+            <div>mean_ret20_delta: {formatNumber(metricNumber(metrics, "mean_ret20_delta"), 4)}</div>
+            <div>hit_rate_delta: {formatNumber(metricNumber(metrics, "hit_rate_delta"), 4)}</div>
+            <div>severe_loser_rate_delta: {formatNumber(metricNumber(metrics, "severe_loser_rate_delta"), 4)}</div>
+            <div>monthly stability: {String(metrics.monthly_stability ?? "--")}</div>
+          </div>
+        </article>
+        <article className="tradex-flow-card">
+          <div className="tradex-flow-title">Guardrails</div>
+          <div className="tradex-flow-text">
+            <div>added_severe_loser: {String(metrics.added_severe_loser ?? "--")}</div>
+            <div>added_bad_pick: {String(metrics.added_bad_pick ?? "--")}</div>
+            <div>bad_pick_removal: {String(metrics.bad_pick_removal ?? "--")}</div>
+            <div>publish: {item.publish_run ? "run" : "not run"}</div>
+          </div>
+        </article>
+        {isDropped ? (
+          <article className="tradex-flow-card">
+            <div className="tradex-flow-title">Replay drop result</div>
+            <div className="tradex-flow-text">
+              {fullPeriod.length > 0 ? (
+                fullPeriod.map((row) => (
+                  <div key={String(row.exit_variant)}>
+                    {String(row.exit_variant)}: return {formatNumber(metricNumber(row, "total_return"), 4)}, DD{" "}
+                    {formatNumber(metricNumber(row, "max_drawdown"), 4)}
+                  </div>
+                ))
+              ) : (
+                <div>--</div>
+              )}
+              <div>added_bad_pick PnL: {formatNumber(metricNumber(addedBadPickImpact, "fixed_horizon_20d_added_bad_pick_pnl"), 0)}</div>
+              <div>drop reason: {item.drop_reason ?? "--"}</div>
+            </div>
+          </article>
+        ) : null}
+        <article className="tradex-flow-card">
+          <div className="tradex-flow-title">Remaining risks</div>
+          <div className="tradex-flow-text">
+            {remainingRisks.length > 0 ? remainingRisks.map((risk) => <div key={risk}>{risk}</div>) : <div>--</div>}
+            <div>source: {item.source_run_root ?? "--"}</div>
+          </div>
+        </article>
+      </div>
+    </section>
+  );
+}
+
 export default function TradexHomePage() {
   const { data, loading, error } = useTradexBootstrap();
   const candidates = data?.candidates ?? [];
@@ -196,6 +291,7 @@ export default function TradexHomePage() {
   const summary = data?.summary;
   const liveStrategyJudgement = data?.live_strategy_judgement ?? null;
   const forecastSurfaceProjection = data?.forecast_surface_projection?.projection ?? null;
+  const readonlyReflections = data?.readonly_reflections ?? null;
 
   return (
     <div className="tradex-page tradex-home-page">
@@ -224,6 +320,7 @@ export default function TradexHomePage() {
 
       {error ? <div className="tradex-inline-error">{error}</div> : null}
       <LiveStrategyJudgementPreview judgement={liveStrategyJudgement} />
+      <ReadonlyReflectionPreview reflections={readonlyReflections} />
 
       <section className="tradex-panel">
         <div className="tradex-panel-head">
