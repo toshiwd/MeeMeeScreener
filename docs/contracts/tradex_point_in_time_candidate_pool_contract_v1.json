@@ -1,0 +1,128 @@
+{
+  "schema_version": "tradex_point_in_time_candidate_pool_contract_v1",
+  "status": "confirmed",
+  "boundary": {
+    "owner": "TRADEX",
+    "research_only": true,
+    "excludes": [
+      "MeeMee UI changes",
+      "MeeMee ranking changes",
+      "production ranking changes",
+      "publish registry mutation",
+      "Iizuka signal definition changes",
+      "Iizuka threshold changes",
+      "ranking challenger creation",
+      "sell-side validation",
+      "unknown pattern discovery",
+      "image AI",
+      "similar chart search"
+    ]
+  },
+  "purpose": "Define a point-in-time champion/candidate pool surface that can be used for fixed-condition TRADEX ranking challenger tests without lookahead.",
+  "date_semantics": {
+    "as_of_date": "The latest date/time at which all candidate membership, features, scores, and ranks are known.",
+    "candidate_date": "The trading date for which the candidate pool is generated.",
+    "feature_cutoff_date": "The maximum market-data date allowed in feature construction. Must be <= as_of_date and <= candidate_date unless explicitly documented as previous confirmed data.",
+    "ranking_snapshot_date": "The date represented by the candidate/ranking snapshot. Must not be after the signal decision date unless the test explicitly uses execution-date availability and records the lag.",
+    "future_return_horizon_dates": "Outcome dates used only for evaluation and never for candidate membership, score, rank, or topK membership."
+  },
+  "required_parquet_fields": {
+    "identity": [
+      "candidate_id or canonical_candidate_key",
+      "symbol or code",
+      "side"
+    ],
+    "dates": [
+      "as_of_date",
+      "candidate_date",
+      "feature_cutoff_date"
+    ],
+    "universe": [
+      "universe_membership",
+      "universe_membership_reason"
+    ],
+    "candidate_pool": [
+      "candidate_pool_membership",
+      "candidate_pool_stage",
+      "prefilter_pass",
+      "prefilter_reject_reason",
+      "prefilter_reject_reason_bucket"
+    ],
+    "champion_ranking": [
+      "champion_score",
+      "champion_rank",
+      "champion_selected_top5",
+      "champion_selected_top10",
+      "champion_selected_top20",
+      "champion_selected_top50"
+    ],
+    "lineage": [
+      "source_artifact_path",
+      "source_artifact_session_id",
+      "source_generation_script",
+      "source_contract_version"
+    ],
+    "lookahead": [
+      "no_future_label_used",
+      "feature_cutoff_valid",
+      "candidate_membership_no_lookahead",
+      "champion_score_no_lookahead"
+    ]
+  },
+  "allowed_evaluation_only_fields": [
+    "ret5",
+    "ret10",
+    "ret20",
+    "forward_ret_5d",
+    "forward_ret_10d",
+    "forward_ret_20d",
+    "mae20",
+    "mfe20",
+    "path_value_score_v1",
+    "top15_label",
+    "top20pct_label",
+    "bottom15_label"
+  ],
+  "forbidden_feature_inputs": [
+    "future returns",
+    "post-horizon labels",
+    "MFE/MAE after candidate_date",
+    "top/bottom labels derived from future outcome",
+    "nearest-next ranking snapshot when ranking_date > decision_date"
+  ],
+  "no_lookahead_validation_rules": [
+    "feature_cutoff_date <= as_of_date",
+    "feature_cutoff_date <= candidate_date",
+    "candidate_date <= as_of_date unless delayed publication is explicitly recorded",
+    "ranking/candidate pool match must use candidate_date, as_of_date, execution_date, or nearest-prior point-in-time date only",
+    "nearest-next date alignment is forbidden for ranking challenger tests",
+    "no_future_label_used must be true for all score/rank/topK inputs",
+    "evaluation-only fields must be physically or logically excluded from score/rank/topK construction"
+  ],
+  "required_artifacts": {
+    "contract_audit": [
+      "run_manifest.json",
+      "input_resolution.json",
+      "point_in_time_candidate_pool_contract_snapshot.json",
+      "source_inventory.json",
+      "reconstruction_feasibility_audit.json",
+      "required_field_gap_audit.json",
+      "no_lookahead_candidate_pool_audit.json",
+      "point_in_time_pool_decision.json",
+      "_ARTIFACT_COMPLETE.json"
+    ],
+    "future_ready_pool": [
+      "point_in_time_candidate_pool.parquet",
+      "point_in_time_candidate_pool_manifest.json",
+      "point_in_time_no_lookahead_audit.json"
+    ]
+  },
+  "decision_labels": {
+    "ready": "A safe point-in-time candidate pool can be generated from existing sources without changing champion logic.",
+    "reconstructable_with_contract_gap": "Reconstruction is feasible, but missing contract fields must be added going forward.",
+    "blocked_missing_sources": "Existing artifacts do not contain enough information to reconstruct the pool.",
+    "blocked_unsafe_inference": "Reconstruction would require inferring or changing champion scoring logic.",
+    "blocked_future_label_risk": "Available source depends on future returns or unsafe dates."
+  },
+  "authoritative_result": "point_in_time_pool_decision.json"
+}

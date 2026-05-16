@@ -1,0 +1,117 @@
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+
+from scripts import tradex_monthly_drawdown_guarded_momentum_starter_entry_pretest_v1 as pretest
+
+
+def _write_json(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _write_jsonl(path: Path, rows: list[dict]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows), encoding="utf-8")
+
+
+def _read_json(path: Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _row(day: str, symbol: str, ret: float, score: float, *, momentum: bool = False, monthly_state: str = "monthly_prior_uptrend") -> dict:
+    return {
+        "event_date": day,
+        "symbol": symbol,
+        "baseline_candidate_flag": True,
+        "baseline_score": score,
+        "combined_candidate_flag": True,
+        "momentum_candidate_flag": momentum,
+        "ma5_h12_candidate_flag": False,
+        "momentum_low_risk_context_flag": False,
+        "momentum_high_risk_context_flag": False,
+        "monthly_prior_state": monthly_state,
+        "ret20_fwd": ret,
+        "mfe20": max(ret, 0.01),
+        "mae20": min(ret, -0.01),
+        "severe_loss20": ret <= -0.10,
+        "win20": ret > 0.0,
+        "is_future_top10_by_ret20": ret >= 0.10,
+    }
+
+
+def _make_sources(tmp_path: Path, rows: list[dict]) -> tuple[Path, Path]:
+    field_repair = tmp_path / "field_repair"
+    top5_gate = tmp_path / "top5_gate"
+    best_spec = {
+        "variant_id": "monthly_drawdown_guarded_momentum_m+0.02_l-0.02_h-0.02_md-0.005",
+        "momentum_weight": 0.02,
+        "momentum_low_risk_weight": -0.02,
+        "momentum_high_risk_penalty": -0.02,
+        "monthly_down_or_drawdown_penalty": -0.005,
+    }
+    _write_json(field_repair / "research_decision.json", {"authoritative_research_decision": "common_ledger_field_repair_hold"})
+    _write_jsonl(field_repair / "repaired_common_top5_candidate_ledger.jsonl", rows)
+    _write_json(top5_gate / "research_decision.json", {"authoritative_research_decision": "monthly_drawdown_guarded_momentum_top5_gate_keep_candidate"})
+    _write_json(top5_gate / "_ARTIFACT_COMPLETE.json", {"complete": True})
+    _write_json(top5_gate / "strict_gate_leaderboard.json", {"best_variant": {"variant_id": best_spec["variant_id"], "spec": best_spec}})
+    return field_repair, top5_gate
+
+
+def _run(tmp_path: Path, rows: list[dict]) -> Path:
+    field_repair, top5_gate = _make_sources(tmp_path, rows)
+    args = argparse.Namespace(
+        source_top5_gate_root=top5_gate,
+        source_field_repair_root=field_repair,
+        output_parent=tmp_path / "out",
+        run_id="pretest-run",
+    )
+    return pretest.run(args)
+
+
+def test_starter_entry_pretest_keeps_when_operational_gates_pass(tmp_path: Path) -> None:
+    rows: list[dict] = []
+    for year in [2020, 2021, 2022]:
+        day = f"{year}-01-01"
+        rows.extend(
+            [
+                _row(day, "b1", 0.03, 0.90),
+                _row(day, "b2", 0.03, 0.89),
+                _row(day, "zbad", -0.12, 0.88, monthly_state="monthly_prior_down_or_drawdown"),
+                _row(day, "b4", 0.03, 0.87),
+                _row(day, "b5", 0.03, 0.86),
+                _row(day, "amom", 0.20, 0.855, momentum=True),
+            ]
+        )
+    output = _run(tmp_path, rows)
+
+    decision = _read_json(output / "research_decision.json")
+    leaderboard = _read_json(output / "starter_entry_leaderboard.json")
+    complete = _read_json(output / "_ARTIFACT_COMPLETE.json")
+
+    assert decision["authoritative_research_decision"] == "starter_entry_pretest_keep"
+    assert decision["auto_select_exactly_3"] is False
+    assert leaderboard["all_pretest_gates_pass"] is True
+    assert leaderboard["pretest_gates"]["days_with_3_plus_usable_candidates_sufficient"] is True
+    assert complete["complete"] is True
+
+
+def test_starter_entry_pretest_records_no_mutation_and_candidate_snapshot(tmp_path: Path) -> None:
+    rows: list[dict] = []
+    for year in [2020, 2021, 2022]:
+        day = f"{year}-01-01"
+        for idx, ret in enumerate([0.05, 0.04, 0.03, 0.02, 0.01], start=1):
+            rows.append(_row(day, f"b{idx}", ret, 10 - idx))
+    output = _run(tmp_path, rows)
+
+    mutation = _read_json(output / "no_mutation_audit.json")
+    contract = _read_json(output / "starter_entry_pretest_contract.json")
+    snapshot = (output / "starter_entry_candidate_snapshot.jsonl").read_text(encoding="utf-8").strip().splitlines()
+
+    assert mutation["no_mutation_pass"] is True
+    assert mutation["runtime_duckdb_written"] is False
+    assert contract["user_selection_owner"] == "human_selects_up_to_3_from_top5"
+    assert contract["uses_future_labels_in_scoring"] is False
+    assert len(snapshot) == 15

@@ -1,0 +1,153 @@
+{
+  "schema_version": "tradex_iizuka_signal_expectancy_contract_v1",
+  "status": "confirmed",
+  "boundary": {
+    "owner": "TRADEX",
+    "research_only": true,
+    "excludes": [
+      "MeeMee UI changes",
+      "MeeMee ranking changes",
+      "production ranking changes",
+      "publish registry mutation",
+      "sell-side validation",
+      "unknown pattern discovery",
+      "image AI",
+      "similar chart search",
+      "large sweep"
+    ]
+  },
+  "candidate_id": "monthly_C_pullback_end_reclaim7_v1",
+  "purpose": "Validate whether Iizuka-style pullback-end/reacceleration in a monthly C regime adds forward expectancy beyond monthly C and daily close above MA20.",
+  "main_signal": {
+    "logic": "monthly_C_regime and close > MA20 and ma7_below_2_to_3_setup and (lower_wick or koma or horizontal) and reclaim7",
+    "subtypes": [
+      "lower_wick_reclaim7",
+      "koma_reclaim7",
+      "horizontal_reclaim7",
+      "mixed_reclaim7"
+    ]
+  },
+  "fixed_feature_definitions": {
+    "lower_wick": {
+      "all": [
+        "lower_wick >= 1.2 * body",
+        "lower_wick >= 0.35 * ATR14",
+        "close_position_in_range >= 0.60"
+      ]
+    },
+    "koma": {
+      "all": [
+        "body / range <= 0.25",
+        "range <= 0.90 * ATR14"
+      ]
+    },
+    "horizontal": {
+      "all": [
+        "recent 3 to 6 bar close_range <= 1.0 * ATR14",
+        "period low does not break start_low - 0.3 * ATR14"
+      ]
+    },
+    "ma7_below_2_to_3_setup": {
+      "all": [
+        "previous consecutive close < MA7 count is 2 to 3",
+        "all setup-period closes are > MA20"
+      ]
+    },
+    "reclaim7": {
+      "all": [
+        "decision-date close > MA7",
+        "decision-date close >= MA7 + 0.1 * ATR14",
+        "ma7_below_2_to_3_setup was true through the previous trading session"
+      ]
+    },
+    "daily_above_ma20": {
+      "all": [
+        "close > MA20",
+        "close >= MA20 + 0.0 * ATR14"
+      ]
+    }
+  },
+  "date_semantics": {
+    "pre_decisive_setup": "ma7_below_2_to_3_setup",
+    "decision_trigger": "reclaim7",
+    "decision_date": "the trading session where reclaim7 is first observed after the setup",
+    "execution_date": "next trading session after decision_date",
+    "execution_price": "next_session_open",
+    "retN": "close[execution_date + N trading sessions] / execution_price - 1",
+    "confirmation_only": [
+      "next-day or later high breakout",
+      "post-signal continuation",
+      "post-signal confirmation candles"
+    ]
+  },
+  "required_signal_row_fields": [
+    "observation_date",
+    "decision_date",
+    "execution_date",
+    "ret5_horizon_date",
+    "ret10_horizon_date",
+    "ret20_horizon_date",
+    "feature_window_start",
+    "feature_window_end",
+    "no_lookahead_valid",
+    "signal_subtype",
+    "execution_price_source"
+  ],
+  "baselines": {
+    "baseline_1": {
+      "role": "reference",
+      "eligible_rows": "same-date / same-universe random"
+    },
+    "baseline_2": {
+      "role": "primary",
+      "eligible_rows": "same-date / monthly_C_regime / close > MA20 random"
+    },
+    "sampling": {
+      "deterministic": true,
+      "random_seed_recorded_in": "run_manifest.json",
+      "sample_per_decision_date": true,
+      "target_count": "same count as signal rows for the decision_date",
+      "preferred_repetitions": 100,
+      "fallback": "If repeated sampling is skipped for runtime reasons, mark research-fallback and use one fixed-seed sample."
+    }
+  },
+  "metrics": [
+    "signal_count",
+    "ret5_mean",
+    "ret10_mean",
+    "ret20_mean",
+    "ret5_median",
+    "ret10_median",
+    "ret20_median",
+    "win_rate_5",
+    "win_rate_10",
+    "win_rate_20",
+    "MAE_through_20_sessions",
+    "baseline_1_delta",
+    "baseline_2_delta",
+    "year_breakdown",
+    "monthly_regime_breakdown",
+    "sector_breakdown",
+    "liquidity_or_volume_bucket_breakdown",
+    "no_lookahead_audit"
+  ],
+  "mae_definition": {
+    "buy_signal": "min(low[t+1 ... t+20]) / execution_price - 1",
+    "t": "decision_date",
+    "execution_price": "next_session_open"
+  },
+  "keep_gate_initial_thresholds": {
+    "minimum_signal_count": 100,
+    "largest_year_share_max": 0.4,
+    "largest_sector_share_max": 0.4,
+    "mae_median_worse_than_baseline_2_limit": 1.2,
+    "no_lookahead_valid_required": true
+  },
+  "decision_labels": {
+    "keep": "beats baseline_2 on ret20 mean, ret20 median, and win_rate_20; keep gates pass",
+    "hold": "directional evidence exists but count, stability, MAE, or concentration is insufficient",
+    "drop": "fails against baseline_2 or adverse path risk is too heavy",
+    "analysis_only": "useful as explanation but weak as action/ranking candidate"
+  },
+  "authoritative_result": "iizuka_signal_decision.json"
+}
