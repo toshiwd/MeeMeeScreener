@@ -467,7 +467,7 @@ def _build_settings_snapshot(
         logger.warning("ai_explain secret lookup failed: %s", exc)
         auth_secret = None
         credential_configured = False
-    can_show_ui = bool(settings.uiVisible and settings.enabled and provider_ready and credential_configured)
+    can_show_ui = bool(settings.uiVisible and settings.enabled)
     can_use = bool(settings.enabled and provider_ready and credential_configured)
     return AiExplainConfigSnapshot(
         settings=AiExplainSettingsPayload(

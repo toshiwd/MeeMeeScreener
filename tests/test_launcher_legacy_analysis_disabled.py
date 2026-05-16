@@ -32,6 +32,12 @@ def test_packaged_defaults_respect_ranking_warmup_opt_out(monkeypatch):
     assert env["MEEMEE_RANKINGS_WARMUP_DELAY_SEC"] == "30"
 
 
+def test_desktop_stocks_db_path_stays_under_selected_data_dir(tmp_path):
+    data_dir = tmp_path / "MeeMeeScreener" / "data"
+
+    assert launcher._desktop_stocks_db_path(data_dir) == data_dir / "stocks.duckdb"
+
+
 def test_seed_ml_models_short_circuits_when_legacy_analysis_disabled(monkeypatch):
     monkeypatch.setenv("MEEMEE_DISABLE_LEGACY_ANALYSIS", "1")
 

@@ -25,8 +25,6 @@ if str(_repo_root) not in sys.path:
 from app.backend.core.legacy_analysis_control import is_legacy_analysis_disabled
 from app.desktop import legacy_ml_seed
 from app.desktop.runtime_paths import base_path, local_app_dir, resolve_path
-from shared.runtime_stock_db_contract import resolve_runtime_stock_db_path
-
 APP_NAME = "MeeMeeScreener"
 WINDOW_TITLE = "MeeMee Screener"
 MUTEX_NAME = "Global\\MeeMeeScreenerSingleton"
@@ -121,6 +119,10 @@ def _storage_app_name() -> str:
     if _is_dev_mode():
         return f"{APP_NAME}-dev"
     return APP_NAME
+
+
+def _desktop_stocks_db_path(data_dir: Path) -> Path:
+    return data_dir / "stocks.duckdb"
 
 
 def _check_webview2_runtime() -> bool:
@@ -1205,7 +1207,7 @@ def _prepare_appdata() -> dict[str, str]:
     bundled_update_state = resolve_path("app", "backend", "update_state.json")
     bundled_code_txt = resolve_path("tools", "code.txt")
 
-    stocks_db = str(resolve_runtime_stock_db_path())
+    stocks_db = str(_desktop_stocks_db_path(data_dir))
     favorites_db = str(data_dir / "favorites.sqlite")
     practice_db = str(data_dir / "practice.sqlite")
     rank_config = str(config_dir / "rank_config.json")

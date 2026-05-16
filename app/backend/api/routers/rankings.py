@@ -1,11 +1,66 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+from time import perf_counter
+
 from fastapi import APIRouter, HTTPException, Query
 
 from app.backend.services import rankings_cache
 from app.backend.services.meemee_data_freshness_contract import build_ranking_data_freshness_contract
 
 router = APIRouter(prefix="/api", tags=["rankings"])
+
+
+@router.post("/rankings/refresh")
+def refresh_rankings(
+    tf: str = Query("D"),
+    which: str = Query("latest"),
+    dir: str = Query("up"),
+    mode: str = Query("trade"),
+    risk_mode: str = Query("balanced"),
+):
+    tf = tf.upper()
+    mode = mode.lower()
+    risk_mode = risk_mode.lower()
+    if tf not in ("D", "W", "M"):
+        raise HTTPException(status_code=400, detail="tf must be D/W/M")
+    if which not in ("latest", "prev"):
+        raise HTTPException(status_code=400, detail="which must be latest/prev")
+    if dir not in ("up", "down"):
+        raise HTTPException(status_code=400, detail="dir must be up/down")
+    if mode not in ("rule", "ml", "hybrid", "turn", "trade"):
+        raise HTTPException(status_code=400, detail="mode must be rule/ml/hybrid/turn/trade")
+    if risk_mode not in ("defensive", "balanced", "aggressive"):
+        raise HTTPException(status_code=400, detail="risk_mode must be defensive/balanced/aggressive")
+    started_at = perf_counter()
+    try:
+        rankings_cache.refresh_cache()
+        payload = rankings_cache.get_rankings(
+            tf,
+            which,
+            dir,
+            1,
+            mode=mode,
+            risk_mode=risk_mode,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    payload = payload if isinstance(payload, dict) else {}
+    return {
+        "ok": True,
+        "tf": tf,
+        "which": which,
+        "dir": dir,
+        "mode": mode,
+        "risk_mode": risk_mode,
+        "refreshed_at": datetime.now(timezone.utc).isoformat(),
+        "duration_ms": int((perf_counter() - started_at) * 1000),
+        "snapshot_as_of": payload.get("snapshot_as_of"),
+        "freshness_state": payload.get("freshness_state"),
+        "freshness_days": payload.get("freshness_days"),
+        "current_candidate_available": payload.get("current_candidate_available"),
+    }
 
 
 @router.get("/rankings")

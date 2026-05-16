@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { AxiosError } from "axios";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { IconCamera, IconHeart, IconHeartFilled } from "@tabler/icons-react";
+import { IconCamera, IconHeart, IconHeartFilled, IconRefresh } from "@tabler/icons-react";
 import { shallow } from "zustand/shallow";
 import { api } from "../api";
 import { useBackendReadyState } from "../backendReady";
@@ -707,6 +707,7 @@ export default function RankingView() {
   const { ready: backendReady } = useBackendReadyState();
   const listTimeframe = useStore((state) => state.settings.listTimeframe);
   const listRangeBars = useStore((state) => state.settings.listRangeBars);
+  const showBoxes = useStore((state) => state.settings.showBoxes);
   const columns = useStore((state) => state.settings.columns);
   const rows = useStore((state) => state.settings.rows);
   const consultTimeframe: ConsultationTimeframe = "monthly";
@@ -770,6 +771,9 @@ export default function RankingView() {
   const mtfStrictness: MtfStrictness = "auto";
   const [loading, setLoading] = useState(() => initialFetchCache == null);
   const [rankingRefreshInFlight, setRankingRefreshInFlight] = useState(false);
+  const [rankingCacheRefreshInFlight, setRankingCacheRefreshInFlight] = useState(false);
+  const [rankingReloadToken, setRankingReloadToken] = useState(0);
+  const [rankingRefreshMessage, setRankingRefreshMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(() => initialFetchCache?.errorMessage ?? null);
   const [tradeSummary, setTradeSummary] = useState<TradeDirectionSummary | null>(null);
   const [rankingFreshness, setRankingFreshness] = useState<RankingFreshnessState | null>(null);
@@ -1130,6 +1134,10 @@ export default function RankingView() {
   );
 
   useEffect(() => {
+    setRankingRefreshMessage(null);
+  }, [rankingCacheKey]);
+
+  useEffect(() => {
     if (!backendReady) return;
     if (tickers.length) return;
     ensureListLoaded().catch(() => { });
@@ -1436,7 +1444,7 @@ export default function RankingView() {
     return () => {
       cancelled = true;
     };
-  }, [backendReady, dir, rankWhich, rankMode, rankingCacheKey, riskMode, syncFavoriteFlags, rankingTf]);
+  }, [backendReady, dir, rankWhich, rankMode, rankingCacheKey, rankingReloadToken, riskMode, syncFavoriteFlags, rankingTf]);
 
   useEffect(() => {
     if (!backendReady || rankMode !== "trade") {
@@ -1735,12 +1743,13 @@ export default function RankingView() {
       const itemsForShots = targets.map((code) => ({
         code,
         payload: barsCache[code] ?? null,
-        boxes: [],
+        boxes: boxesCache[code] ?? [],
         maSettings: resolvedMaSettings
       }));
       const result = await downloadChartScreenshots(itemsForShots, {
         rangeBars: listRangeBars,
-        timeframeLabel: listTimeframe
+        timeframeLabel: listTimeframe,
+        showBoxes
       });
       if (!result.created) {
         setToastMessage("スクショを作成できませんでした。");
@@ -1764,8 +1773,10 @@ export default function RankingView() {
     ensureBarsForVisible,
     listTimeframe,
     barsCache,
+    boxesCache,
     resolvedMaSettings,
-    listRangeBars
+    listRangeBars,
+    showBoxes
   ]);
 
   const handleCaptureScreen = useCallback(async () => {
@@ -1804,16 +1815,84 @@ export default function RankingView() {
     }
   }, [location.pathname, screenshotBusy]);
 
+  const handleRefreshRankings = useCallback(async () => {
+    if (!backendReady || rankingCacheRefreshInFlight || rankingRefreshInFlight) {
+      return;
+    }
+    setRankingCacheRefreshInFlight(true);
+    setRankingRefreshMessage(null);
+    setToastAction(null);
+    recordPerfEvent("ranking_cache_refresh_start", {
+      cacheKey: rankingCacheKey,
+    });
+    try {
+      const res = await api.post("/rankings/refresh", null, {
+        params: { tf: rankingTf, which: rankWhich, dir, mode: rankMode, risk_mode: riskMode },
+        timeout: RANK_FETCH_TIMEOUT_MS * 3,
+      });
+      clearRankingFetchCache(rankingCacheKey);
+      setTradeSummary(null);
+      setRankSession(null);
+      setRankingReloadToken((current) => current + 1);
+      const payload = (res.data ?? {}) as {
+        snapshot_as_of?: string | null;
+        freshness_state?: string | null;
+        duration_ms?: number | null;
+      };
+      const suffix = payload.snapshot_as_of ? ` / 基準日 ${payload.snapshot_as_of}` : "";
+      const nextMessage = `ランキング更新を反映しました${suffix}`;
+      setRankingRefreshMessage(nextMessage);
+      setToastMessage(nextMessage);
+      recordPerfEvent("ranking_cache_refresh_end", {
+        cacheKey: rankingCacheKey,
+        snapshotAsOf: payload.snapshot_as_of ?? null,
+        freshnessState: payload.freshness_state ?? null,
+        durationMs: payload.duration_ms ?? null,
+      });
+    } catch (error) {
+      const reason = extractRankingFailureReason(error) ?? "ランキング更新に失敗しました。";
+      setRankingRefreshMessage(reason);
+      setToastMessage(reason);
+      recordPerfEvent("ranking_cache_refresh_failed", {
+        cacheKey: rankingCacheKey,
+        reason,
+      });
+    } finally {
+      setRankingCacheRefreshInFlight(false);
+    }
+  }, [
+    backendReady,
+    dir,
+    rankMode,
+    rankWhich,
+    rankingCacheKey,
+    rankingCacheRefreshInFlight,
+    rankingRefreshInFlight,
+    rankingTf,
+    riskMode,
+  ]);
+
   const rankingTopNavActions = (
-    <button
-      type="button"
-      className="help-button"
-      onClick={handleCaptureScreen}
-      disabled={screenshotBusy}
-    >
-      <IconCamera size={16} />
-      <span>{screenshotBusy ? "作成中..." : "スクショ"}</span>
-    </button>
+    <>
+      <button
+        type="button"
+        className="help-button"
+        onClick={handleRefreshRankings}
+        disabled={!backendReady || rankingCacheRefreshInFlight || rankingRefreshInFlight}
+      >
+        <IconRefresh size={16} />
+        <span>{rankingCacheRefreshInFlight ? "更新中..." : "ランキング更新"}</span>
+      </button>
+      <button
+        type="button"
+        className="help-button"
+        onClick={handleCaptureScreen}
+        disabled={screenshotBusy}
+      >
+        <IconCamera size={16} />
+        <span>{screenshotBusy ? "作成中..." : "スクショ"}</span>
+      </button>
+    </>
   );
 
   const handleCopyConsult = useCallback(async () => {
@@ -2012,6 +2091,17 @@ export default function RankingView() {
       : tradeSummary?.dominant_direction === "down"
         ? "短期売り優位"
         : "中立";
+  const rankingSnapshotLabel =
+    rankingFreshness?.snapshotAsOf ??
+    rankSession?.confirmed_snapshot_as_of ??
+    sortedItems.find((item) => item.asOf)?.asOf ??
+    null;
+  const rankingFreshnessLabel =
+    rankingFreshness?.state === "fresh"
+      ? "最新候補"
+      : rankingFreshness?.state === "stale"
+        ? "古い候補"
+        : "確認中";
   const hasProvisionalSession =
     rankMode === "trade" &&
     rankSession?.is_provisional === true &&
@@ -2019,6 +2109,8 @@ export default function RankingView() {
       rankSession?.provisional_freshness_state === "partial") &&
     provisionalItems.length > 0;
   const showOverviewPanel =
+    Boolean(rankingSnapshotLabel) ||
+    Boolean(rankingRefreshMessage) ||
     rankingFreshness?.state === "stale" ||
     qualificationFilterRelaxed ||
     mtfStrictFilterRelaxed ||
@@ -2069,6 +2161,20 @@ export default function RankingView() {
       />
       {showOverviewPanel && (
         <div className="rank-overview-panel">
+          {(rankingSnapshotLabel || rankingRefreshMessage) && (
+            <div className="rank-overview-row">
+              <span className="rank-overview-section-title">基準</span>
+              {rankingSnapshotLabel && (
+                <div className="rank-top-summary">
+                  {`ランキング基準日 ${rankingSnapshotLabel} / ${rankingFreshnessLabel}`}
+                  {rankingFreshness?.days != null ? ` / ${rankingFreshness.days}日経過` : ""}
+                </div>
+              )}
+              {rankingRefreshMessage && (
+                <div className="rank-top-summary">{rankingRefreshMessage}</div>
+              )}
+            </div>
+          )}
           {(rankingFreshness?.state === "stale" || qualificationFilterRelaxed || mtfStrictFilterRelaxed || rankingDataFreshnessContract) && (
             <div className="rank-overview-row">
               <span className="rank-overview-section-title">状態</span>

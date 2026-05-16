@@ -62,7 +62,8 @@ export default function AiExplainDock({
   className,
 }: AiExplainDockProps) {
   const { canShowUi, canUse, settings } = useAiExplain();
-  const enabled = canShowUi && canUse;
+  const visible = canShowUi;
+  const usable = canUse;
   const [open, setOpen] = useState(false);
   const [question, setQuestion] = useState(() =>
     buildDefaultQuestion(screenType, targetLabel, Boolean(settings.compareEnabled), compareLabel)
@@ -132,7 +133,7 @@ export default function AiExplainDock({
 
   const submit = useCallback(
     async (modeOverride?: AiExplainMode, questionOverride?: string) => {
-      if (!enabled || loading) return;
+      if (!usable || loading) return;
       const nextQuestion =
         (questionOverride ?? question).trim() ||
         buildDefaultQuestion(screenType, targetLabel, Boolean(settings.compareEnabled), compareLabel);
@@ -182,7 +183,7 @@ export default function AiExplainDock({
         setLoading(false);
       }
     },
-    [cancelInFlight, compareLabel, enabled, loading, question, requestImages, screenType, settings.compareEnabled, snapshot, targetLabel]
+    [cancelInFlight, compareLabel, loading, question, requestImages, screenType, settings.compareEnabled, snapshot, targetLabel, usable]
   );
 
   useEffect(() => () => cancelInFlight(), [cancelInFlight]);
@@ -199,9 +200,10 @@ export default function AiExplainDock({
     body.scrollTop = body.scrollHeight;
   }, [answer, loading, open]);
 
-  if (!enabled) return null;
+  if (!visible) return null;
   const displayErrorMessage =
     errorMessage && settings.debugEnabled ? `AI解説を取得できない: ${errorMessage}` : "AI解説を取得できない";
+  const setupMessage = "AI解説の設定が未完了です。設定画面で接続先、モデル、認証情報を確認してください。";
 
   const handleToggleOpen = () => {
     if (open) {
@@ -256,7 +258,7 @@ export default function AiExplainDock({
                 type="button"
                 className="ai-explain-action-button"
                 onClick={() => void submit(action.mode, action.question)}
-                disabled={loading}
+                disabled={loading || !usable}
               >
                 {action.label}
               </button>
@@ -275,7 +277,7 @@ export default function AiExplainDock({
               type="button"
               className="ai-explain-send"
               onClick={() => void submit()}
-              disabled={loading}
+              disabled={loading || !usable}
             >
               <IconSend size={14} />
               <span>{loading ? "送信中..." : "送信"}</span>
@@ -290,6 +292,9 @@ export default function AiExplainDock({
             <span>{lastMode}</span>
           </div>
 
+          {!usable && !loading && (
+            <div className="ai-explain-status ai-explain-status-error">{setupMessage}</div>
+          )}
           {loading && <div className="ai-explain-status">AI解説を生成中...</div>}
           {errorMessage && !loading && (
             <div className="ai-explain-status ai-explain-status-error">{displayErrorMessage}</div>
@@ -309,7 +314,7 @@ export default function AiExplainDock({
                         buildDefaultQuestion(screenType, targetLabel, Boolean(settings.compareEnabled), compareLabel)))}。もう少し詳しく、要点だけ補ってください。`
                   )
                 }
-                disabled={loading}
+                disabled={loading || !usable}
               >
                 <IconChevronDown size={14} />
                 <span>もう少し詳しく</span>
@@ -327,7 +332,7 @@ export default function AiExplainDock({
                   setQuestion(nextQuestion);
                   void submit(lastMode, nextQuestion);
                 }}
-                disabled={loading}
+                disabled={loading || !usable}
               >
                 <IconChevronUp size={14} />
                 <span>初期質問に戻す</span>

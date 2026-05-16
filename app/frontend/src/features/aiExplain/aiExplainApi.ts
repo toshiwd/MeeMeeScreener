@@ -204,6 +204,17 @@ export const streamAiExplain = async (
   let buffer = "";
 
   const finalize = (payload: unknown): AiExplainResponse => payload as AiExplainResponse;
+  const handleEvent = (event: SseEvent | null): AiExplainResponse | null => {
+    if (!event?.data) return null;
+    const parsed = JSON.parse(event.data) as AiExplainResponse & { type?: string; delta?: string };
+    if ((parsed.type ?? event.event) === "delta") {
+      if (typeof parsed.delta === "string" && parsed.delta) {
+        handlers?.onDelta?.(parsed.delta);
+      }
+      return null;
+    }
+    return finalize(parsed);
+  };
 
   try {
     while (true) {
@@ -216,18 +227,14 @@ export const streamAiExplain = async (
         if (separatorIndex < 0) break;
         const frame = buffer.slice(0, separatorIndex);
         buffer = buffer.slice(separatorIndex + 2);
-        const event = parseSseFrame(frame);
-        if (!event) continue;
-        if (!event.data) continue;
-        const parsed = JSON.parse(event.data) as AiExplainResponse & { type?: string; delta?: string };
-        if ((parsed.type ?? event.event) === "delta") {
-          if (typeof parsed.delta === "string" && parsed.delta) {
-            handlers?.onDelta?.(parsed.delta);
-          }
-          continue;
-        }
-        return finalize(parsed);
+        const result = handleEvent(parseSseFrame(frame));
+        if (result) return result;
       }
+    }
+    const trailingFrame = buffer.trim();
+    if (trailingFrame) {
+      const result = handleEvent(parseSseFrame(trailingFrame));
+      if (result) return result;
     }
   } finally {
     reader.releaseLock();

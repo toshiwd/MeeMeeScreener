@@ -39,6 +39,16 @@ _COMPLETION_MODE_FULL = "full"
 _COMPLETION_MODE_PRACTICAL_FAST = "practical_fast"
 _TRACKING_REFRESH_PROGRESS_BASE = 99.0
 _TRACKING_REFRESH_PROGRESS_SPAN = 0.9
+_DAILY_UPDATE_PROFILE_DIR_NAME = "jobs"
+_TXT_SOURCE_MANIFEST_FILE_NAME = "txt_update_source_manifest.json"
+_HEAVY_REFRESH_REASON_VALUES = {
+    "manual_full_refresh",
+    "missing_tracking_artifact",
+    "schema_version_changed",
+    "algorithm_version_changed",
+    "repair_migration",
+    "full_rebuild_flag",
+}
 
 
 def _hidden_process_kwargs() -> dict[str, object]:
@@ -85,6 +95,17 @@ def _pan_code_txt_path() -> str:
     return os.path.abspath(str(config.PAN_CODE_TXT_PATH))
 
 
+def _seed_ingest_state_hashes_for_export(out_dir: str) -> dict[str, int | str]:
+    if ingest_txt is None or not hasattr(ingest_txt, "seed_ingest_state_hashes"):
+        return {
+            "seeded_files": 0,
+            "total_bytes": 0,
+            "elapsed_ms": 0,
+            "state_path": "",
+        }
+    return ingest_txt.seed_ingest_state_hashes(out_dir)
+
+
 def _update_state_path() -> str:
     default_path = str(config.DATA_DIR / "update_state.json")
     return os.path.abspath(os.getenv("UPDATE_STATE_PATH") or default_path)
@@ -110,6 +131,289 @@ def _save_update_state(state: dict) -> None:
             json.dump(state, handle, ensure_ascii=False, indent=2)
     except Exception as exc:
         logger.warning("Failed to save update state (%s): %s", path, exc)
+
+
+def _new_daily_update_profile(job_id: str) -> dict[str, Any]:
+    started_at = datetime.now()
+    return {
+        "job_id": str(job_id),
+        "job_type": "txt_daily_update",
+        "mode": "fast_path",
+        "status": "running",
+        "started_at": started_at.isoformat(),
+        "ended_at": None,
+        "duration_sec": 0.0,
+        "source_latest_date": None,
+        "db_latest_before": None,
+        "db_latest_after": None,
+        "changed_dates_count": None,
+        "changed_symbols_count": None,
+        "changed_files_count": None,
+        "pan_finalized_rows": None,
+        "export_required": None,
+        "export_reason": None,
+        "import_required": None,
+        "import_reason": None,
+        "phases": [],
+        "skipped": {
+            "export": False,
+            "import": False,
+            "ranking_refresh": False,
+            "tracking_refresh": True,
+        },
+        "heavy_refresh_required": False,
+        "heavy_refresh_reason": None,
+        "_started_monotonic": time.monotonic(),
+    }
+
+
+def _record_profile_phase(
+    profile: dict[str, Any],
+    name: str,
+    *,
+    started_at: float,
+    status: str = "done",
+    **extra: Any,
+) -> None:
+    phase = {
+        "name": str(name),
+        "duration_sec": round(max(0.0, time.monotonic() - float(started_at)), 3),
+        "status": str(status),
+    }
+    phase.update(extra)
+    phases = profile.setdefault("phases", [])
+    if isinstance(phases, list):
+        phases.append(phase)
+
+
+def _write_daily_update_profile(profile: dict[str, Any], *, status: str) -> str | None:
+    ended_at = datetime.now()
+    started_monotonic = float(profile.pop("_started_monotonic", time.monotonic()))
+    profile["status"] = str(status)
+    profile["ended_at"] = ended_at.isoformat()
+    profile["duration_sec"] = round(max(0.0, time.monotonic() - started_monotonic), 3)
+    root = config.DATA_DIR / _DAILY_UPDATE_PROFILE_DIR_NAME
+    path = root / f"daily_update_profile_{ended_at.strftime('%Y%m%d_%H%M%S')}_{profile.get('job_id')}.json"
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(profile, handle, ensure_ascii=False, indent=2)
+        return str(path)
+    except Exception as exc:
+        logger.warning("Failed to write daily update profile (%s): %s", path, exc)
+        return None
+
+
+def _txt_source_manifest_path() -> str:
+    return os.path.abspath(str(config.DATA_DIR / _DAILY_UPDATE_PROFILE_DIR_NAME / _TXT_SOURCE_MANIFEST_FILE_NAME))
+
+
+def _file_manifest_entry(path: str) -> dict[str, Any] | None:
+    try:
+        stat = os.stat(path)
+    except OSError:
+        return None
+    return {
+        "path": os.path.abspath(path),
+        "mtime_ns": int(getattr(stat, "st_mtime_ns", int(stat.st_mtime * 1_000_000_000))),
+        "size": int(stat.st_size),
+        "sha256": None,
+    }
+
+
+def _list_export_output_entries(out_dir: str) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    if not os.path.isdir(out_dir):
+        return entries
+    try:
+        names = sorted(os.listdir(out_dir))
+    except OSError:
+        return entries
+    for name in names:
+        if not name.lower().endswith(".txt"):
+            continue
+        entry = _file_manifest_entry(os.path.join(out_dir, name))
+        if entry is not None:
+            entries.append(entry)
+    return entries
+
+
+def _load_txt_source_manifest() -> dict[str, Any] | None:
+    path = _txt_source_manifest_path()
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+        return payload if isinstance(payload, dict) else None
+    except Exception as exc:
+        logger.warning("Failed to load TXT source manifest (%s): %s", path, exc)
+        return None
+
+
+def _save_txt_source_manifest(manifest: dict[str, Any]) -> None:
+    path = _txt_source_manifest_path()
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(manifest, handle, ensure_ascii=False, indent=2)
+    except Exception as exc:
+        logger.warning("Failed to save TXT source manifest (%s): %s", path, exc)
+
+
+def _manifest_file_signature(entries: object) -> list[tuple[str, int, int]]:
+    if not isinstance(entries, list):
+        return []
+    signature: list[tuple[str, int, int]] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        path = os.path.abspath(str(entry.get("path") or ""))
+        if not path:
+            continue
+        try:
+            mtime_ns = int(entry.get("mtime_ns") or 0)
+            size = int(entry.get("size") or 0)
+        except (TypeError, ValueError):
+            mtime_ns = 0
+            size = 0
+        signature.append((path, mtime_ns, size))
+    return sorted(signature)
+
+
+def _format_ymd_key(value: int | None) -> str | None:
+    if value is None:
+        return None
+    text = f"{int(value):08d}"
+    return f"{text[:4]}-{text[4:6]}-{text[6:8]}"
+
+
+def _parse_txt_ymd_key(value: object) -> int | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    digits = "".join(ch for ch in text if ch.isdigit())
+    if len(digits) != 8:
+        return None
+    try:
+        return int(digits)
+    except ValueError:
+        return None
+
+
+def _latest_txt_export_date_key_from_file(path: str) -> int | None:
+    try:
+        with open(path, "rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            size = handle.tell()
+            handle.seek(max(0, size - 65536), os.SEEK_SET)
+            raw = handle.read()
+    except OSError:
+        return None
+    if not raw:
+        return None
+    text = raw.decode("cp932", errors="ignore")
+    latest_key: int | None = None
+    for line in reversed(text.splitlines()):
+        parts = line.strip().split(",")
+        if len(parts) < 2:
+            continue
+        key = _parse_txt_ymd_key(parts[1])
+        if key is None:
+            continue
+        latest_key = key if latest_key is None else max(latest_key, key)
+        break
+    return latest_key
+
+
+def _latest_txt_export_date_key(out_dir: str) -> int | None:
+    if not os.path.isdir(out_dir):
+        return None
+    latest_key: int | None = None
+    try:
+        names = sorted(os.listdir(out_dir))
+    except OSError:
+        return None
+    for name in names:
+        if not name.lower().endswith(".txt"):
+            continue
+        key = _latest_txt_export_date_key_from_file(os.path.join(out_dir, name))
+        if key is None:
+            continue
+        latest_key = key if latest_key is None else max(latest_key, key)
+    return latest_key
+
+
+def _latest_confirmed_db_date_key() -> int | None:
+    try:
+        from app.backend.db import get_conn
+        from app.backend.services.data.yahoo_provisional import normalize_date_key
+    except Exception as exc:
+        logger.warning("Failed to load DB date helpers: %s", exc)
+        return None
+    try:
+        with get_conn() as conn:
+            row = conn.execute(
+                """
+                SELECT MAX(date)
+                FROM daily_bars
+                WHERE COALESCE(source, 'pan') <> 'yahoo'
+                """
+            ).fetchone()
+    except Exception as exc:
+        logger.warning("Failed to read latest confirmed DB date: %s", exc)
+        return None
+    return normalize_date_key(row[0]) if row and row[0] is not None else None
+
+
+def _build_txt_source_manifest_snapshot(
+    *,
+    code_path: str,
+    out_dir: str,
+    db_latest_key: int | None,
+    ranking_snapshot_key: int | None,
+) -> dict[str, Any]:
+    source_files = []
+    for path in (code_path, _update_vbs_path()):
+        entry = _file_manifest_entry(path)
+        if entry is not None:
+            source_files.append(entry)
+    db_latest_date = _format_ymd_key(db_latest_key)
+    source_latest_date = _format_ymd_key(_latest_txt_export_date_key(out_dir)) or db_latest_date
+    return {
+        "schema_version": 1,
+        "updated_at": datetime.now().isoformat(),
+        "source_kind": "pan_txt",
+        "source_files": source_files,
+        "export_outputs": _list_export_output_entries(out_dir),
+        "source_latest_date": source_latest_date,
+        "db_latest_date": db_latest_date,
+        "ranking_snapshot_as_of": _format_ymd_key(ranking_snapshot_key),
+    }
+
+
+def _manifests_match_for_noop(previous: dict[str, Any] | None, current: dict[str, Any]) -> tuple[bool, str | None]:
+    if not previous:
+        return False, "manifest_missing"
+    if int(previous.get("schema_version") or 0) != 1:
+        return False, "manifest_schema_changed"
+    current_source_key = _parse_txt_ymd_key(current.get("source_latest_date"))
+    current_db_key = _parse_txt_ymd_key(current.get("db_latest_date"))
+    if current_source_key is not None and current_db_key is not None and current_source_key > current_db_key:
+        return False, "source_newer_than_db"
+    if _manifest_file_signature(previous.get("source_files")) != _manifest_file_signature(current.get("source_files")):
+        return False, "source_changed"
+    if _manifest_file_signature(previous.get("export_outputs")) != _manifest_file_signature(current.get("export_outputs")):
+        return False, "output_changed"
+    if not current.get("export_outputs"):
+        return False, "output_missing"
+    if str(previous.get("source_latest_date") or "") != str(current.get("source_latest_date") or ""):
+        return False, "source_latest_changed"
+    if str(previous.get("db_latest_date") or "") != str(current.get("db_latest_date") or ""):
+        return False, "db_latest_changed"
+    if str(previous.get("ranking_snapshot_as_of") or "") != str(current.get("db_latest_date") or ""):
+        return False, "ranking_snapshot_stale"
+    return True, None
 
 
 def _trim_retry_trace(state: dict) -> None:
@@ -249,6 +553,7 @@ def _record_tracking_refresh_progress(state: dict, *, job_id: str, progress: dic
         "current_market_date": progress.get("current_market_date"),
         "current_side": progress.get("current_side"),
         "detail": progress.get("detail"),
+        "trigger_reason": progress.get("trigger_reason"),
         "heartbeat_at": heartbeat_at,
         "progress": progress_value,
     }
@@ -990,6 +1295,14 @@ def _exit_followup_if_canceled(job_id: str, state: dict, *, stage: str, message:
 
 
 def handle_txt_update(job_id: str, payload: dict) -> None:
+    profile = _new_daily_update_profile(job_id)
+
+    def _finish_profile(status: str) -> None:
+        path = _write_daily_update_profile(profile, status=status)
+        if path:
+            state["last_daily_update_profile_path"] = path
+            _save_update_state(state)
+
     completion_mode = _normalize_completion_mode(payload.get("completion_mode"))
     auto_ml_predict = _to_bool(payload.get("auto_ml_predict"), True)
     auto_ml_train = _to_bool(payload.get("auto_ml_train"), True)
@@ -1000,6 +1313,40 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
         _to_bool(os.getenv("MEEMEE_TXT_UPDATE_SKIP_ML_TRAIN_IF_NO_CHANGE"), True),
     )
     auto_fill_missing_history = _to_bool(payload.get("auto_fill_missing_history"), False)
+    run_tracking_refresh = _to_bool(
+        payload.get("run_tracking_refresh"),
+        _to_bool(os.getenv("MEEMEE_TXT_UPDATE_RUN_TRACKING_REFRESH"), False),
+    )
+    tracking_refresh_trigger_reason = str(payload.get("tracking_refresh_trigger_reason") or "").strip()
+    full_rebuild_requested = _to_bool(payload.get("full_rebuild"), False) or _to_bool(
+        payload.get("full_rebuild_flag"),
+        False,
+    )
+    if full_rebuild_requested and not tracking_refresh_trigger_reason:
+        tracking_refresh_trigger_reason = "full_rebuild_flag"
+    if run_tracking_refresh and tracking_refresh_trigger_reason not in _HEAVY_REFRESH_REASON_VALUES:
+        state = _load_update_state()
+        _trim_retry_trace(state)
+        reason = tracking_refresh_trigger_reason or "unknown"
+        error_msg = (
+            "Tracking refresh requires an explicit trigger reason "
+            f"({', '.join(sorted(_HEAVY_REFRESH_REASON_VALUES))}); got {reason!r}"
+        )
+        state["last_pipeline_status"] = "failed"
+        state["last_failed_stage"] = "tracking_refresh_trigger"
+        state["last_error"] = error_msg
+        profile["heavy_refresh_required"] = True
+        profile["heavy_refresh_reason"] = reason
+        _finish_profile("failed")
+        job_manager._update_db(
+            job_id,
+            "txt_update",
+            "failed",
+            error="Invalid tracking refresh trigger",
+            message=error_msg,
+            finished_at=datetime.now(),
+        )
+        return
     pan_retry = _to_int(
         payload.get("pan_retry"),
         _to_int(os.getenv("MEEMEE_TXT_UPDATE_PAN_RETRY"), 3, minimum=1),
@@ -1295,6 +1642,10 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
     job_manager._update_db(job_id, "txt_update", "running", message="Initializing update...", progress=0)
     code_path = _pan_code_txt_path()
     out_dir = _pan_out_txt_dir()
+    profile["tracking_refresh_trigger_reason"] = tracking_refresh_trigger_reason or None
+    db_latest_before_key = _latest_confirmed_db_date_key()
+    profile["db_latest_before"] = _format_ymd_key(db_latest_before_key)
+    profile["source_latest_date"] = profile["db_latest_before"]
 
     if _exit_if_canceled(job_id, state, stage="init", message="Canceled before start"):
         return
@@ -1316,6 +1667,7 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
     if _exit_if_canceled(job_id, state, stage="pan_import", message="Canceled before Pan import"):
         return
 
+    pan_import_started = time.monotonic()
     _set_pipeline_stage(state, "pan_import", message="Launching Pan and importing latest data...")
     job_manager._update_db(
         job_id,
@@ -1357,6 +1709,12 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
     if pan_import_ok:
         state.pop("last_pan_import_warning", None)
         _save_update_state(state)
+        _record_profile_phase(
+            profile,
+            "detect_changes",
+            started_at=pan_import_started,
+            status="done",
+        )
 
     if not pan_import_ok:
         error_msg = f"Pan import failed: {pan_import_error or 'unknown error'}"
@@ -1410,7 +1768,150 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
     if _exit_if_canceled(job_id, state, stage="pan_import", message="Canceled after Pan import"):
         return
 
+    manifest_started = time.monotonic()
+    previous_manifest = _load_txt_source_manifest()
+    previous_ranking_key = _to_optional_int(state.get("last_cache_refresh_db_latest_key"))
+    current_manifest = _build_txt_source_manifest_snapshot(
+        code_path=code_path,
+        out_dir=out_dir,
+        db_latest_key=db_latest_before_key,
+        ranking_snapshot_key=previous_ranking_key,
+    )
+    manifest_matches, manifest_miss_reason = _manifests_match_for_noop(previous_manifest, current_manifest)
+    force_export = _to_bool(payload.get("force_export"), False) or full_rebuild_requested
+    repair_mode = bool(auto_fill_missing_history or force_export)
+    export_required = bool(force_export or repair_mode or not manifest_matches)
+    if force_export:
+        export_reason = "forced_export"
+    elif repair_mode:
+        export_reason = "repair_mode"
+    elif manifest_matches:
+        export_reason = None
+    else:
+        export_reason = manifest_miss_reason or "manifest_changed"
+    source_latest_key = _parse_txt_ymd_key(current_manifest.get("source_latest_date"))
+    manifest_db_latest_key = _parse_txt_ymd_key(current_manifest.get("db_latest_date"))
+    source_newer_than_db = (
+        source_latest_key is not None
+        and manifest_db_latest_key is not None
+        and source_latest_key > manifest_db_latest_key
+    )
+    profile["export_required"] = export_required
+    profile["export_reason"] = export_reason
+    profile["source_latest_date"] = current_manifest.get("source_latest_date")
+    profile["db_latest_before"] = current_manifest.get("db_latest_date")
+    _record_profile_phase(
+        profile,
+        "detect_source_manifest",
+        started_at=manifest_started,
+        status="done",
+        export_required=export_required,
+        export_reason=export_reason,
+        export_outputs_count=len(current_manifest.get("export_outputs") or []),
+    )
+    if not export_required:
+        completion_ts = datetime.now()
+        profile["status"] = "no_change"
+        profile["import_required"] = False
+        profile["import_reason"] = None
+        profile["changed_files_count"] = 0
+        profile["changed_dates_count"] = 0
+        profile["changed_symbols_count"] = 0
+        profile["pan_finalized_rows"] = 0
+        profile["db_latest_after"] = current_manifest.get("db_latest_date")
+        profile["skipped"]["export"] = True
+        profile["skipped"]["import"] = True
+        profile["skipped"]["ranking_refresh"] = True
+        profile["skipped"]["tracking_refresh"] = True
+        state["last_txt_update_no_change_at"] = completion_ts.isoformat()
+        state["last_txt_update_no_change_reason"] = "source_manifest_unchanged"
+        state["last_tracking_refresh_skipped_at"] = completion_ts.isoformat()
+        state["last_tracking_refresh_skipped_reason"] = "no_confirmed_change"
+        _record_profile_phase(
+            profile,
+            "finalize_status",
+            started_at=time.monotonic(),
+            status="no_change",
+        )
+        state.update(
+            {
+                "last_txt_update_at": completion_ts.isoformat(),
+                "last_txt_update_date": completion_ts.date().isoformat(),
+            }
+        )
+        final_message = "No confirmed TXT/PAN source changes detected. Daily update fast path completed."
+        _record_pipeline_success(state, stage="finalize", message=final_message)
+        no_change_manifest = _build_txt_source_manifest_snapshot(
+            code_path=code_path,
+            out_dir=out_dir,
+            db_latest_key=db_latest_before_key,
+            ranking_snapshot_key=db_latest_before_key,
+        )
+        _save_txt_source_manifest(no_change_manifest)
+        _finish_profile("no_change")
+        job_manager._update_db(
+            job_id,
+            "txt_update",
+            "success",
+            message=final_message,
+            progress=100,
+            finished_at=completion_ts,
+        )
+        return
+
+    hash_seed_started = time.monotonic()
+    if source_newer_than_db:
+        seed_result = {
+            "seeded_files": 0,
+            "total_bytes": 0,
+            "elapsed_ms": 0,
+            "state_path": "",
+            "reason": "source_newer_than_db",
+        }
+        state["last_ingest_hash_seed_at"] = datetime.now().isoformat()
+        state["last_ingest_hash_seed_status"] = "skipped"
+        state["last_ingest_hash_seed_result"] = seed_result
+        state.pop("last_ingest_hash_seed_error", None)
+        _record_profile_phase(
+            profile,
+            "seed_ingest_hash_baseline",
+            started_at=hash_seed_started,
+            status="skipped",
+            reason="source_newer_than_db",
+        )
+        _save_update_state(state)
+    else:
+        try:
+            seed_result = _seed_ingest_state_hashes_for_export(out_dir)
+            state["last_ingest_hash_seed_at"] = datetime.now().isoformat()
+            state["last_ingest_hash_seed_status"] = "done"
+            state["last_ingest_hash_seed_result"] = seed_result
+            state.pop("last_ingest_hash_seed_error", None)
+            _record_profile_phase(
+                profile,
+                "seed_ingest_hash_baseline",
+                started_at=hash_seed_started,
+                status="done",
+                seeded_files=seed_result.get("seeded_files"),
+                total_bytes=seed_result.get("total_bytes"),
+            )
+            _save_update_state(state)
+        except Exception as exc:
+            logger.warning("TXT ingest hash seed skipped before export: %s", exc)
+            state["last_ingest_hash_seed_at"] = datetime.now().isoformat()
+            state["last_ingest_hash_seed_status"] = "failed"
+            state["last_ingest_hash_seed_error"] = str(exc)
+            _record_profile_phase(
+                profile,
+                "seed_ingest_hash_baseline",
+                started_at=hash_seed_started,
+                status="failed",
+                error=str(exc),
+            )
+            _save_update_state(state)
+
     # Step 1: VBS export (Pan -> TXT)
+    export_started = time.monotonic()
     _set_pipeline_stage(state, "export", message="Running Pan Rolling export...")
     job_manager._update_db(
         job_id,
@@ -1575,6 +2076,13 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
     if _exit_if_canceled(job_id, state, stage="export", message="Canceled after Pan Rolling export"):
         return
 
+    _record_profile_phase(
+        profile,
+        "export_confirmed_txt",
+        started_at=export_started,
+        status="done" if vbs_code == 0 else "warning",
+    )
+
     job_manager._update_db(
         job_id,
         "txt_update",
@@ -1586,13 +2094,22 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
     if _exit_if_canceled(job_id, state, stage="ingest", message="Canceled before ingest"):
         return
 
-    _set_pipeline_stage(state, "ingest", message="Ingesting incremental TXT data...")
-    job_manager._update_db(job_id, "txt_update", "running", message="Ingesting (Incremental)...", progress=85)
+    ingest_incremental = not source_newer_than_db
+    ingest_mode_label = "full" if not ingest_incremental else "incremental"
+    _set_pipeline_stage(state, "ingest", message=f"Ingesting {ingest_mode_label} TXT data...")
+    job_manager._update_db(
+        job_id,
+        "txt_update",
+        "running",
+        message=f"Ingesting ({ingest_mode_label.title()})...",
+        progress=85,
+    )
     ingest_report = {"message": "", "progress": -1}
+    ingest_started = time.monotonic()
 
     def _on_ingest_progress(progress: int, message: str) -> None:
         total_progress = _scale_progress(progress, 85, 92)
-        detail = f"Ingesting incremental TXT data... {message}"
+        detail = f"Ingesting {ingest_mode_label} TXT data... {message}"
         if (
             int(ingest_report["progress"]) == int(total_progress)
             and str(ingest_report["message"]) == detail
@@ -1610,7 +2127,7 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
         )
 
     _ingest_out, ingest_err, ingest_stats, ingest_attempts, ingest_error_kind = _run_ingest_with_retry(
-        incremental=True,
+        incremental=ingest_incremental,
         max_attempts=ingest_retry,
         sleep_seconds=ingest_retry_sleep,
         state=state,
@@ -1669,11 +2186,184 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
     )
     pan_finalized_rows = _to_int(ingest_stats.get("pan_finalized_rows"), 0, minimum=0)
     state["last_pan_finalize_rows"] = int(pan_finalized_rows)
+    profile["changed_files_count"] = int(changed_files)
+    profile["pan_finalized_rows"] = int(pan_finalized_rows)
+    profile["changed_dates_count"] = _to_optional_int(ingest_stats.get("changed_dates_count"))
+    if profile["changed_dates_count"] is None:
+        profile["changed_dates_count"] = 0 if int(changed_files) == 0 else None
+    profile["changed_symbols_count"] = _to_optional_int(ingest_stats.get("changed_symbols_count"))
+    if profile["changed_symbols_count"] is None:
+        profile["changed_symbols_count"] = int(changed_files)
+    profile["import_required"] = int(changed_files) > 0 or int(pan_finalized_rows) > 0
+    profile["import_reason"] = "changed_export_outputs" if profile["import_required"] else None
+    _record_profile_phase(
+        profile,
+        "import_confirmed_bars",
+        started_at=ingest_started,
+        status="done",
+        changed_files=int(changed_files),
+        pan_finalized_rows=int(pan_finalized_rows),
+    )
     state["last_force_recompute_on_pan_finalize"] = bool(force_recompute_on_pan_finalize)
     if pan_finalized_rows > 0:
         state["last_pan_finalize_at"] = datetime.now().isoformat()
 
+    no_confirmed_change = int(changed_files) == 0 and int(pan_finalized_rows) == 0
+    can_fast_no_change_exit = no_confirmed_change and bool(state.get("last_cache_refresh_at"))
+    if can_fast_no_change_exit:
+        completion_ts = datetime.now()
+        db_latest_after_key = _latest_confirmed_db_date_key()
+        profile["db_latest_after"] = _format_ymd_key(db_latest_after_key)
+        profile["source_latest_date"] = profile["db_latest_after"] or profile.get("source_latest_date")
+        profile["changed_dates_count"] = 0
+        profile["changed_symbols_count"] = 0
+        state["last_txt_update_no_change_at"] = completion_ts.isoformat()
+        state["last_tracking_refresh_skipped_at"] = completion_ts.isoformat()
+        state["last_tracking_refresh_skipped_reason"] = "no_confirmed_change"
+        profile["status"] = "no_change"
+        profile["skipped"]["import"] = True
+        profile["skipped"]["ranking_refresh"] = True
+        profile["skipped"]["tracking_refresh"] = True
+        _record_profile_phase(
+            profile,
+            "finalize_status",
+            started_at=time.monotonic(),
+            status="no_change",
+        )
+        state.update(
+            {
+                "last_txt_update_at": completion_ts.isoformat(),
+                "last_txt_update_date": completion_ts.date().isoformat(),
+            }
+        )
+        final_message = "No confirmed TXT/PAN changes detected. Daily update fast path completed."
+        _record_pipeline_success(state, stage="finalize", message=final_message)
+        no_change_manifest = _build_txt_source_manifest_snapshot(
+            code_path=code_path,
+            out_dir=out_dir,
+            db_latest_key=db_latest_after_key,
+            ranking_snapshot_key=db_latest_after_key,
+        )
+        _save_txt_source_manifest(no_change_manifest)
+        _finish_profile("no_change")
+        job_manager._update_db(
+            job_id,
+            "txt_update",
+            "success",
+            message=final_message,
+            progress=100,
+            finished_at=completion_ts,
+        )
+        return
+
+    db_latest_after_ingest_key = _latest_confirmed_db_date_key()
+    profile["db_latest_after"] = _format_ymd_key(db_latest_after_ingest_key)
+    profile["source_latest_date"] = profile["db_latest_after"] or profile.get("source_latest_date")
+
+    if completion_mode == _COMPLETION_MODE_PRACTICAL_FAST and not run_tracking_refresh:
+        should_queue_followup = bool(
+            auto_ml_train
+            or auto_ml_predict
+            or auto_fill_missing_history
+            or auto_walkforward_run
+            or auto_walkforward_gate
+            or (force_recompute_on_pan_finalize and pan_finalized_rows > 0)
+        )
+        followup_job_id: str | None = None
+        if should_queue_followup:
+            followup_payload = dict(payload)
+            followup_payload.update(
+                {
+                    "source_txt_job_id": str(job_id),
+                    "phase_dt": None,
+                    "db_latest_after_key": (
+                        int(db_latest_after_ingest_key) if db_latest_after_ingest_key is not None else None
+                    ),
+                    "changed_files": int(changed_files),
+                    "pan_finalized_rows": int(pan_finalized_rows),
+                    "summary_line": str(summary_line),
+                }
+            )
+            followup_job_id = _queue_txt_followup(
+                state,
+                source_job_id=str(job_id),
+                payload=followup_payload,
+            )
+        completion_ts = datetime.now()
+        finalize_started = time.monotonic()
+        profile["mode"] = "chart_first_fast_path"
+        profile["skipped"]["ranking_refresh"] = True
+        profile["skipped"]["tracking_refresh"] = True
+        if not should_queue_followup:
+            state["last_followup_skipped_at"] = completion_ts.isoformat()
+            state["last_followup_skipped_reason"] = "chart_first_no_requested_followup"
+            state["last_followup_status"] = "skipped"
+            state.pop("last_followup_error", None)
+        state["last_tracking_refresh_skipped_at"] = completion_ts.isoformat()
+        state["last_tracking_refresh_skipped_reason"] = "daily_fast_path"
+        state.pop("last_tracking_refresh_trigger_reason", None)
+        state.update(
+            {
+                "last_txt_update_at": completion_ts.isoformat(),
+                "last_txt_update_date": completion_ts.date().isoformat(),
+            }
+        )
+        _set_pipeline_stage(state, "finalize", message="Finalizing chart-first daily update...")
+        job_manager._update_db(
+            job_id,
+            _TXT_UPDATE_JOB_TYPE,
+            "running",
+            message="Finalizing chart-first daily update...",
+            progress=99,
+        )
+        notes = [
+            "chart_refresh=ready",
+            "tracking=skip(daily_fast_path)",
+        ]
+        if followup_job_id:
+            notes.extend(
+                [
+                    "phase=queued(background)",
+                    "scoring=queued(background)",
+                    "ranking_cache=queued(background)",
+                ]
+            )
+            notes.append(f"followup=queued({followup_job_id})")
+        elif should_queue_followup:
+            notes.append("followup=skip(queue_rejected)")
+        else:
+            notes.extend(
+                [
+                    "phase=skip(chart_first)",
+                    "scoring=skip(chart_first)",
+                    "ranking_cache=skip(chart_first)",
+                    "followup=skip(chart_first_no_requested_followup)",
+                ]
+            )
+        final_message = f"{summary_line}. Confirmed TXT/PAN bars imported; chart refresh is ready. [{' / '.join(notes)}]"
+        _record_pipeline_success(state, stage="finalize", message=final_message)
+        _record_profile_phase(profile, "finalize_status", started_at=finalize_started)
+        current_manifest = _build_txt_source_manifest_snapshot(
+            code_path=code_path,
+            out_dir=out_dir,
+            db_latest_key=db_latest_after_ingest_key,
+            ranking_snapshot_key=previous_ranking_key,
+        )
+        _save_txt_source_manifest(current_manifest)
+        _finish_profile("done")
+        job_manager._update_db(
+            job_id,
+            _TXT_UPDATE_JOB_TYPE,
+            "success",
+            message=final_message,
+            progress=100,
+            finished_at=completion_ts,
+        )
+        return
+
     phase_dt = _to_optional_int(state.get("last_phase_dt"))
+    if phase_dt is None:
+        phase_dt = db_latest_after_ingest_key
     force_recompute_due_to_pan_finalize = bool(force_recompute_on_pan_finalize and pan_finalized_rows > 0)
     legacy_analysis_disabled = is_legacy_analysis_disabled()
     effective_auto_ml_train = False if legacy_analysis_disabled else bool(auto_ml_train or force_recompute_due_to_pan_finalize)
@@ -2037,6 +2727,7 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
     try:
         if _exit_if_canceled(job_id, state, stage="cache_refresh", message="Canceled before cache refresh"):
             return
+        cache_refresh_started = time.monotonic()
         _set_pipeline_stage(state, "cache_refresh", message="Refreshing rankings cache...")
         job_manager._update_db(
             job_id,
@@ -2049,6 +2740,8 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
 
         rankings_cache.refresh_cache()
         state["last_cache_refresh_at"] = datetime.now().isoformat()
+        state["last_cache_refresh_db_latest_key"] = int(db_latest_after_ingest_key) if db_latest_after_ingest_key is not None else None
+        _record_profile_phase(profile, "refresh_latest_ranking", started_at=cache_refresh_started)
     except Exception as exc:
         logger.exception("Rankings cache refresh failed: %s", exc)
         _record_pipeline_failure(
@@ -2067,57 +2760,86 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
         )
         return
 
-    try:
-        if _exit_if_canceled(job_id, state, stage="tracking_refresh", message="Canceled before tracking refresh"):
+    if run_tracking_refresh:
+        try:
+            if _exit_if_canceled(job_id, state, stage="tracking_refresh", message="Canceled before tracking refresh"):
+                return
+            tracking_refresh_started = time.monotonic()
+            profile["mode"] = "explicit_heavy_path"
+            profile["skipped"]["tracking_refresh"] = False
+            profile["heavy_refresh_required"] = True
+            profile["heavy_refresh_reason"] = tracking_refresh_trigger_reason
+            _set_pipeline_stage(
+                state,
+                "tracking_refresh",
+                message=f"Running explicit signal/ranking tracking refresh ({tracking_refresh_trigger_reason})...",
+            )
+            job_manager._update_db(
+                job_id,
+                "txt_update",
+                "running",
+                message=f"Running explicit signal/ranking tracking refresh ({tracking_refresh_trigger_reason})...",
+                progress=TRACKING_REFRESH_PROGRESS,
+            )
+            from app.backend.services import signal_tracking_service
+
+            def _on_tracking_refresh_progress(progress: dict[str, Any]) -> None:
+                try:
+                    progress = dict(progress)
+                    progress["trigger_reason"] = tracking_refresh_trigger_reason
+                    _record_tracking_refresh_progress(state, job_id=job_id, progress=progress)
+                except Exception as exc:
+                    logger.warning("Tracking refresh heartbeat skipped: %s", exc)
+
+            tracking_result = signal_tracking_service.refresh_daily_tracking_window(
+                progress_cb=_on_tracking_refresh_progress
+            )
+            state["last_tracking_refresh_at"] = datetime.now().isoformat()
+            state["last_tracking_refresh_trigger_reason"] = tracking_refresh_trigger_reason
+            state["last_tracking_refresh_result"] = {
+                "market_day_window": tracking_result.get("market_day_window"),
+                "from": tracking_result.get("from"),
+                "to": tracking_result.get("to"),
+                "basis_dates_processed": ((tracking_result.get("result") or {}).get("basis") or {}).get("dates_processed"),
+                "ranking_appearance_upserted": ((tracking_result.get("result") or {}).get("ranking") or {}).get("appearance_upserted"),
+            }
+            _record_profile_phase(
+                profile,
+                "full_tracking_refresh",
+                started_at=tracking_refresh_started,
+                trigger_reason=tracking_refresh_trigger_reason,
+            )
+            ml_note_parts.append(
+                "tracking="
+                f"ok(from={state['last_tracking_refresh_result']['from']},"
+                f"to={state['last_tracking_refresh_result']['to']},"
+                f"appearance={state['last_tracking_refresh_result']['ranking_appearance_upserted']},"
+                f"reason={tracking_refresh_trigger_reason})"
+            )
+        except Exception as exc:
+            logger.exception("Tracking refresh failed: %s", exc)
+            _record_pipeline_failure(
+                state,
+                stage="tracking_refresh",
+                error=str(exc),
+                message="Tracking refresh failed",
+            )
+            _finish_profile("failed")
+            job_manager._update_db(
+                job_id,
+                "txt_update",
+                "failed",
+                error="Tracking refresh failed",
+                message=f"Tracking refresh failed: {exc}",
+                finished_at=datetime.now(),
+            )
             return
-        _set_pipeline_stage(state, "tracking_refresh", message="Refreshing signal/ranking tracking...")
-        job_manager._update_db(
-            job_id,
-            "txt_update",
-            "running",
-            message="Refreshing signal/ranking tracking...",
-            progress=TRACKING_REFRESH_PROGRESS,
-        )
-        from app.backend.services import signal_tracking_service
-
-        def _on_tracking_refresh_progress(progress: dict[str, Any]) -> None:
-            try:
-                _record_tracking_refresh_progress(state, job_id=job_id, progress=progress)
-            except Exception as exc:
-                logger.warning("Tracking refresh heartbeat skipped: %s", exc)
-
-        tracking_result = signal_tracking_service.refresh_daily_tracking_window(progress_cb=_on_tracking_refresh_progress)
-        state["last_tracking_refresh_at"] = datetime.now().isoformat()
-        state["last_tracking_refresh_result"] = {
-            "market_day_window": tracking_result.get("market_day_window"),
-            "from": tracking_result.get("from"),
-            "to": tracking_result.get("to"),
-            "basis_dates_processed": ((tracking_result.get("result") or {}).get("basis") or {}).get("dates_processed"),
-            "ranking_appearance_upserted": ((tracking_result.get("result") or {}).get("ranking") or {}).get("appearance_upserted"),
-        }
-        ml_note_parts.append(
-            "tracking="
-            f"ok(from={state['last_tracking_refresh_result']['from']},"
-            f"to={state['last_tracking_refresh_result']['to']},"
-            f"appearance={state['last_tracking_refresh_result']['ranking_appearance_upserted']})"
-        )
-    except Exception as exc:
-        logger.exception("Tracking refresh failed: %s", exc)
-        _record_pipeline_failure(
-            state,
-            stage="tracking_refresh",
-            error=str(exc),
-            message="Tracking refresh failed",
-        )
-        job_manager._update_db(
-            job_id,
-            "txt_update",
-            "failed",
-            error="Tracking refresh failed",
-            message=f"Tracking refresh failed: {exc}",
-            finished_at=datetime.now(),
-        )
-        return
+    else:
+        skipped_at = datetime.now().isoformat()
+        state["last_tracking_refresh_skipped_at"] = skipped_at
+        state["last_tracking_refresh_skipped_reason"] = "daily_fast_path"
+        state.pop("last_tracking_refresh_trigger_reason", None)
+        ml_note_parts.append("tracking=skip(daily_fast_path)")
 
     if completion_mode == _COMPLETION_MODE_PRACTICAL_FAST:
         should_queue_followup = bool(
@@ -2149,6 +2871,7 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
             else:
                 ml_note_parts.append("followup=skip(queue_rejected)")
         completion_ts = datetime.now()
+        finalize_started = time.monotonic()
         _set_pipeline_stage(state, "finalize", message="Finalizing update status...")
         job_manager._update_db(
             job_id,
@@ -2171,6 +2894,15 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
         ml_note = f" [{' / '.join(ml_note_parts)}]" if ml_note_parts else ""
         final_message = f"{base_message}{ml_note}"
         _record_pipeline_success(state, stage="finalize", message=final_message)
+        _record_profile_phase(profile, "finalize_status", started_at=finalize_started)
+        final_manifest = _build_txt_source_manifest_snapshot(
+            code_path=code_path,
+            out_dir=out_dir,
+            db_latest_key=db_latest_after_ingest_key,
+            ranking_snapshot_key=db_latest_after_ingest_key,
+        )
+        _save_txt_source_manifest(final_manifest)
+        _finish_profile("done")
         job_manager._update_db(
             job_id,
             _TXT_UPDATE_JOB_TYPE,
@@ -2455,6 +3187,7 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
         return
 
     completion_ts = datetime.now()
+    finalize_started = time.monotonic()
     _set_pipeline_stage(state, "finalize", message="Finalizing update status...")
     job_manager._update_db(
         job_id,
@@ -2475,6 +3208,15 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
         stage="finalize",
         message=f"{summary_line}. Ingest + Phase + Scoring completed.{ml_note}",
     )
+    _record_profile_phase(profile, "finalize_status", started_at=finalize_started)
+    final_manifest = _build_txt_source_manifest_snapshot(
+        code_path=code_path,
+        out_dir=out_dir,
+        db_latest_key=db_latest_after_ingest_key,
+        ranking_snapshot_key=db_latest_after_ingest_key,
+    )
+    _save_txt_source_manifest(final_manifest)
+    _finish_profile("done")
     job_manager._update_db(
         job_id,
         "txt_update",
