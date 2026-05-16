@@ -7,7 +7,11 @@ import { api } from "../api";
 import { useStore } from "../store";
 import { saveBlobToFile } from "../utils/windowScreenshot";
 
-const WAIT_FRAMES = 20; // Increased for chart rendering
+const WAIT_FRAMES = 8;
+const SCREENSHOT_CAPTURE_SETTLE_MS = 350;
+const DAILY_SCREENSHOT_BARS = 120;
+const WEEKLY_SCREENSHOT_BARS = 52;
+const MONTHLY_SCREENSHOT_BARS = 36;
 const SCREENSHOT_TARGET_MISSING_MESSAGE = "スクショ対象がありません。";
 const SCREENSHOT_DATA_LOAD_FAILED_MESSAGE = "チャートデータを取得できませんでした。";
 const SCREENSHOT_CAPTURE_FAILED_MESSAGE = "スクショの画像生成に失敗しました。";
@@ -92,8 +96,14 @@ export const useConsultScreenshot = () => {
                     const barsRes = await api.post("/batch_bars_v3", {
                         codes: [code],
                         timeframes: ["daily", "weekly", "monthly"],
-                        limit: 120,
-                        includeProvisional: true
+                        limit: 160,
+                        timeframeLimits: {
+                            daily: 140,
+                            weekly: 80,
+                            monthly: 72,
+                        },
+                        includeProvisional: true,
+                        includeBoxes: true,
                     });
 
                     // Extract payload from response
@@ -119,12 +129,15 @@ export const useConsultScreenshot = () => {
                         value: d[5],
                     }));
 
-                    const dailyCandles = parseBars(dailyPayload.bars).slice(-120);  // Last 120 bars
-                    const dailyVolume = parseVolume(dailyPayload.bars).slice(-120);
-                    const weeklyCandles = parseBars(weeklyPayload.bars).slice(-24);  // Last 24 bars
-                    const weeklyVolume = parseVolume(weeklyPayload.bars).slice(-24);
-                    const monthlyCandles = parseBars(monthlyPayload.bars).slice(-6);  // Last 6 bars
-                    const monthlyVolume = parseVolume(monthlyPayload.bars).slice(-6);
+                    const dailyCandles = parseBars(dailyPayload.bars).slice(-DAILY_SCREENSHOT_BARS);
+                    const dailyVolume = parseVolume(dailyPayload.bars).slice(-DAILY_SCREENSHOT_BARS);
+                    const weeklyCandles = parseBars(weeklyPayload.bars).slice(-WEEKLY_SCREENSHOT_BARS);
+                    const weeklyVolume = parseVolume(weeklyPayload.bars).slice(-WEEKLY_SCREENSHOT_BARS);
+                    const monthlyCandles = parseBars(monthlyPayload.bars).slice(-MONTHLY_SCREENSHOT_BARS);
+                    const monthlyVolume = parseVolume(monthlyPayload.bars).slice(-MONTHLY_SCREENSHOT_BARS);
+                    const monthlyBoxes = Array.isArray(monthlyPayload.boxes)
+                        ? monthlyPayload.boxes
+                        : boxesCache.monthly[code] || boxesCache.daily[code] || [];
 
                     // Quick MA function (Simple Moving Average)
                     const calculateSMA = (data: { time: number, close: number }[], period: number) => {
@@ -174,7 +187,7 @@ export const useConsultScreenshot = () => {
                             dailyMaLines={dailyMaLines}
                             weeklyMaLines={weeklyMaLines}
                             monthlyMaLines={monthlyMaLines}
-                            boxes={boxesCache.daily[code] || []}
+                            boxes={monthlyBoxes}
                             showBoxes={showBoxes}
                             dailyPositions={dailyPositions}
                             tradeMarkers={tradeMarkers}
@@ -193,8 +206,7 @@ export const useConsultScreenshot = () => {
                     // Capture with reduced scale for stability
                     let canvas;
                     try {
-                        // Give more time for charts to fully render
-                        await new Promise(r => setTimeout(r, 1500));
+                        await new Promise(r => setTimeout(r, SCREENSHOT_CAPTURE_SETTLE_MS));
 
                         canvas = await html2canvas(containerRef.current, {
                             useCORS: true,

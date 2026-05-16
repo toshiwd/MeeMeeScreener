@@ -9,6 +9,7 @@ Option Explicit
 ' Behavior:
 ' - Fast incremental append using manifest (no full scan)
 ' - Detect split/adjustment change (suspect) and skip append
+' - Do not touch output TXT files when no rows are appended
 '============================================================
 
 Const PROGRESS_INTERVAL = 500
@@ -451,6 +452,14 @@ Function ExportOneCode_Incremental(ByVal code, ByVal outFolder, ByRef cal, ByRef
         startPos = panMatchPos + 1
     End If
 
+    If startPos < beginPos Then startPos = beginPos
+
+    If canAppend And startPos > endPos Then
+        SafeOut "OK   : " & code & " : +0"
+        ExportOneCode_Incremental = True
+        Exit Function
+    End If
+
     Dim tsOut
     On Error Resume Next
     Err.Clear
@@ -466,8 +475,6 @@ Function ExportOneCode_Incremental(ByVal code, ByVal outFolder, ByRef cal, ByRef
         Exit Function
     End If
     On Error GoTo 0
-
-    If startPos < beginPos Then startPos = beginPos
 
     If startPos <= endPos Then
         For pos = startPos To endPos

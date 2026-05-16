@@ -85,10 +85,12 @@ export default function PositionsView() {
     ensureBarsForVisible,
     barsCache,
     barsStatus,
+    boxesCache,
     maSettings,
     tickers,
     ensureListLoaded,
     listRangeBars,
+    showBoxes,
     columns,
     rows,
     setListTimeframe,
@@ -100,10 +102,12 @@ export default function PositionsView() {
       ensureBarsForVisible: state.ensureBarsForVisible,
       barsCache: state.barsCache[listTimeframe],
       barsStatus: state.barsStatus[listTimeframe],
+      boxesCache: state.boxesCache[listTimeframe],
       maSettings: state.maSettings[listTimeframe],
       tickers: state.tickers,
       ensureListLoaded: state.ensureListLoaded,
       listRangeBars: state.settings.listRangeBars,
+      showBoxes: state.settings.showBoxes,
       columns: state.settings.columns,
       rows: state.settings.rows,
       setListTimeframe: state.setListTimeframe,
@@ -542,12 +546,13 @@ export default function PositionsView() {
       const itemsForShots = targets.map((code) => ({
         code,
         payload: barsCache[code] ?? null,
-        boxes: [],
+        boxes: boxesCache[code] ?? [],
         maSettings: resolvedMaSettings
       }));
       const result = await downloadChartScreenshots(itemsForShots, {
         rangeBars: listRangeBars,
-        timeframeLabel: listTimeframe
+        timeframeLabel: listTimeframe,
+        showBoxes
       });
       if (!result.created) {
         setToastMessage("スクショを作成できませんでした。");
@@ -563,8 +568,10 @@ export default function PositionsView() {
     ensureBarsForVisible,
     listTimeframe,
     barsCache,
+    boxesCache,
     resolvedMaSettings,
-    listRangeBars
+    listRangeBars,
+    showBoxes
   ]);
 
   const selectedChips = useMemo(() => {

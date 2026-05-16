@@ -168,7 +168,11 @@ def _load_analysis_provisional_overlay(
         return provisional_map, meta
 
     try:
-        provisional_map = get_provisional_daily_rows_from_spark(codes, prefer_chart_ohlc=True)
+        provisional_map = get_provisional_daily_rows_from_spark(
+            codes,
+            prefer_chart_ohlc=False,
+            allow_chart_fallback=False,
+        )
     except Exception as exc:
         logger.debug("rankings provisional overlay fetch failed: %s", exc)
         return {}, meta
@@ -5602,6 +5606,11 @@ def _apply_trade_priority_scores(items: list[dict], *, direction: RankDir) -> No
             trade_priority_score += _TRADE_PREBREAKOUT_ACTIONABILITY_WEIGHT * (
                 2.0 * prebreakout_actionability_score - 1.0
             )
+            momentum_follow_through_score = _calc_momentum_follow_through_score(item)
+            item["momentumFollowThroughScore"] = float(momentum_follow_through_score)
+            item["momentumFollowThroughV1"] = momentum_follow_through_score >= 0.62
+            trade_priority_score += 0.28 * (2.0 * momentum_follow_through_score - 1.0)
+            trade_priority_score += _apply_monthly_drawdown_guarded_momentum_adjustment(item)
         market_code = str(market_code_map.get(code) or "").strip()
         if market_code == _ETF_MARKET_CODE:
             # Broad index-linked ETF/ETN setups are less actionable as 20-day long candidates.
@@ -5617,11 +5626,81 @@ def _trade_priority_sort_key(item: dict[str, Any]) -> tuple[Any, ...]:
     return (
         item.get("tradePriorityScore") is None,
         -(item.get("tradePriorityScore") or 0.0),
+        -(item.get("momentumFollowThroughScore") or 0.0),
         -(item.get("tradePriorityProfitScore") or 0.0),
         -(item.get("tradePriorityHitScore") or 0.0),
         -(item.get("tradePriorityQualityScore") or 0.0),
         item.get("code", ""),
     )
+
+
+_MONTHLY_DRAWDOWN_GUARDED_MOMENTUM_VARIANT_ID = "monthly_drawdown_guarded_momentum_m+0.02_l-0.02_h-0.02_md-0.005"
+_MONTHLY_DRAWDOWN_GUARDED_MOMENTUM_MOMENTUM_WEIGHT = 0.02
+_MONTHLY_DRAWDOWN_GUARDED_MOMENTUM_LOW_RISK_WEIGHT = -0.02
+_MONTHLY_DRAWDOWN_GUARDED_MOMENTUM_HIGH_RISK_PENALTY = -0.02
+_MONTHLY_DRAWDOWN_GUARDED_MOMENTUM_MONTHLY_DRAWDOWN_PENALTY = -0.005
+
+
+def _apply_monthly_drawdown_guarded_momentum_adjustment(item: dict[str, Any]) -> float:
+    momentum_candidate = bool(item.get("momentumFollowThroughV1")) or (
+        _first_finite(item.get("momentumFollowThroughScore")) or 0.0
+    ) >= 0.75
+    risk_watch = item.get("tradeRiskWatch") if isinstance(item.get("tradeRiskWatch"), list) else []
+    quality_flags = item.get("qualityFlags") if isinstance(item.get("qualityFlags"), list) else []
+    high_risk_context = bool(item.get("marketRiskOff")) or bool(risk_watch) or "entry_not_qualified" in quality_flags
+    low_risk_context = bool(item.get("entryQualified")) and not high_risk_context
+    monthly_box_state = str(item.get("monthlyBoxState") or "").strip().lower()
+    monthly_drawdown_context = monthly_box_state in {"box_lower", "box_mid", "no_box"}
+
+    delta = 0.0
+    if momentum_candidate:
+        delta += _MONTHLY_DRAWDOWN_GUARDED_MOMENTUM_MOMENTUM_WEIGHT
+    if low_risk_context:
+        delta += _MONTHLY_DRAWDOWN_GUARDED_MOMENTUM_LOW_RISK_WEIGHT
+    if high_risk_context:
+        delta += _MONTHLY_DRAWDOWN_GUARDED_MOMENTUM_HIGH_RISK_PENALTY
+    if monthly_drawdown_context:
+        delta += _MONTHLY_DRAWDOWN_GUARDED_MOMENTUM_MONTHLY_DRAWDOWN_PENALTY
+
+    item["monthlyDrawdownGuardedMomentumV1"] = True
+    item["monthlyDrawdownGuardedMomentumVariantId"] = _MONTHLY_DRAWDOWN_GUARDED_MOMENTUM_VARIANT_ID
+    item["monthlyDrawdownGuardedMomentumDelta"] = float(delta)
+    item["monthlyDrawdownGuardedMomentumFlags"] = {
+        "momentum_candidate": momentum_candidate,
+        "low_risk_context": low_risk_context,
+        "high_risk_context": high_risk_context,
+        "monthly_drawdown_context": monthly_drawdown_context,
+    }
+    return float(delta)
+
+
+def _calc_momentum_follow_through_score(item: dict[str, Any]) -> float:
+    diff20_pct = _first_finite(item.get("diff20_pct"), item.get("diff20Pct"))
+    breakout20_up = _first_finite(item.get("breakout20_up"), item.get("breakout20Up"))
+    cnt20_above = _first_finite(item.get("cnt_20_above"), item.get("cnt20Above"))
+    cnt7_above = _first_finite(item.get("cnt_7_above"), item.get("cnt7Above"))
+    dist_ma20_signed = _first_finite(item.get("distMa20Signed"), item.get("dist_ma20_signed"))
+    market_ret20 = _first_finite(item.get("market_ret20"), item.get("marketRet20"))
+
+    parts: list[float] = []
+    if diff20_pct is not None:
+        parts.append(0.42 * _unit_score(diff20_pct, lower=0.03, upper=0.16))
+        parts.append(-0.10 * _unit_score(diff20_pct, lower=0.22, upper=0.36))
+    if breakout20_up is not None:
+        parts.append(0.22 * _unit_score(breakout20_up, lower=-0.015, upper=0.045))
+        parts.append(-0.06 * _unit_score(breakout20_up, lower=0.08, upper=0.18))
+    if cnt20_above is not None:
+        parts.append(0.16 * _unit_score(cnt20_above, lower=10.0, upper=18.0))
+    if cnt7_above is not None:
+        parts.append(0.10 * _unit_score(cnt7_above, lower=4.0, upper=7.0))
+    if dist_ma20_signed is not None:
+        parts.append(0.10 * _centered_score(dist_ma20_signed, center=0.045, width=0.06))
+    if market_ret20 is not None and market_ret20 > 0:
+        parts.append(0.04 * _unit_score(market_ret20, lower=0.01, upper=0.08))
+    if not parts:
+        return 0.5
+    score = 0.50 + sum(parts)
+    return float(max(0.0, min(1.0, score)))
 
 
 def _sanitize_rank_items_for_json(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -8030,22 +8109,15 @@ def get_rankings_session_bundle(
     confirmed_items = list(confirmed.get("items") or [])
     provisional_available = bool(provisional.get("is_provisional"))
     provisional_items = _attach_rank_deltas(confirmed_items, list(provisional.get("items") or [])) if provisional_available else []
-    confirmed_summary = get_trade_direction_summary(
-        tf,
-        which,
-        limit,
-        risk_mode=risk_mode,
-        top_n=5,
-        include_provisional=False,
-    )
+    if direction == "up":
+        confirmed_summary = _build_trade_summary_payload(up_payload=confirmed, down_payload={}, top_n=5)
+    else:
+        confirmed_summary = _build_trade_summary_payload(up_payload={}, down_payload=confirmed, top_n=5)
     provisional_summary = (
-        get_trade_direction_summary(
-            tf,
-            which,
-            limit,
-            risk_mode=risk_mode,
+        _build_trade_summary_payload(
+            up_payload=provisional if direction == "up" else {},
+            down_payload=provisional if direction == "down" else {},
             top_n=5,
-            include_provisional=True,
         )
         if provisional_available
         else {

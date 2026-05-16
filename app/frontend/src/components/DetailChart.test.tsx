@@ -313,6 +313,71 @@ describe("DetailChart MeeMee chrome", () => {
     render.cleanup();
   });
 
+  it("draws ranking buy markers near the candle", async () => {
+    const signalCandles = [
+      { time: 120, open: 100, high: 112, low: 96, close: 108 },
+      { time: 160, open: 108, high: 116, low: 104, close: 114 }
+    ];
+    const markerTime = signalCandles[1].time;
+    const render = await renderClient(
+      <DetailChart
+        candles={signalCandles}
+        volume={signalCandles.map((candle) => ({ time: candle.time, value: 1000 }))}
+        maLines={[]}
+        showVolume={false}
+        boxes={[]}
+        showBoxes={false}
+        eventMarkers={[{ time: markerTime, kind: "ranking-up", label: "買い" }]}
+      />
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(canvasMock?.ctx.fillText).toHaveBeenCalledWith("買い", expect.any(Number), expect.any(Number));
+    expect(canvasMock?.ctx.fill).toHaveBeenCalled();
+    expect(canvasMock?.ctx.closePath).toHaveBeenCalled();
+
+    render.cleanup();
+  });
+
+  it("keeps dense ranking markers as signal labels without rank counts", async () => {
+    const signalCandles = [
+      { time: 120, open: 100, high: 112, low: 96, close: 108 },
+      { time: 160, open: 108, high: 116, low: 104, close: 114 },
+      { time: 200, open: 114, high: 120, low: 112, close: 118 }
+    ];
+    const markerTime = signalCandles[0].time;
+    const render = await renderClient(
+      <DetailChart
+        candles={signalCandles}
+        volume={signalCandles.map((candle) => ({ time: candle.time, value: 1000 }))}
+        maLines={[]}
+        showVolume={false}
+        boxes={[]}
+        showBoxes={false}
+        eventMarkers={[
+          { time: markerTime, kind: "ranking-up", label: "買い" },
+          { time: markerTime + 1, kind: "ranking-up", label: "買い" },
+          { time: markerTime + 2, kind: "ranking-up", label: "買い" },
+        ]}
+      />
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const labels = canvasMock?.ctx.fillText.mock.calls.map((call) => String(call[0])) ?? [];
+    expect(labels).toContain("買い");
+    expect(labels.some((label) => label.includes("位") || label.includes("件"))).toBe(false);
+
+    render.cleanup();
+  });
+
   it("suppresses the compact legend when positionOverlay is active", async () => {
     const monthlyChipTime = Date.UTC(2026, 3, 1) / 1000;
     const render = await renderClient(
@@ -534,6 +599,42 @@ describe("DetailChart MeeMee chrome", () => {
 
     const gapDrawCalls = canvasMock?.ctx.fillRect.mock.calls.filter((call) => call[0] === 2 && call[2] === 878) ?? [];
     expect(gapDrawCalls.length).toBeGreaterThan(0);
+
+    render.cleanup();
+  });
+
+  it("clips box overlays to the loaded candle span", async () => {
+    const render = await renderClient(
+      <DetailChart
+        candles={[
+          { time: 10, open: 100, high: 120, low: 90, close: 110 },
+          { time: 20, open: 105, high: 122, low: 88, close: 115 },
+          { time: 30, open: 112, high: 118, low: 100, close: 113 }
+        ]}
+        volume={[]}
+        maLines={[]}
+        showVolume={false}
+        boxes={[
+          {
+            startIndex: 0,
+            endIndex: 1,
+            startTime: 0,
+            endTime: 20,
+            lower: 90,
+            upper: 120,
+            breakout: null
+          }
+        ]}
+        showBoxes
+      />
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(canvasMock?.ctx.strokeRect).toHaveBeenCalledWith(5, 90, 20, 30);
 
     render.cleanup();
   });

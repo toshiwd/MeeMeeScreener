@@ -423,6 +423,7 @@ export default function DetailView() {
   const [showTdnetMarkers, setShowTdnetMarkers] = useState(true);
   const [routeReadyPhase, setRouteReadyPhase] = useState<RouteReadyPhase>("chart");
   const [showTradeMarkers, setShowTradeMarkers] = useState(true);
+  const [showRankingMarkers, setShowRankingMarkers] = useState(true);
   const [activeDrawTool, setActiveDrawTool] = useState<DrawTool | null>(null);
   const [, setSelectedDrawing] = useState<SelectedDrawingInfo | null>(null);
   const COLOR_PALETTE = ["#ef4444", "#22c55e", "#0ea5e9", "#f59e0b", "#64748b"];
@@ -809,6 +810,7 @@ export default function DetailView() {
   const [qualificationTrace, setQualificationTrace] = useState<any>(null);
   const [persistedSignalEvents, setPersistedSignalEvents] = useState<any[]>([]);
   const [persistedRankingAppearances, setPersistedRankingAppearances] = useState<any[]>([]);
+  const [chartRankingAppearances, setChartRankingAppearances] = useState<any[]>([]);
   const [persistedMarkersLoading, setPersistedMarkersLoading] = useState(false);
   const [secondaryChartsReady, setSecondaryChartsReady] = useState(false);
   const earningsLabel = useMemo(
@@ -2780,6 +2782,88 @@ export default function DetailView() {
       setPersistedMarkersLoading(false);
     };
   }, [analysisFetchEnabled, backendReady, code, detailMarkerRange, mainChartPendingSwap, secondaryFetchStableReady]);
+  useEffect(() => {
+    if (!backendReady || !code || !detailMarkerRange || !showRankingMarkers) {
+      setChartRankingAppearances([]);
+      return;
+    }
+    let cancelled = false;
+    const abortController = new AbortController();
+    const timerId = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const responses = await Promise.all(
+            ["active", "completed", "archive"].map((status) =>
+              api.get("/ranking-history/appearances", {
+                params: {
+                  code,
+                  from: detailMarkerRange.from,
+                  to: detailMarkerRange.to,
+                  dir: "up",
+                  status,
+                  ranking_logic_version: "latest",
+                  limit: 500,
+                  sort: "recent",
+                },
+                timeout: 30000,
+                signal: abortController.signal,
+              })
+            )
+          );
+          if (cancelled) return;
+          const rankingItems = responses.flatMap((response) =>
+            Array.isArray(response.data?.items) ? response.data.items : []
+          );
+          try {
+            const currentResponse = await api.get("/rankings", {
+              params: {
+                tf: "D",
+                which: "latest",
+                dir: "up",
+                mode: "trade",
+                risk_mode: "balanced",
+                limit: 200,
+              },
+              timeout: 30000,
+              signal: abortController.signal,
+            });
+            const currentItems = Array.isArray(currentResponse.data?.items) ? currentResponse.data.items : [];
+            const currentIndex = currentItems.findIndex((item) => String(item?.code ?? "").trim() === code);
+            const snapshotAsOf =
+              typeof currentResponse.data?.snapshot_as_of === "string"
+                ? currentResponse.data.snapshot_as_of
+                : null;
+            if (currentIndex >= 0 && snapshotAsOf) {
+              rankingItems.push({
+                appearance_id: `current-ranking:up:${code}:${snapshotAsOf}`,
+                code,
+                date_iso: snapshotAsOf,
+                dir: "up",
+                rank: currentIndex + 1,
+                status: "current",
+              });
+            }
+          } catch (error) {
+            if (!cancelled) {
+              console.error("[detail] current ranking marker load failed", error);
+            }
+          }
+          if (cancelled) return;
+          setChartRankingAppearances(rankingItems);
+        } catch (error) {
+          if (!cancelled) {
+            console.error("[detail] chart ranking appearances load failed", error);
+            setChartRankingAppearances([]);
+          }
+        }
+      })();
+    }, DETAIL_MARKERS_DELAY_MS);
+    return () => {
+      cancelled = true;
+      abortController.abort();
+      window.clearTimeout(timerId);
+    };
+  }, [backendReady, code, detailMarkerRange, showRankingMarkers]);
   const monthlyCandles = useMemo(
     () => filterCandlesByAsOf(monthlyParse.candles, chartAsOfTime),
     [chartAsOfTime, monthlyParse.candles]
@@ -4351,6 +4435,36 @@ export default function DetailView() {
   ]);
   const mergedDailyEventMarkers = useMemo(() => {
     const merged = [...dailyEventMarkers];
+    if (showRankingMarkers && dailyCandles.length > 0 && code) {
+      chartRankingAppearances.forEach((item) => {
+        if (!item || typeof item !== "object") return;
+        const appearanceCode = String((item as Record<string, unknown>).code ?? "").trim();
+        if (appearanceCode && appearanceCode !== code) return;
+        const dateIso = typeof (item as Record<string, unknown>).date_iso === "string"
+          ? String((item as Record<string, unknown>).date_iso)
+          : null;
+        if (!dateIso) return;
+        const appearanceTime = normalizeTime(dateIso);
+        if (!Number.isFinite(appearanceTime)) return;
+        const markerTime = findNearestCandleTime(dailyCandles, appearanceTime);
+        if (markerTime == null || Math.abs(markerTime - appearanceTime) > MAX_EVENT_OFFSET_SEC) return;
+        const direction = String((item as Record<string, unknown>).dir ?? "").trim();
+        const status = String((item as Record<string, unknown>).status ?? "").trim();
+        const signalState = String((item as Record<string, unknown>).signal_state_at_appearance ?? "")
+          .trim()
+          .toLowerCase();
+        const entryQualified = (item as Record<string, unknown>).entry_qualified_at_appearance === true;
+        const isCurrentRanking = status === "current";
+        const isBuySignal = direction === "up" && (isCurrentRanking || entryQualified || signalState === "buy");
+        const isSellSignal = direction === "down" && (isCurrentRanking || entryQualified || signalState === "sell");
+        if (!isBuySignal && !isSellSignal) return;
+        merged.push({
+          time: markerTime,
+          kind: isSellSignal ? "ranking-down" : "ranking-up",
+          label: isSellSignal ? "売り" : "買い",
+        });
+      });
+    }
     if (showDecisionMarkers) {
       if (persistedSignalEvents.length > 0) {
         persistedSignalEvents.forEach((item) => {
@@ -4380,13 +4494,24 @@ export default function DetailView() {
       const key =
         marker.kind === "earnings"
           ? `earnings:${marker.time}`
+          : marker.kind?.startsWith("ranking-")
+            ? `${marker.kind}:${marker.time}:${marker.label ?? ""}`
           : marker.kind?.startsWith("tdnet-")
             ? `${marker.kind}:${marker.time}:${marker.label ?? ""}`
             : `decision:${marker.time}`;
       deduped.set(key, marker);
     });
     return [...deduped.values()].sort((a, b) => a.time - b.time);
-  }, [dailyEventMarkers, dailyCandles, exactDecisionToneByDate, persistedSignalEvents, showDecisionMarkers]);
+  }, [
+    code,
+    chartRankingAppearances,
+    dailyEventMarkers,
+    dailyCandles,
+    exactDecisionToneByDate,
+    persistedSignalEvents,
+    showDecisionMarkers,
+    showRankingMarkers,
+  ]);
   const compareMonthlyInitialRange = useMemo(() => {
     const months = rangeMonths ?? (compareAsOfTime ? COMPARE_FOCUS_MONTHS : null);
     if (!months) return null;
@@ -5357,6 +5482,14 @@ export default function DetailView() {
             >
               <span className="popover-item-label">売買マーカー</span>
               {showTradeMarkers && <span className="popover-check">ON</span>}
+            </button>
+            <button
+              type="button"
+              className={`popover-item ${showRankingMarkers ? "active" : ""}`}
+              onClick={() => setShowRankingMarkers((prev) => !prev)}
+            >
+              <span className="popover-item-label">シグナルマーカー</span>
+              {showRankingMarkers && <span className="popover-check">ON</span>}
             </button>
             <button
               type="button"

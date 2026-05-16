@@ -43,7 +43,25 @@ export const getBodyRangeFromBars = (bars: number[][], startTime: number, endTim
   return { upper, lower };
 };
 
-export const getBoxFill = () => "rgba(59, 130, 246, 0.12)";
-export const getBoxStroke = () => "rgba(59, 130, 246, 0.5)";
+export const getBoxPriceRange = (
+  box: Pick<Box, "upper" | "lower">,
+  fallback?: { upper: number; lower: number } | null
+) => {
+  const upper = Number(box.upper);
+  const lower = Number(box.lower);
+  const fallbackUpper = fallback ? Number(fallback.upper) : NaN;
+  const fallbackLower = fallback ? Number(fallback.lower) : NaN;
+  const resolvedUpper = Number.isFinite(upper) ? upper : fallbackUpper;
+  const resolvedLower = Number.isFinite(lower) ? lower : fallbackLower;
+  if (!Number.isFinite(resolvedUpper) || !Number.isFinite(resolvedLower)) return null;
+  return {
+    upper: Math.max(resolvedUpper, resolvedLower),
+    lower: Math.min(resolvedUpper, resolvedLower),
+  };
+};
+
+export const getBoxFill = () => "rgba(59, 130, 246, 0.16)";
+export const getBoxStroke = () => "rgba(37, 99, 235, 0.9)";
+export const getBoxLineWidth = () => 2;
 
 export const normalizeBoxes = (boxes: Box[]) => boxes ?? [];

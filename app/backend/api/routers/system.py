@@ -44,6 +44,7 @@ from app.backend.services.runtime_selection_service import (
     set_selected_logic_override,
     validate_selected_logic_override,
 )
+from app.backend.services.research_db_snapshot_service import create_research_db_snapshot
 from app.backend.services.meemee_artifact_boundary import (
     list_meemee_safe_artifacts,
     classify_meemee_artifact,
@@ -275,6 +276,12 @@ class PublishMaintenancePayload(BaseModel):
     actor: str | None = None
 
 
+class ResearchDbSnapshotPayload(BaseModel):
+    reason: str | None = None
+    actor: str | None = None
+    lockTimeoutSec: float | None = 0.0
+
+
 @router.post("/update_data")
 def trigger_update_data():
     return submit_txt_update_job(
@@ -306,6 +313,22 @@ def set_data_dir(payload: DataDirPayload):
         "restartRequired": True,
         "message": "Data directory override saved; restart the app for changes to fully apply."
     }
+
+
+@router.post("/research-db-snapshot", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
+def create_research_db_snapshot_endpoint(payload: ResearchDbSnapshotPayload):
+    result = _run_operator_mutation(
+        "research_db_snapshot",
+        lambda: create_research_db_snapshot(
+            reason=payload.reason,
+            actor=payload.actor,
+            lock_timeout_sec=payload.lockTimeoutSec or 0.0,
+        ),
+    )
+    status = 200 if result.get("ok") else 409
+    if status != 200:
+        raise HTTPException(status_code=status, detail=result)
+    return result
 
 
 @router.get("/runtime-selection", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)

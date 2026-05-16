@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from app.backend.services.ml import rankings_cache
 
@@ -282,12 +282,21 @@ def test_load_analysis_provisional_overlay_reports_partial_coverage(monkeypatch)
     monkeypatch.setattr(rankings_cache, "_PROVISIONAL_MIN_COVERAGE_RATIO", 0.6)
     monkeypatch.setattr(rankings_cache, "_PROVISIONAL_ALLOW_PARTIAL", True)
 
-    sample_row = (20260421, 100.0, 101.0, 99.0, 100.5, 123.0)
-    monkeypatch.setattr(
-        yp,
-        "get_provisional_daily_rows_from_spark",
-        lambda codes, *, prefer_chart_ohlc=False: {code: sample_row for code in codes[:2]},
-    )
+    today_jst = int(datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=9))).strftime("%Y%m%d"))
+    sample_row = (today_jst, 100.0, 101.0, 99.0, 100.5, 123.0)
+    calls = []
+
+    def _fake_provisional_rows(codes, *, prefer_chart_ohlc=False, allow_chart_fallback=True):
+        calls.append(
+            {
+                "codes": list(codes),
+                "prefer_chart_ohlc": prefer_chart_ohlc,
+                "allow_chart_fallback": allow_chart_fallback,
+            }
+        )
+        return {code: sample_row for code in codes[:2]}
+
+    monkeypatch.setattr(yp, "get_provisional_daily_rows_from_spark", _fake_provisional_rows)
 
     provisional_map, meta = rankings_cache._load_analysis_provisional_overlay(["1111", "2222", "3333"])  # type: ignore[attr-defined]
 
@@ -301,8 +310,9 @@ def test_load_analysis_provisional_overlay_reports_partial_coverage(monkeypatch)
     assert meta["provisional_same_day_symbols"] == 2
     assert meta["provisional_same_day_ratio"] == 1.0
     assert meta["provisional_coverage_ratio"] == 0.666667
-    assert meta["provisional_snapshot_as_of"] == "2026-04-21"
+    assert meta["provisional_snapshot_as_of"] == rankings_cache._ymd_int_to_iso_date(today_jst)  # type: ignore[attr-defined]
     assert meta["provisional_missing_reason_summary"] == {"fetch_none": 1}
+    assert calls == [{"codes": ["1111", "2222", "3333"], "prefer_chart_ohlc": False, "allow_chart_fallback": False}]
 
 
 def test_get_rankings_session_bundle_preserves_partial_item_flags(monkeypatch):

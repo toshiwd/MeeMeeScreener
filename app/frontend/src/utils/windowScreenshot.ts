@@ -23,6 +23,8 @@ type CopyResult = {
     error?: string;
 };
 
+const SCREENSHOT_CANVAS_ATTR = "data-meemee-screenshot-canvas-id";
+
 const buildFilename = (screenType: string, code?: string | null): string => {
     const now = new Date();
     const yyyy = String(now.getFullYear());
@@ -89,18 +91,57 @@ const readSafeThemeColor = (name: string): string | null => {
     return isSafeHtml2CanvasColor(value) ? value : null;
 };
 
-const captureCanvasElements = (root: HTMLElement): Map<HTMLCanvasElement, string> => {
-    const canvasMap = new Map<HTMLCanvasElement, string>();
+const captureCanvasElements = (root: HTMLElement): {
+    snapshots: Map<string, string>;
+    cleanup: () => void;
+} => {
+    const snapshots = new Map<string, string>();
+    const previousAttributes: Array<{ canvas: HTMLCanvasElement; value: string | null }> = [];
     const canvases = root.querySelectorAll("canvas");
-    canvases.forEach((canvas) => {
+    const stamp = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    canvases.forEach((canvas, index) => {
         try {
             const dataUrl = canvas.toDataURL("image/png");
-            canvasMap.set(canvas, dataUrl);
+            const existing = canvas.getAttribute(SCREENSHOT_CANVAS_ATTR);
+            const id = existing || `canvas-${stamp}-${index}`;
+            previousAttributes.push({ canvas, value: existing });
+            if (!existing) {
+                canvas.setAttribute(SCREENSHOT_CANVAS_ATTR, id);
+            }
+            snapshots.set(id, dataUrl);
         } catch {
             // Cross-origin canvas, skip
         }
     });
-    return canvasMap;
+    return {
+        snapshots,
+        cleanup: () => {
+            previousAttributes.forEach(({ canvas, value }) => {
+                if (value == null) {
+                    canvas.removeAttribute(SCREENSHOT_CANVAS_ATTR);
+                } else {
+                    canvas.setAttribute(SCREENSHOT_CANVAS_ATTR, value);
+                }
+            });
+        }
+    };
+};
+
+const applyCanvasSnapshotsToClone = (clonedDocument: Document, snapshots: Map<string, string>) => {
+    snapshots.forEach((dataUrl, id) => {
+        const clonedCanvas = Array.from(
+            clonedDocument.querySelectorAll<HTMLCanvasElement>(`canvas[${SCREENSHOT_CANVAS_ATTR}]`)
+        ).find((canvas) => canvas.getAttribute(SCREENSHOT_CANVAS_ATTR) === id) ?? null;
+        if (!clonedCanvas) return;
+        const image = clonedDocument.createElement("img");
+        image.src = dataUrl;
+        image.width = clonedCanvas.width;
+        image.height = clonedCanvas.height;
+        image.className = clonedCanvas.className;
+        image.setAttribute("aria-hidden", "true");
+        image.style.cssText = clonedCanvas.style.cssText;
+        clonedCanvas.replaceWith(image);
+    });
 };
 
 const resolveCaptureBackground = (root: HTMLElement): string | null => {
@@ -148,9 +189,6 @@ export const captureWindowBlob = async (
         const captureRoot = document.body ?? root;
         const backgroundColor = resolveCaptureBackground(root);
 
-        // Pre-capture canvas elements before cloning (lightweight-charts uses canvas)
-        captureCanvasElements(root);
-
         // Dynamically import html2canvas
         let html2canvas: (element: HTMLElement, options?: object) => Promise<HTMLCanvasElement>;
         try {
@@ -160,21 +198,29 @@ export const captureWindowBlob = async (
             return { success: false, error: "スクリーンショット機能の読み込みに失敗しました" };
         }
 
-        // Capture with html2canvas
-        const canvas = await html2canvas(captureRoot, {
-            useCORS: true,
-            allowTaint: true,
-            foreignObjectRendering: true,
-            scale: window.devicePixelRatio || 1,
-            logging: false,
-            backgroundColor,
-            windowWidth: captureRoot.scrollWidth,
-            windowHeight: captureRoot.scrollHeight,
-            width: window.innerWidth,
-            height: window.innerHeight,
-            x: 0,
-            y: 0,
-        });
+        const canvasSnapshots = captureCanvasElements(root);
+        let canvas: HTMLCanvasElement;
+        try {
+            canvas = await html2canvas(captureRoot, {
+                useCORS: true,
+                allowTaint: true,
+                foreignObjectRendering: true,
+                scale: window.devicePixelRatio || 1,
+                logging: false,
+                backgroundColor,
+                windowWidth: captureRoot.scrollWidth,
+                windowHeight: captureRoot.scrollHeight,
+                width: window.innerWidth,
+                height: window.innerHeight,
+                x: 0,
+                y: 0,
+                onclone: (clonedDocument: Document) => {
+                    applyCanvasSnapshotsToClone(clonedDocument, canvasSnapshots.snapshots);
+                },
+            });
+        } finally {
+            canvasSnapshots.cleanup();
+        }
 
         // Convert to blob
         const blob = await new Promise<Blob | null>((resolve) => {

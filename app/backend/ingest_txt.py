@@ -2,6 +2,7 @@
 import json
 import os
 import json
+import hashlib
 import re
 import time
 import io
@@ -723,6 +724,14 @@ def list_txt_files(data_dir: str) -> list[str]:
     ]
 
 
+def _file_sha256(path: str) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _read_csv_table(source, *, encoding: str | None = None) -> pd.DataFrame:
     header_df = pd.read_csv(source, header=0, dtype="string", encoding=encoding)
     mapped = _map_headered_frame(header_df)
@@ -1235,10 +1244,11 @@ def _save_ingest_state(state: dict[str, object]) -> None:
         print(f"Warning: Failed to save ingest state: {e}")
 
 
-def _resolve_ingest_state_entry(raw: object) -> tuple[float | None, int | None]:
+def _resolve_ingest_state_entry(raw: object) -> tuple[float | None, int | None, str | None]:
     if isinstance(raw, dict):
         mtime_raw = raw.get("mtime")
         size_raw = raw.get("size")
+        sha256_raw = raw.get("sha256")
         try:
             mtime = float(mtime_raw) if mtime_raw is not None else None
         except (TypeError, ValueError):
@@ -1247,10 +1257,116 @@ def _resolve_ingest_state_entry(raw: object) -> tuple[float | None, int | None]:
             size = int(size_raw) if size_raw is not None else None
         except (TypeError, ValueError):
             size = None
-        return mtime, size
+        sha256 = str(sha256_raw).strip().lower() if sha256_raw else None
+        if sha256 and not re.fullmatch(r"[0-9a-f]{64}", sha256):
+            sha256 = None
+        return mtime, size, sha256
     if isinstance(raw, (int, float)):
-        return float(raw), None
-    return None, None
+        return float(raw), None, None
+    return None, None, None
+
+
+def _select_txt_files_for_ingest(
+    txt_paths: list[str],
+    state: dict[str, object],
+    *,
+    incremental: bool,
+    now_ts: float | None = None,
+) -> dict[str, object]:
+    new_state: dict[str, object] = {}
+    changed_files: list[tuple[str, int]] = []
+    total_bytes = 0
+    skipped_count = 0
+    content_hash_checks = 0
+    content_hash_skips = 0
+    force_full = False
+    now_value = time.time() if now_ts is None else float(now_ts)
+
+    for path in txt_paths:
+        try:
+            stat = os.stat(path)
+            mtime = float(stat.st_mtime)
+            size = int(stat.st_size)
+            filename = os.path.basename(path)
+            entry: dict[str, object] = {"mtime": mtime, "size": size}
+            new_state[filename] = entry
+            total_bytes += size
+
+            # Sanity Check: Future mtime (allow 1 day slack)
+            if mtime > now_value + 86400:
+                print(f"Warning: File {filename} has future mtime. Forcing full update.")
+                force_full = True
+
+            if incremental and not force_full:
+                last_mtime, last_size, last_sha256 = _resolve_ingest_state_entry(state.get(filename))
+                if last_mtime is not None:
+                    if mtime <= last_mtime and (last_size is None or size == last_size):
+                        if last_sha256:
+                            entry["sha256"] = last_sha256
+                        skipped_count += 1
+                        continue
+
+                    if last_sha256 and (last_size is None or size == last_size):
+                        current_sha256 = _file_sha256(path)
+                        content_hash_checks += 1
+                        entry["sha256"] = current_sha256
+                        if current_sha256 == last_sha256:
+                            content_hash_skips += 1
+                            skipped_count += 1
+                            continue
+
+                    if last_size is not None and size > last_size and mtime >= last_mtime:
+                        # Re-parse the full file even in incremental mode because downstream
+                        # replaces per-code history and recomputes aggregates from scratch.
+                        changed_files.append((path, 0))
+                        continue
+
+            changed_files.append((path, 0))
+        except OSError as exc:
+            print(f"Warning: Skipping unreadable file {path}: {exc}")
+            continue
+
+    files = changed_files if incremental and not force_full else [(path, 0) for path in txt_paths]
+    return {
+        "files": files,
+        "new_state": new_state,
+        "changed_files": changed_files,
+        "skipped_count": skipped_count,
+        "total_bytes": total_bytes,
+        "force_full": force_full,
+        "content_hash_checks": content_hash_checks,
+        "content_hash_skips": content_hash_skips,
+    }
+
+
+def seed_ingest_state_hashes(data_dir: str | None = None) -> dict[str, int | str]:
+    txt_paths = list_txt_files(data_dir or DATA_DIR)
+    state = _load_ingest_state()
+    seeded = 0
+    total_bytes = 0
+    started = time.perf_counter()
+    for path in txt_paths:
+        try:
+            stat = os.stat(path)
+            filename = os.path.basename(path)
+            total_bytes += int(stat.st_size)
+            state[filename] = {
+                "mtime": float(stat.st_mtime),
+                "size": int(stat.st_size),
+                "sha256": _file_sha256(path),
+            }
+            seeded += 1
+        except OSError as exc:
+            print(f"Warning: Skipping unreadable file during ingest hash seed {path}: {exc}")
+            continue
+    _save_ingest_state(state)
+    elapsed_ms = int((time.perf_counter() - started) * 1000)
+    return {
+        "seeded_files": int(seeded),
+        "total_bytes": int(total_bytes),
+        "elapsed_ms": int(elapsed_ms),
+        "state_path": INGEST_STATE_PATH,
+    }
 
 
 def _detect_and_log_pan_source_revisions(
@@ -1410,51 +1526,26 @@ def ingest(
     
     # Differential Logic
     state = _load_ingest_state()
-    new_state = {}
-    changed_files: list[tuple[str, int]] = []
-    
-    total_bytes = 0
-    skipped_count = 0
-    now_ts = time.time()
-    
-    force_full = False
-    
-    for path in txt_paths:
-        try:
-            mtime = os.path.getmtime(path)
-            size = os.path.getsize(path)
-            filename = os.path.basename(path)
-            new_state[filename] = {"mtime": mtime, "size": int(size)}
-            total_bytes += size
-            
-            # Sanity Check: Future mtime (allow 1 day slack)
-            if mtime > now_ts + 86400:
-                print(f"Warning: File {filename} has future mtime. Forcing full update.")
-                force_full = True
-            
-            if incremental and not force_full:
-                last_mtime, last_size = _resolve_ingest_state_entry(state.get(filename))
-                if last_mtime is not None:
-                    if mtime <= last_mtime and (last_size is None or int(size) == int(last_size)):
-                        skipped_count += 1
-                        continue
-                    if last_size is not None and int(size) > int(last_size) and mtime >= last_mtime:
-                        # Re-parse the full file even in incremental mode because downstream
-                        # replaces per-code history and recomputes aggregates from scratch.
-                        changed_files.append((path, 0))
-                        continue
-
-            changed_files.append((path, 0))
-        except OSError as exc:
-            print(f"Warning: Skipping unreadable file {path}: {exc}")
-            continue
+    selection = _select_txt_files_for_ingest(txt_paths, state, incremental=incremental)
+    new_state = selection["new_state"]
+    changed_files = selection["changed_files"]
+    total_bytes = int(selection["total_bytes"])
+    skipped_count = int(selection["skipped_count"])
+    force_full = bool(selection["force_full"])
+    content_hash_checks = int(selection["content_hash_checks"])
+    content_hash_skips = int(selection["content_hash_skips"])
 
     if incremental and not force_full:
         print(f"Incremental Mode: Found {len(changed_files)} changed files, skipped {skipped_count}.")
-        files = changed_files
+        if content_hash_checks:
+            print(
+                "Content hash check: "
+                f"checked={content_hash_checks} skipped_same_content={content_hash_skips}."
+            )
+        files = selection["files"]
     else:
         reason = "Forced Full" if force_full else "Full Mode"
-        files = [(path, 0) for path in txt_paths]
+        files = selection["files"]
         print(f"{reason}: Processing {len(files)} files.")
         incremental = False # Disable incremental flag for DB operations downstream
 

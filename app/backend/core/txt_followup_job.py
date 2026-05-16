@@ -18,6 +18,12 @@ from .txt_update_job import (
     _record_followup_success,
     _scale_progress,
     _set_followup_stage,
+    _build_txt_source_manifest_snapshot,
+    _latest_confirmed_db_date_key,
+    _pan_code_txt_path,
+    _pan_out_txt_dir,
+    _run_phase_with_retry,
+    _save_txt_source_manifest,
     _to_bool,
     _to_float,
     _to_int,
@@ -31,6 +37,7 @@ def handle_txt_followup(job_id: str, payload: dict) -> None:
     source_txt_job_id = str(payload.get("source_txt_job_id") or "").strip()
     summary_line = str(payload.get("summary_line") or "Export completed")
     phase_dt = _to_optional_int(payload.get("phase_dt"))
+    db_latest_after_key = _to_optional_int(payload.get("db_latest_after_key"))
     changed_files = _to_int(payload.get("changed_files"), 0, minimum=0)
     pan_finalized_rows = _to_int(payload.get("pan_finalized_rows"), 0, minimum=0)
     auto_ml_predict = _to_bool(payload.get("auto_ml_predict"), True)
@@ -51,6 +58,16 @@ def handle_txt_followup(job_id: str, payload: dict) -> None:
         payload.get("backfill_max_missing_days"),
         int(os.getenv("MEEMEE_NIGHTLY_BACKFILL_MAX_MISSING_DAYS", "260")),
         minimum=1,
+    )
+    phase_retry = _to_int(
+        payload.get("phase_retry"),
+        _to_int(os.getenv("MEEMEE_TXT_UPDATE_PHASE_RETRY"), 3, minimum=1),
+        minimum=1,
+    )
+    phase_retry_sleep = _to_float(
+        payload.get("phase_retry_sleep"),
+        _to_float(os.getenv("MEEMEE_TXT_UPDATE_PHASE_RETRY_SLEEP"), 1.5, minimum=0.1),
+        minimum=0.1,
     )
     auto_walkforward_gate = _to_bool(
         payload.get("auto_walkforward_gate"),
@@ -236,11 +253,66 @@ def handle_txt_followup(job_id: str, payload: dict) -> None:
         progress=0,
     )
 
-    if phase_dt is None:
-        phase_dt = _to_optional_int(state.get("last_phase_dt"))
+    if _exit_followup_if_canceled(job_id, state, stage="init", message="Canceled before follow-up start"):
+        return
+
+    ml_note_parts: list[str] = []
+    PHASE_PROGRESS = 6
+    ML_TRAIN_PROGRESS_START = 10
+    ML_TRAIN_PROGRESS_DONE = 40
+    ML_PREDICT_PROGRESS = 52
+    ML_LIVE_GUARD_PROGRESS = 58
+    ANALYSIS_BACKFILL_PROGRESS = 70
+    SCORING_PROGRESS = 78
+    CACHE_REFRESH_PROGRESS = 82
+    WALKFORWARD_RUN_PROGRESS = 90
+    WALKFORWARD_GATE_PROGRESS = 95
+    FINALIZING_PROGRESS = 99
+
+    force_recompute_due_to_pan_finalize = bool(force_recompute_on_pan_finalize and pan_finalized_rows > 0)
+    legacy_analysis_disabled = is_legacy_analysis_disabled()
+    if not legacy_analysis_disabled:
+        try:
+            if _exit_followup_if_canceled(job_id, state, stage="phase", message="Canceled before phase update"):
+                return
+            _set_followup_stage(state, "phase", message="Refreshing phase snapshot...")
+            job_manager._update_db(
+                job_id,
+                _TXT_FOLLOWUP_JOB_TYPE,
+                "running",
+                message="Refreshing phase snapshot...",
+                progress=PHASE_PROGRESS,
+            )
+            phase_dt = _run_phase_with_retry(
+                max_attempts=phase_retry,
+                sleep_seconds=phase_retry_sleep,
+                state=state,
+                stage="followup_phase",
+            )
+            state["last_phase_dt"] = int(phase_dt)
+            state["last_phase_at"] = datetime.now().isoformat()
+            ml_note_parts.append(f"phase=ok(dt={int(phase_dt)})")
+        except Exception as exc:
+            logger.exception("Phase refresh failed during txt_followup: %s", exc)
+            _record_followup_failure(state, stage="phase", error=str(exc), message="Phase update failed")
+            job_manager._update_db(
+                job_id,
+                _TXT_FOLLOWUP_JOB_TYPE,
+                "failed",
+                error="Phase update failed",
+                message=f"Phase update failed: {exc}",
+                finished_at=datetime.now(),
+            )
+            return
+    else:
+        state["last_phase_skip_reason"] = "legacy_analysis_disabled"
+        if phase_dt is None:
+            phase_dt = db_latest_after_key or _to_optional_int(state.get("last_phase_dt"))
+        ml_note_parts.append("phase=skip(legacy_analysis_disabled)")
+
     if phase_dt is None:
         error_msg = "phase_dt is missing for txt_followup"
-        _record_followup_failure(state, stage="init", error=error_msg, message=error_msg)
+        _record_followup_failure(state, stage="phase", error=error_msg, message=error_msg)
         job_manager._update_db(
             job_id,
             _TXT_FOLLOWUP_JOB_TYPE,
@@ -251,28 +323,12 @@ def handle_txt_followup(job_id: str, payload: dict) -> None:
         )
         return
 
-    if _exit_followup_if_canceled(job_id, state, stage="init", message="Canceled before follow-up start"):
-        return
-
-    force_recompute_due_to_pan_finalize = bool(force_recompute_on_pan_finalize and pan_finalized_rows > 0)
-    legacy_analysis_disabled = is_legacy_analysis_disabled()
     effective_auto_ml_train = False if legacy_analysis_disabled else bool(auto_ml_train or force_recompute_due_to_pan_finalize)
     effective_auto_ml_predict = False if legacy_analysis_disabled else bool(auto_ml_predict or force_recompute_due_to_pan_finalize)
     effective_auto_walkforward_run = bool(auto_walkforward_run or force_recompute_due_to_pan_finalize)
     effective_auto_walkforward_gate = bool(auto_walkforward_gate or force_recompute_due_to_pan_finalize)
     if force_recompute_due_to_pan_finalize:
         state["last_forced_recompute_at"] = datetime.now().isoformat()
-
-    ml_note_parts: list[str] = []
-    ML_TRAIN_PROGRESS_START = 10
-    ML_TRAIN_PROGRESS_DONE = 40
-    ML_PREDICT_PROGRESS = 52
-    ML_LIVE_GUARD_PROGRESS = 58
-    ANALYSIS_BACKFILL_PROGRESS = 70
-    CACHE_REFRESH_PROGRESS = 82
-    WALKFORWARD_RUN_PROGRESS = 90
-    WALKFORWARD_GATE_PROGRESS = 95
-    FINALIZING_PROGRESS = 99
 
     try:
         from app.backend.services import ml_service
@@ -496,6 +552,46 @@ def handle_txt_followup(job_id: str, payload: dict) -> None:
         ml_note_parts.append(f"analysis_prewarm=failed({exc})")
 
     try:
+        if _exit_followup_if_canceled(job_id, state, stage="scoring", message="Canceled before scoring refresh"):
+            return
+        _set_followup_stage(state, "scoring", message="Refreshing short scores...")
+        job_manager._update_db(
+            job_id,
+            _TXT_FOLLOWUP_JOB_TYPE,
+            "running",
+            message="Refreshing short scores...",
+            progress=SCORING_PROGRESS,
+        )
+        from app.backend.api.dependencies import get_stock_repo, init_resources
+        from app.backend.core.config import config
+        from app.backend.jobs.scoring_job import ScoringJob
+
+        init_resources(str(config.DATA_DIR))
+        score_repo = get_stock_repo()
+        scoring_results = ScoringJob(score_repo).run()
+        scoring_rows = len(scoring_results) if isinstance(scoring_results, list) else 0
+        state["last_scoring_at"] = datetime.now().isoformat()
+        state["last_scoring_rows"] = int(scoring_rows)
+        ml_note_parts.append(f"scoring=ok(rows={scoring_rows})")
+    except Exception as exc:
+        logger.exception("Scoring refresh failed during txt_followup: %s", exc)
+        _record_followup_failure(
+            state,
+            stage="scoring",
+            error=str(exc),
+            message="Scoring refresh failed",
+        )
+        job_manager._update_db(
+            job_id,
+            _TXT_FOLLOWUP_JOB_TYPE,
+            "failed",
+            error="Scoring refresh failed",
+            message=f"Scoring refresh failed: {exc}",
+            finished_at=datetime.now(),
+        )
+        return
+
+    try:
         if _exit_followup_if_canceled(job_id, state, stage="cache_refresh", message="Canceled before cache refresh"):
             return
         _set_followup_stage(state, "cache_refresh", message="Refreshing rankings cache...")
@@ -510,6 +606,21 @@ def handle_txt_followup(job_id: str, payload: dict) -> None:
 
         rankings_cache.refresh_cache()
         state["last_cache_refresh_at"] = datetime.now().isoformat()
+        if db_latest_after_key is None:
+            db_latest_after_key = _latest_confirmed_db_date_key()
+        state["last_cache_refresh_db_latest_key"] = (
+            int(db_latest_after_key) if db_latest_after_key is not None else None
+        )
+        try:
+            final_manifest = _build_txt_source_manifest_snapshot(
+                code_path=_pan_code_txt_path(),
+                out_dir=_pan_out_txt_dir(),
+                db_latest_key=db_latest_after_key,
+                ranking_snapshot_key=db_latest_after_key,
+            )
+            _save_txt_source_manifest(final_manifest)
+        except Exception as exc:
+            logger.warning("TXT source manifest save skipped during txt_followup: %s", exc)
         try:
             from app.backend.core.screener_snapshot_job import schedule_screener_snapshot_refresh
 

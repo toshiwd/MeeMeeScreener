@@ -78,4 +78,37 @@ describe("drawChart", () => {
     expect(volumeBars[0].y).toBeGreaterThanOrEqual(90);
     expect(volumeBars[1].y).toBeGreaterThanOrEqual(90);
   });
+
+  it("draws boxes with the detected monthly range", () => {
+    const payload: BarsPayload = {
+      bars: [
+        [10, 100, 105, 95, 101, 10],
+        [20, 101, 110, 97, 104, 10],
+        [30, 104, 111, 100, 106, 10]
+      ],
+      ma: { ma7: [], ma20: [], ma60: [] },
+      provenance: null
+    };
+    const boxes: Box[] = [
+      {
+        startIndex: 0,
+        endIndex: 1,
+        startTime: 0,
+        endTime: 20,
+        lower: 90,
+        upper: 120,
+        breakout: null
+      }
+    ];
+    const maSettings: MaSetting[] = [];
+    const { canvas, ctx } = createCanvasStub();
+
+    drawChart(canvas, payload, boxes, true, maSettings, 240, 160, 3, false, "dark");
+
+    expect(ctx.strokeRect).toHaveBeenCalledTimes(1);
+    const [x, , width] = ctx.strokeRect.mock.calls[0];
+    expect(x).toBe(0);
+    expect(width).toBeGreaterThan(100);
+    expect(ctx.lineWidth).toBe(2);
+  });
 });

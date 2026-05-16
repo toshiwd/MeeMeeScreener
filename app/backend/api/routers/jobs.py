@@ -384,6 +384,8 @@ def submit_txt_update(
     walkforward_gate_min_oos_mean_profit_factor: float = 1.05,
     walkforward_gate_min_oos_positive_window_ratio: float = 0.40,
     walkforward_gate_min_oos_worst_max_drawdown_unit: float = -0.12,
+    run_tracking_refresh: bool = False,
+    tracking_refresh_trigger_reason: str | None = None,
 ):
     try:
         request_payload = {
@@ -433,6 +435,10 @@ def submit_txt_update(
             ),
             "walkforward_gate_min_oos_worst_max_drawdown_unit": float(
                 walkforward_gate_min_oos_worst_max_drawdown_unit
+            ),
+            "run_tracking_refresh": bool(run_tracking_refresh),
+            "tracking_refresh_trigger_reason": (
+                str(tracking_refresh_trigger_reason) if tracking_refresh_trigger_reason is not None else None
             ),
         }
         return submit_txt_update_job(

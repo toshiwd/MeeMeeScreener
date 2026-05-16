@@ -5,10 +5,14 @@ export type CanvasContextStub = {
   beginPath: ReturnType<typeof vi.fn>;
   moveTo: ReturnType<typeof vi.fn>;
   lineTo: ReturnType<typeof vi.fn>;
+  closePath: ReturnType<typeof vi.fn>;
+  arc: ReturnType<typeof vi.fn>;
   stroke: ReturnType<typeof vi.fn>;
+  fill: ReturnType<typeof vi.fn>;
   fillRect: ReturnType<typeof vi.fn>;
   strokeRect: ReturnType<typeof vi.fn>;
   fillText: ReturnType<typeof vi.fn>;
+  setLineDash: ReturnType<typeof vi.fn>;
   rect: ReturnType<typeof vi.fn>;
   clip: ReturnType<typeof vi.fn>;
   save: ReturnType<typeof vi.fn>;
@@ -35,10 +39,14 @@ export function createCanvasContextStub(): CanvasContextStub {
     beginPath: vi.fn(),
     moveTo: vi.fn(),
     lineTo: vi.fn(),
+    closePath: vi.fn(),
+    arc: vi.fn(),
     stroke: vi.fn(),
+    fill: vi.fn(),
     fillRect: vi.fn(),
     strokeRect: vi.fn(),
     fillText: vi.fn(),
+    setLineDash: vi.fn(),
     rect: vi.fn(),
     clip: vi.fn(),
     save: vi.fn(),

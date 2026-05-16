@@ -2259,7 +2259,15 @@ export default function GridView() {
     showToast("日次更新を開始しました。");
     try {
       const res = await api.post("/jobs/txt-update", null, {
-        params: { completion_mode: "practical_fast", auto_fill_missing_history: false }
+        params: {
+          completion_mode: "practical_fast",
+          auto_fill_missing_history: false,
+          auto_ml_predict: false,
+          auto_ml_train: false,
+          auto_walkforward_run: false,
+          auto_walkforward_gate: false,
+          force_recompute_on_pan_finalize: false
+        }
       });
       const payload = (res.data ?? {}) as TxtUpdateStartPayload;
       if (payload.ok === false) {
@@ -3077,7 +3085,7 @@ export default function GridView() {
                     icon={<IconRefresh size={18} />}
                     label="日次更新"
                     variant="iconLabel"
-                    tooltip="日次更新（TXT/Phase/解析補完）"
+                    tooltip="日次更新（チャート優先）"
                     ariaLabel="日次更新"
                     className="txt-update-button"
                     onClick={handleUpdateTxt}

@@ -51,7 +51,8 @@ const STARTUP_BACKGROUND_TASK_DELAY_MS = 2500;
 const DETAIL_BACKGROUND_TASK_RETRY_MS = 4000;
 const DETAIL_BACKGROUND_TASK_MAX_DEFERS = 5;
 
-const isDetailRouteActive = () => window.location.pathname.startsWith("/detail/");
+const isDetailRouteActive = () =>
+  window.location.pathname.startsWith("/detail/") || window.location.pathname.startsWith("/detail-v2/");
 
 const getDefaultMessage = (phase: string) => {
   if (phase === "ingesting") return "データ準備中";

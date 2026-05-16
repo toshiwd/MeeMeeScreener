@@ -4,7 +4,12 @@ import type { MouseEvent as ReactMouseEvent } from "react";
 import { BarsPayload, Box, MaSetting } from "../store";
 import { getDomTheme } from "../utils/theme";
 import { formatCompactDateLabel } from "../utils/dateLabels";
-import { getBodyRangeFromBars, getBoxFill, getBoxStroke } from "../utils/boxes";
+import {
+  getBoxFill,
+  getBoxLineWidth,
+  getBoxPriceRange,
+  getBoxStroke
+} from "../utils/boxes";
 import {
   buildThumbnailSizeKey,
   buildThumbnailSnapshotCacheKey,
@@ -319,14 +324,14 @@ export function drawChart(
     ctx.save();
     ctx.fillStyle = BOX_FILL;
     ctx.strokeStyle = BOX_STROKE;
-    ctx.lineWidth = 1;
+    ctx.lineWidth = getBoxLineWidth();
     boxes.forEach((box) => {
       const startIdx = findStart(box.startTime);
       const endIdx = findEnd(box.endTime);
       if (startIdx < 0 || endIdx < 0 || endIdx < startIdx) return;
-      const bodyRange = getBodyRangeFromBars(bars, box.startTime, box.endTime);
-      const upper = bodyRange?.upper ?? box.upper;
-      const lower = bodyRange?.lower ?? box.lower;
+      const priceRange = getBoxPriceRange(box);
+      if (!priceRange) return;
+      const { upper, lower } = priceRange;
       const x1 = step * startIdx;
       const x2 = step * (endIdx + 1);
       const y1 = toY(upper);

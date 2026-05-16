@@ -4,7 +4,13 @@ import { IconTrash } from "@tabler/icons-react";
 import { CrosshairMode, createChart, type Time } from "lightweight-charts";
 import type { Box } from "../store";
 import type { CurrentPosition, DailyPosition, TradeMarker } from "../utils/positions";
-import { getBodyRangeFromCandles, getBoxFill, getBoxStroke } from "../utils/boxes";
+import {
+  getBodyRangeFromCandles,
+  getBoxFill,
+  getBoxLineWidth,
+  getBoxPriceRange,
+  getBoxStroke
+} from "../utils/boxes";
 import { computeGapBands, type GapBand } from "../utils/gapBands";
 import {
   buildDrawBoxShape,
@@ -45,6 +51,9 @@ type EventMarker = {
   label?: string;
   kind?:
     | "earnings"
+    | "ranking-up"
+    | "ranking-down"
+    | "ranking-neutral"
     | "decision-buy"
     | "decision-sell"
     | "decision-neutral"
@@ -123,6 +132,57 @@ type ContextBarState = {
 
 type MeeMeeDetailChromeConfig = {
   timeframe: "daily" | "weekly" | "monthly";
+};
+
+type RankingDrawMarker = EventMarker & {
+  x: number;
+};
+
+const resolveBoxCandleSpan = (candles: Candle[], box: Box) => {
+  if (!candles.length) return null;
+  let startIndex = -1;
+  let endIndex = -1;
+  for (let index = 0; index < candles.length; index += 1) {
+    const time = Number(candles[index]?.time);
+    if (!Number.isFinite(time)) continue;
+    if (startIndex < 0 && time >= box.startTime) {
+      startIndex = index;
+    }
+    if (time <= box.endTime) {
+      endIndex = index;
+    }
+  }
+  if (startIndex < 0 || endIndex < 0 || endIndex < startIndex) return null;
+  return {
+    startIndex,
+    endIndex,
+    startTime: candles[startIndex].time,
+    endTime: candles[endIndex].time,
+  };
+};
+
+const resolveBoxHorizontalPadding = (
+  timeScale: ReturnType<ReturnType<typeof createChart>["timeScale"]>,
+  candles: Candle[],
+  startIndex: number,
+  endIndex: number
+) => {
+  const indices = [startIndex - 1, startIndex, endIndex, endIndex + 1].filter(
+    (index) => index >= 0 && index < candles.length
+  );
+  const coords = indices
+    .map((index) => timeScale.timeToCoordinate(candles[index].time as Time))
+    .filter((coord): coord is number => typeof coord === "number" && Number.isFinite(coord))
+    .sort((a, b) => a - b);
+  let step = Infinity;
+  for (let index = 1; index < coords.length; index += 1) {
+    const diff = coords[index] - coords[index - 1];
+    if (diff > 0) {
+      step = Math.min(step, diff);
+    }
+  }
+  if (!Number.isFinite(step)) step = 12;
+  return Math.max(2, Math.min(18, step / 2));
 };
 
 const useStableCallback = <T extends (...args: any[]) => any>(callback: T): T => {
@@ -1168,21 +1228,31 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
         ) {
           ctx.fillStyle = BOX_FILL;
           ctx.strokeStyle = BOX_STROKE;
-          ctx.lineWidth = 1;
+          ctx.lineWidth = getBoxLineWidth();
 
           boxesToDraw.forEach((box) => {
-            const x1 = timeScale.timeToCoordinate(box.startTime as Time);
-            const x2 = timeScale.timeToCoordinate(box.endTime as Time);
-            const bodyRange = getBodyRangeFromCandles(candlesRef.current, box.startTime, box.endTime);
-            const upper = bodyRange?.upper ?? box.upper;
-            const lower = bodyRange?.lower ?? box.lower;
+            const candles = candlesRef.current;
+            const span = resolveBoxCandleSpan(candles, box);
+            if (!span) return;
+            const x1 = timeScale.timeToCoordinate(span.startTime as Time);
+            const x2 = timeScale.timeToCoordinate(span.endTime as Time);
+            const bodyRange = getBodyRangeFromCandles(candles, box.startTime, box.endTime);
+            const priceRange = getBoxPriceRange(box, bodyRange);
+            if (!priceRange) return;
+            const { upper, lower } = priceRange;
             if (!Number.isFinite(upper) || !Number.isFinite(lower)) return;
             const y1 = series.priceToCoordinate(upper);
             const y2 = series.priceToCoordinate(lower);
             if (x1 == null || x2 == null || y1 == null || y2 == null) return;
-            const rectX = Math.min(x1, x2);
+            const horizontalPadding = resolveBoxHorizontalPadding(
+              timeScale,
+              candles,
+              span.startIndex,
+              span.endIndex
+            );
+            const rectX = Math.min(x1, x2) - horizontalPadding;
             const rectY = Math.min(y1, y2);
-            const rectW = Math.max(1, Math.abs(x2 - x1));
+            const rectW = Math.max(1, Math.abs(x2 - x1) + horizontalPadding * 2);
             const rectH = Math.max(1, Math.abs(y2 - y1));
             ctx.fillRect(rectX, rectY, rectW, rectH);
             ctx.strokeRect(rectX, rectY, rectW, rectH);
@@ -1582,6 +1652,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
         const markerBaseY = Math.max(10, height - 14);
         const earningsStackIndex = new Map<number, number>();
         const decisionStackIndex = new Map<number, number>();
+        const rankingLabelRects: Array<{ x: number; y: number; w: number; h: number }> = [];
         const candleMap = new Map<number, Candle>();
         (candlesRef.current ?? []).forEach((candle) => {
           if (Number.isFinite(candle.time)) {
@@ -1592,7 +1663,73 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
         ctx.font = "9px sans-serif";
         ctx.textBaseline = "middle";
         ctx.textAlign = "left";
+        const rankingMarkers = eventMarkers
+          .filter((marker) => marker.kind?.startsWith("ranking-"))
+          .map((marker) => {
+            const x = timeScale.timeToCoordinate(marker.time as Time);
+            if (x == null || !Number.isFinite(x)) return null;
+            if (x < -8 || x > width + 8) return null;
+            return { ...marker, x };
+          })
+          .filter((marker): marker is RankingDrawMarker => marker != null);
+        rankingMarkers.forEach((marker) => {
+          const candle = candleMap.get(marker.time);
+          const lowY = candle ? series.priceToCoordinate(candle.low) : null;
+          const markerY =
+            lowY != null && Number.isFinite(lowY)
+              ? Math.max(18, Math.min(height - 22, lowY + 16))
+              : Math.max(18, height - 32);
+          const isSell = marker.kind === "ranking-down";
+          const isNeutral = marker.kind === "ranking-neutral";
+          const signalColor = isSell ? "#ef4444" : isNeutral ? "#64748b" : "#16a34a";
+          const label = marker.label || (isSell ? "売り" : "買い");
+
+          ctx.save();
+          ctx.globalAlpha = 0.94;
+          ctx.fillStyle = signalColor;
+          ctx.strokeStyle = "#ffffff";
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(marker.x, markerY - 9);
+          ctx.lineTo(marker.x - 7, markerY + 5);
+          ctx.lineTo(marker.x + 7, markerY + 5);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+          ctx.restore();
+
+          const labelWidth = Math.max(28, Math.min(42, label.length * 10 + 10));
+          const labelHeight = 16;
+          const labelX = Math.max(2, Math.min(width - labelWidth - 2, marker.x + 9));
+          const labelY = Math.max(2, Math.min(height - labelHeight - 2, markerY - labelHeight / 2));
+          const overlaps = rankingLabelRects.some((rect) => {
+            const separated =
+              labelX + labelWidth + 3 < rect.x ||
+              rect.x + rect.w + 3 < labelX ||
+              labelY + labelHeight + 2 < rect.y ||
+              rect.y + rect.h + 2 < labelY;
+            return !separated;
+          });
+          if (overlaps) return;
+          rankingLabelRects.push({ x: labelX, y: labelY, w: labelWidth, h: labelHeight });
+
+          ctx.globalAlpha = 0.92;
+          ctx.fillStyle = signalColor;
+          ctx.strokeStyle = signalColor;
+          ctx.lineWidth = 1;
+          ctx.fillRect(labelX, labelY, labelWidth, labelHeight);
+          ctx.globalAlpha = 1;
+          ctx.fillStyle = "#ffffff";
+          ctx.textAlign = "center";
+          ctx.font = "bold 10px sans-serif";
+          ctx.fillText(label, labelX + labelWidth / 2, labelY + labelHeight / 2 + 0.5);
+          ctx.textAlign = "left";
+          ctx.font = "9px sans-serif";
+        });
         eventMarkers.forEach((marker) => {
+          if (marker.kind?.startsWith("ranking-")) {
+            return;
+          }
           const x = timeScale.timeToCoordinate(marker.time as Time);
           if (x == null || !Number.isFinite(x)) return;
           const markerColor =

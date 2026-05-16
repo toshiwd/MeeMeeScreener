@@ -177,7 +177,7 @@ def test_batch_bars_v3_exposes_chart_provenance_for_provisional_overlay(monkeypa
     monkeypatch.setattr(
         bars_module,
         "get_provisional_daily_rows_from_spark",
-        lambda codes, prefer_chart_ohlc=True: {code: (1776297600, 116.0, 118.0, 114.0, 117.5, 1500.0) for code in codes},
+        lambda codes, prefer_chart_ohlc=True, force_refresh=False: {code: (1776297600, 116.0, 118.0, 114.0, 117.5, 1500.0) for code in codes},
     )
     _clear_batch_bars_cache()
 
@@ -270,7 +270,7 @@ def test_batch_bars_v3_prefers_confirmed_overlapping_chart_gallery_data(monkeypa
     monkeypatch.setattr(
         bars_module,
         "get_provisional_daily_rows_from_spark",
-        lambda codes, prefer_chart_ohlc=True: {code: (1776297600, 116.0, 118.0, 114.0, 117.5, 1500.0) for code in codes},
+        lambda codes, prefer_chart_ohlc=True, force_refresh=False: {code: (1776297600, 116.0, 118.0, 114.0, 117.5, 1500.0) for code in codes},
     )
     _clear_batch_bars_cache()
 
@@ -367,7 +367,7 @@ def test_batch_bars_v3_patches_current_week_with_daily_tail(monkeypatch) -> None
     monkeypatch.setattr(
         bars_module,
         "get_provisional_daily_rows_from_spark",
-        lambda codes, prefer_chart_ohlc=True: {code: (20260415, 109.0, 118.0, 103.0, 117.0, 1500.0) for code in codes},
+        lambda codes, prefer_chart_ohlc=True, force_refresh=False: {code: (20260415, 109.0, 118.0, 103.0, 117.0, 1500.0) for code in codes},
     )
     _clear_batch_bars_cache()
     client = FastAPI()

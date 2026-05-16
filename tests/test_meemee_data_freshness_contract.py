@@ -12,6 +12,37 @@ def _client() -> TestClient:
     return TestClient(app)
 
 
+def test_rankings_refresh_endpoint_rebuilds_cache_and_returns_snapshot(monkeypatch) -> None:
+    calls: list[str] = []
+
+    def _fake_refresh_cache() -> None:
+        calls.append("refresh")
+
+    def _fake_get_rankings(tf, which, dir, limit, mode="trade", risk_mode="balanced"):
+        calls.append(f"{tf}:{which}:{dir}:{limit}:{mode}:{risk_mode}")
+        return {
+            "items": [{"code": "7203"}],
+            "freshness_state": "fresh",
+            "freshness_days": 0,
+            "snapshot_as_of": "2026-05-15",
+            "current_candidate_available": True,
+        }
+
+    monkeypatch.setattr(rankings_router.rankings_cache, "refresh_cache", _fake_refresh_cache)
+    monkeypatch.setattr(rankings_router.rankings_cache, "get_rankings", _fake_get_rankings)
+
+    response = _client().post("/api/rankings/refresh")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["snapshot_as_of"] == "2026-05-15"
+    assert payload["freshness_state"] == "fresh"
+    assert payload["current_candidate_available"] is True
+    assert payload["duration_ms"] >= 0
+    assert calls == ["refresh", "D:latest:up:1:trade:balanced"]
+
+
 def test_rankings_multi_attaches_read_only_data_freshness_contract(monkeypatch) -> None:
     def _fake_get_rankings(tf, which, dir, limit, mode="trade", risk_mode="balanced"):
         return {

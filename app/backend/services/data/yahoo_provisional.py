@@ -75,6 +75,10 @@ def _chart_max_workers() -> int:
     return _env_int("MEEMEE_YF_CHART_MAX_WORKERS", 8, minimum=1)
 
 
+def _spark_max_workers() -> int:
+    return _env_int("MEEMEE_YF_SPARK_MAX_WORKERS", 4, minimum=1)
+
+
 def _history_range() -> str:
     value = str(os.getenv("MEEMEE_YF_HISTORY_RANGE") or "2y").strip()
     return value or "2y"
@@ -308,6 +312,7 @@ def get_provisional_daily_rows_from_spark(
     *,
     prefer_chart_ohlc: bool = False,
     force_refresh: bool = False,
+    allow_chart_fallback: bool = True,
 ) -> dict[str, tuple[int, float, float, float, float, float]]:
     if not _enabled():
         return {}
@@ -341,9 +346,22 @@ def get_provisional_daily_rows_from_spark(
 
     if missing_symbols:
         chunk_size = min(_spark_chunk_size(), _BATCH_MAX_SYMBOLS_PER_REQUEST)
-        for start in range(0, len(missing_symbols), chunk_size):
-            chunk = missing_symbols[start : start + chunk_size]
-            parsed = _fetch_spark_chunk(chunk)
+        chunks = [missing_symbols[start : start + chunk_size] for start in range(0, len(missing_symbols), chunk_size)]
+        parsed_by_chunk: list[tuple[list[str], dict[str, tuple[int, float, float, float, float, float] | None]]] = []
+        workers = min(_spark_max_workers(), len(chunks))
+        if workers <= 1:
+            parsed_by_chunk = [(chunk, _fetch_spark_chunk(chunk)) for chunk in chunks]
+        else:
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                future_map = {executor.submit(_fetch_spark_chunk, chunk): chunk for chunk in chunks}
+                for future in as_completed(future_map):
+                    chunk = future_map[future]
+                    try:
+                        parsed_by_chunk.append((chunk, future.result()))
+                    except Exception as exc:
+                        logger.debug("Yahoo spark provisional parallel fetch failed for %s symbols: %s", len(chunk), exc)
+                        parsed_by_chunk.append((chunk, {symbol: None for symbol in chunk}))
+        for chunk, parsed in parsed_by_chunk:
             for symbol in chunk:
                 row = parsed.get(symbol)
                 _cache_set(_spark_cache, symbol, row)
@@ -353,7 +371,7 @@ def get_provisional_daily_rows_from_spark(
     unresolved_symbols = [
         symbol for symbol, code in code_by_symbol.items() if code not in resolved
     ]
-    if unresolved_symbols:
+    if unresolved_symbols and allow_chart_fallback:
         fallback_rows = _get_provisional_daily_rows_from_chart_symbols(
             {symbol: code_by_symbol[symbol] for symbol in unresolved_symbols},
             force_refresh=force_refresh,

@@ -142,6 +142,101 @@ def test_trade_priority_scores_penalize_etf_market_code(monkeypatch) -> None:
     assert items[0]["tradePriorityScore"] > items[1]["tradePriorityScore"]
 
 
+def test_trade_priority_scores_promote_momentum_follow_through(monkeypatch) -> None:
+    items = [
+        {
+            "code": "0001",
+            "setupType": "breakout",
+            "entryQualified": True,
+            "probSideCalib": 0.70,
+            "entryScore": 0.65,
+            "hybridScore": 0.65,
+            "downsideRisk": 0.20,
+            "swingScore": 0.55,
+            "diff20_pct": 0.11,
+            "breakout20_up": 0.025,
+            "cnt_20_above": 18,
+            "cnt_7_above": 7,
+            "distMa20Signed": 0.045,
+            "market_ret20": 0.03,
+        },
+        {
+            "code": "0002",
+            "setupType": "breakout",
+            "entryQualified": True,
+            "probSideCalib": 0.70,
+            "entryScore": 0.65,
+            "hybridScore": 0.65,
+            "downsideRisk": 0.20,
+            "swingScore": 0.55,
+            "diff20_pct": 0.00,
+            "breakout20_up": -0.05,
+            "cnt_20_above": 6,
+            "cnt_7_above": 2,
+            "distMa20Signed": -0.01,
+            "market_ret20": 0.03,
+        },
+    ]
+    monkeypatch.setattr(
+        rankings_cache,
+        "_load_trade_market_code_map",
+        lambda codes: {"0001": "PRIME", "0002": "PRIME"},
+    )
+
+    rankings_cache._apply_trade_priority_scores(items, direction="up")  # type: ignore[attr-defined]
+    items.sort(key=rankings_cache._trade_priority_sort_key)  # type: ignore[attr-defined]
+
+    assert [item["code"] for item in items] == ["0001", "0002"]
+    assert items[0]["momentumFollowThroughV1"] is True
+    assert items[0]["momentumFollowThroughScore"] > items[1]["momentumFollowThroughScore"]
+    assert items[0]["tradePriorityScore"] > items[1]["tradePriorityScore"]
+    assert items[0]["monthlyDrawdownGuardedMomentumV1"] is True
+    assert items[0]["monthlyDrawdownGuardedMomentumVariantId"] == "monthly_drawdown_guarded_momentum_m+0.02_l-0.02_h-0.02_md-0.005"
+
+
+def test_monthly_drawdown_guarded_momentum_adjustment_matches_adopted_variant() -> None:
+    momentum_risk_off = {
+        "code": "1001",
+        "entryQualified": True,
+        "marketRiskOff": True,
+        "monthlyBoxState": "box_upper",
+        "momentumFollowThroughV1": True,
+        "momentumFollowThroughScore": 1.0,
+        "tradeRiskWatch": [],
+        "qualityFlags": [],
+    }
+    quiet_momentum = {
+        "code": "1002",
+        "entryQualified": True,
+        "marketRiskOff": False,
+        "monthlyBoxState": "box_upper",
+        "momentumFollowThroughV1": True,
+        "momentumFollowThroughScore": 1.0,
+        "tradeRiskWatch": [],
+        "qualityFlags": [],
+    }
+    drawdown_risk = {
+        "code": "1003",
+        "entryQualified": False,
+        "marketRiskOff": False,
+        "monthlyBoxState": "box_mid",
+        "momentumFollowThroughV1": False,
+        "momentumFollowThroughScore": 0.2,
+        "tradeRiskWatch": ["risk"],
+        "qualityFlags": ["entry_not_qualified"],
+    }
+
+    assert rankings_cache._apply_monthly_drawdown_guarded_momentum_adjustment(momentum_risk_off) == 0.0  # type: ignore[attr-defined]
+    assert rankings_cache._apply_monthly_drawdown_guarded_momentum_adjustment(quiet_momentum) == 0.0  # type: ignore[attr-defined]
+    assert rankings_cache._apply_monthly_drawdown_guarded_momentum_adjustment(drawdown_risk) == -0.025  # type: ignore[attr-defined]
+    assert drawdown_risk["monthlyDrawdownGuardedMomentumFlags"] == {
+        "momentum_candidate": False,
+        "low_risk_context": False,
+        "high_risk_context": True,
+        "monthly_drawdown_context": True,
+    }
+
+
 def test_screening_bundle_shape_remains_stable(monkeypatch) -> None:
     _stub_screening_bundle_dependencies(monkeypatch)
 

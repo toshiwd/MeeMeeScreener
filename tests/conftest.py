@@ -71,4 +71,4 @@ def tmp_path_factory() -> _WorkspaceTmpPathFactory:
 
 @pytest.fixture
 def tmp_path(request: pytest.FixtureRequest, tmp_path_factory: _WorkspaceTmpPathFactory) -> Path:
-    return tmp_path_factory.mktemp(request.node.name)
+    return tmp_path_factory.mktemp(request.node.nodeid)
