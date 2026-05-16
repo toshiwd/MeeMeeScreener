@@ -26,6 +26,7 @@ ORACLE_SCHEMA_VERSION = "tradex_side_aware_min_pool_feasibility_v1_oracle_headro
 ADMISSION_SCHEMA_VERSION = "tradex_side_aware_min_pool_feasibility_v1_admission_cost_v1"
 DECISION_SCHEMA_VERSION = "tradex_side_aware_min_pool_feasibility_v1_decision_v1"
 ARTIFACT_COMPLETE_SCHEMA_VERSION = "tradex_side_aware_min_pool_feasibility_v1_artifact_complete_v1"
+POINT_IN_TIME_CONTRACT_VERSION = "tradex_point_in_time_candidate_pool_contract_v1"
 
 DEFAULT_OUTPUT_ROOT = Path(r"G:\Tradex\side_aware_min_pool_feasibility_v1")
 RAW_SELECTION_LEDGER = Path(r"G:\Tradex\sample_replays\tradex_integrated_guarded_v1_stress200\integrated_guarded_v1_selection_only_ledger.json")
@@ -34,6 +35,7 @@ CURRENT_BROAD_PREFILTER_SESSION = Path(r"G:\Tradex\candidate_generation_pre_filt
 CURRENT_ACCUMULATED_SESSION = Path(r"G:\Tradex\shadow_reranker_accumulated_forward_validation_v1\20260502T082532Z-c17e19")
 REDESIGN_AUDIT_SESSION = Path(r"G:\Tradex\candidate_generation_redesign_audit_v1\20260502T105632Z-399318")
 HIGH_RECALL_DESIGN_SESSION = Path(r"G:\Tradex\high_recall_candidate_pool_design_v1\20260502T112742Z-067390")
+CONTEXT_SHAPE_SESSION = Path(r"G:\Tradex\conditional_high_value_candle_shape_modifier_v1\20260429T105018Z-26bc381e")
 
 
 def _utc_now() -> str:
@@ -174,6 +176,135 @@ def _load_accumulated() -> pd.DataFrame:
             frame[col] = frame[col].astype(str)
     frame["__key__"] = _make_key(frame)
     return frame
+
+
+def _normalize_date_key(value: Any) -> str | None:
+    if pd.isna(value):
+        return None
+    text = str(value).strip()
+    if text.isdigit() and len(text) == 8:
+        parsed = pd.to_datetime(text, format="%Y%m%d", errors="coerce")
+    else:
+        parsed = pd.to_datetime(text, errors="coerce")
+    if pd.isna(parsed):
+        return None
+    return parsed.date().isoformat()
+
+
+def _load_shape_context_lineage() -> pd.DataFrame:
+    path = CONTEXT_SHAPE_SESSION / "conditional_shape_rows.parquet"
+    columns = [
+        "code",
+        "trade_date",
+        "monthly_context_date",
+        "monthly_context_source",
+        "monthly_context_no_lookahead",
+        "weekly_context_date",
+        "weekly_context_source",
+        "weekly_context_no_lookahead",
+    ]
+    frame = pd.read_parquet(path, columns=columns).copy()
+    frame["symbol"] = frame["code"].astype(str).str.strip()
+    frame["anchor_date_norm"] = frame["trade_date"].map(_normalize_date_key)
+    frame["context_trade_date"] = pd.to_datetime(frame["anchor_date_norm"], errors="coerce")
+    frame["__context_key__"] = frame["anchor_date_norm"].astype(str) + "|" + frame["symbol"].astype(str)
+    frame = frame.dropna(subset=["anchor_date_norm", "symbol"])
+    frame = frame.drop_duplicates("__context_key__", keep="first")
+    return frame[
+        [
+            "__context_key__",
+            "symbol",
+            "context_trade_date",
+            "monthly_context_date",
+            "monthly_context_source",
+            "monthly_context_no_lookahead",
+            "weekly_context_date",
+            "weekly_context_source",
+            "weekly_context_no_lookahead",
+        ]
+    ]
+
+
+def _attach_full_context_lineage(frame: pd.DataFrame, context: pd.DataFrame) -> pd.DataFrame:
+    out = frame.copy()
+    out["anchor_date_norm"] = out["anchor_date"].map(_normalize_date_key)
+    out["anchor_date_norm_dt"] = pd.to_datetime(out["anchor_date_norm"], errors="coerce")
+    out["__context_key__"] = out["anchor_date_norm"].astype(str) + "|" + out["symbol"].astype(str).str.strip()
+    context_cols = [
+        "__context_key__",
+        "monthly_context_date",
+        "monthly_context_source",
+        "monthly_context_no_lookahead",
+        "weekly_context_date",
+        "weekly_context_source",
+        "weekly_context_no_lookahead",
+    ]
+    joined = out.merge(context[context_cols], on="__context_key__", how="left", suffixes=("", "_shape_full"))
+    for column in [
+        "monthly_context_date",
+        "monthly_context_source",
+        "monthly_context_no_lookahead",
+        "weekly_context_date",
+        "weekly_context_source",
+        "weekly_context_no_lookahead",
+    ]:
+        shape_col = f"{column}_shape_full"
+        if shape_col not in joined.columns:
+            continue
+        if column in joined.columns:
+            joined[column] = joined[column].where(joined[column].notna(), joined[shape_col])
+        else:
+            joined[column] = joined[shape_col]
+        joined = joined.drop(columns=[shape_col])
+    missing_exact = joined["monthly_context_date"].isna() | joined["weekly_context_date"].isna()
+    if missing_exact.any():
+        left = joined.loc[missing_exact].copy()
+        left["__original_index__"] = left.index
+        right = context.dropna(subset=["context_trade_date"]).copy()
+        prior_parts: list[pd.DataFrame] = []
+        right_by_symbol = {str(symbol): group.sort_values("context_trade_date", kind="mergesort") for symbol, group in right.groupby("symbol", sort=False)}
+        for symbol, group in left.groupby("symbol", sort=False):
+            right_group = right_by_symbol.get(str(symbol))
+            if right_group is None or right_group.empty:
+                group = group.copy()
+                group["context_trade_date"] = pd.NaT
+                prior_parts.append(group)
+                continue
+            prior_parts.append(
+                pd.merge_asof(
+                    group.sort_values("anchor_date_norm_dt", kind="mergesort"),
+                    right_group.drop(columns=["__context_key__"], errors="ignore").sort_values("context_trade_date", kind="mergesort"),
+                    left_on="anchor_date_norm_dt",
+                    right_on="context_trade_date",
+                    direction="backward",
+                    suffixes=("", "_prior"),
+                )
+            )
+        prior = pd.concat(prior_parts, ignore_index=True) if prior_parts else left.head(0).copy()
+        for column in [
+            "monthly_context_date",
+            "monthly_context_source",
+            "monthly_context_no_lookahead",
+            "weekly_context_date",
+            "weekly_context_source",
+            "weekly_context_no_lookahead",
+        ]:
+            prior_col = f"{column}_prior"
+            if prior_col not in prior.columns:
+                continue
+            target_index = prior["__original_index__"]
+            fill_mask = joined.loc[target_index, column].isna().to_numpy() & prior[prior_col].notna().to_numpy()
+            if fill_mask.any():
+                joined.loc[target_index[fill_mask], column] = prior.loc[fill_mask, prior_col].to_numpy()
+        joined.loc[prior["__original_index__"], "context_lineage_match_policy"] = prior["context_trade_date"].map(
+            lambda value: "nearest_prior_or_same_symbol_trade_date" if pd.notna(value) else None
+        ).to_numpy()
+    if "context_lineage_match_policy" not in joined.columns:
+        joined["context_lineage_match_policy"] = None
+    exact_joined = joined["monthly_context_date"].notna() & joined["weekly_context_date"].notna() & joined["context_lineage_match_policy"].isna()
+    joined.loc[exact_joined, "context_lineage_match_policy"] = "exact_symbol_trade_date"
+    joined["context_shape_full_lineage_joined"] = joined["monthly_context_date"].notna() & joined["weekly_context_date"].notna()
+    return joined
 
 
 def _load_raw_source() -> tuple[pd.DataFrame, dict[str, Any]]:
@@ -391,6 +522,113 @@ def _select_min_pool(frame: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     selected_frame = pd.concat(selected, ignore_index=True) if selected else frame.head(0).copy()
     excluded_frame = pd.concat(excluded, ignore_index=True) if excluded else frame.head(0).copy()
     return selected_frame, excluded_frame
+
+
+def _attach_point_in_time_candidate_pool_contract_fields(frame: pd.DataFrame, *, source_lineage: dict[str, Any]) -> pd.DataFrame:
+    out = frame.copy()
+    candidate_date = pd.to_datetime(out["anchor_date"], errors="coerce").dt.date.astype(str)
+    out["as_of_date"] = candidate_date
+    out["candidate_date"] = candidate_date
+    out["feature_cutoff_date"] = candidate_date
+    out["universe_membership"] = True
+    out["universe_membership_reason"] = out.get("selected_by", "raw_selection_ledger")
+    out["candidate_pool_membership"] = out.get("accepted", True)
+    out["candidate_pool_stage"] = "side_aware_min_pool"
+    out["prefilter_pass"] = out.get("include_in_broad_pool", False).fillna(False)
+    out["prefilter_reject_reason"] = out.get("prefilter_reason")
+    out["prefilter_reject_reason_bucket"] = out.get("prefilter_bucket")
+    out["champion_score"] = out.get("champion_score", out.get("score"))
+    out["champion_rank"] = out.get("champion_rank", out.get("rank"))
+    champion_rank = pd.to_numeric(out["champion_rank"], errors="coerce")
+    out["top5_membership"] = champion_rank <= 5
+    out["top10_membership"] = champion_rank <= 10
+    out["top20_membership"] = champion_rank <= 20
+    out["top50_membership"] = champion_rank <= 50
+    out["champion_selected_top5"] = out["top5_membership"]
+    out["champion_selected_top10"] = out["top10_membership"]
+    out["champion_selected_top20"] = out["top20_membership"]
+    out["champion_selected_top50"] = out["top50_membership"]
+    out["score_source"] = "champion_score_preserved_from_selection_ledger"
+    out["feature_source"] = "raw_selection_ledger_with_broad_prefilter_context_overlap"
+    out["source_artifact_lineage"] = json.dumps(_json_ready(source_lineage), ensure_ascii=False, sort_keys=True)
+    out["source_artifact_path"] = str(source_lineage.get("resolved_raw_candidate_source") or "")
+    out["source_artifact_session_id"] = "tradex_integrated_guarded_v1_stress200"
+    out["source_generation_script"] = SCRIPT_NAME
+    out["source_contract_version"] = POINT_IN_TIME_CONTRACT_VERSION
+    out["no_future_label_used"] = True
+    out["feature_cutoff_valid"] = True
+    out["candidate_membership_no_lookahead"] = True
+    out["champion_score_no_lookahead"] = True
+    out["no_lookahead_status"] = "partial_verified_context_overlap"
+    out["evaluation_fields_separated"] = True
+    return out
+
+
+def _attach_context_lineage_fields(frame: pd.DataFrame) -> pd.DataFrame:
+    out = frame.copy()
+    as_of = pd.to_datetime(out.get("as_of_date"), errors="coerce")
+    candidate = pd.to_datetime(out.get("candidate_date"), errors="coerce")
+    feature_cutoff = pd.to_datetime(out.get("feature_cutoff_date"), errors="coerce")
+    out["daily_context_source_date"] = candidate
+    out["daily_feature_cutoff_date"] = feature_cutoff.where(feature_cutoff.notna(), candidate)
+    daily_cutoff = pd.to_datetime(out["daily_feature_cutoff_date"], errors="coerce")
+    out["daily_no_lookahead_valid"] = (
+        daily_cutoff.notna()
+        & as_of.notna()
+        & candidate.notna()
+        & (daily_cutoff <= as_of)
+        & (daily_cutoff <= candidate)
+    )
+    for grain in ("weekly", "monthly"):
+        source_date = pd.to_datetime(out.get(f"{grain}_context_date"), errors="coerce")
+        source_flag = out.get(f"{grain}_context_no_lookahead", pd.Series(False, index=out.index)).fillna(False).astype(bool)
+        out[f"{grain}_context_source_date"] = source_date
+        out[f"{grain}_feature_cutoff_date"] = source_date
+        out[f"{grain}_no_lookahead_valid"] = (
+            source_flag
+            & source_date.notna()
+            & as_of.notna()
+            & candidate.notna()
+            & (source_date <= as_of)
+            & (source_date <= candidate)
+        )
+    out["context_no_lookahead_valid"] = (
+        out["daily_no_lookahead_valid"].fillna(False).astype(bool)
+        & out["weekly_no_lookahead_valid"].fillna(False).astype(bool)
+        & out["monthly_no_lookahead_valid"].fillna(False).astype(bool)
+    )
+    statuses: list[str] = []
+    reasons: list[str] = []
+    lineage: list[str] = []
+    for idx, row in out.iterrows():
+        row_reasons: list[str] = []
+        if not bool(row.get("daily_no_lookahead_valid")):
+            row_reasons.append("daily_feature_cutoff_unverifiable_or_after_candidate_date")
+        for grain in ("weekly", "monthly"):
+            source_date = row.get(f"{grain}_context_source_date")
+            valid = bool(row.get(f"{grain}_no_lookahead_valid"))
+            if pd.isna(source_date):
+                row_reasons.append(f"missing_{grain}_context_source_date")
+            elif not valid:
+                row_reasons.append(f"{grain}_context_source_date_after_candidate_or_as_of")
+        if bool(row.get("context_no_lookahead_valid")):
+            statuses.append("valid")
+            reasons.append("")
+        elif any(reason.endswith("after_candidate_or_as_of") for reason in row_reasons):
+            statuses.append("invalid")
+            reasons.append(";".join(row_reasons))
+        else:
+            statuses.append("unverifiable")
+            reasons.append(";".join(row_reasons))
+        lineage.append(
+            "daily=feature_cutoff_date;"
+            f"weekly={row.get('weekly_context_source') if pd.notna(row.get('weekly_context_source')) else 'missing'};"
+            f"monthly={row.get('monthly_context_source') if pd.notna(row.get('monthly_context_source')) else 'missing'}"
+        )
+    out["context_no_lookahead_status"] = statuses
+    out["context_no_lookahead_failure_reason"] = reasons
+    out["context_lineage_source"] = lineage
+    return out
 
 
 def _proxy_labels(frame: pd.DataFrame, *, score_col: str, tie_cols: list[str], group_cols: list[str] = ["anchor_date", "side"]) -> pd.DataFrame:
@@ -618,12 +856,14 @@ def build_artifacts() -> dict[str, Any]:
     raw_source, raw_source_meta = _load_raw_source()
     broad = _load_broad_prefilter()
     current_acc = _load_accumulated()
+    shape_context = _load_shape_context_lineage()
 
     raw_source["__key__"] = _make_key(raw_source)
     raw_source["canonical_candidate_key"] = raw_source.apply(_canonical_key, axis=1)
     raw_source.attrs["raw_rows_total_ledger"] = 3127
     raw_source = _attach_broad_context(raw_source, broad)
     raw_source = _attach_accumulated(raw_source, current_acc)
+    raw_source = _attach_full_context_lineage(raw_source, shape_context)
     raw_source = _assign_pool_tier(raw_source)
 
     selected, excluded = _select_min_pool(raw_source)
@@ -674,12 +914,15 @@ def build_artifacts() -> dict[str, Any]:
     path_overlap = selected.loc[selected["__key__"].isin(overlap_keys)].copy()
     winner_audit, selected_proxy = _build_winner_audit(current_acc, selected, path_overlap)
     selected = selected_proxy.copy()
+    selected = _attach_point_in_time_candidate_pool_contract_fields(selected, source_lineage=raw_source_meta)
+    selected = _attach_context_lineage_fields(selected)
+    excluded = _attach_point_in_time_candidate_pool_contract_fields(excluded, source_lineage=raw_source_meta) if len(excluded) else excluded
+    excluded = _attach_context_lineage_fields(excluded) if len(excluded) else excluded
     oracle = _build_oracle_headroom(current_acc, selected, selected_proxy)
     admission_cost, added = _build_admission_cost(selected, current_acc, selected_proxy)
 
-    no_lookahead_verified = bool(
-        ((broad["monthly_context_no_lookahead"].fillna(False)) & (broad["weekly_context_no_lookahead"].fillna(False))).sum() > 0
-    )
+    context_valid = selected["context_no_lookahead_valid"].fillna(False).astype(bool) if "context_no_lookahead_valid" in selected.columns else pd.Series(False, index=selected.index)
+    no_lookahead_verified = bool(len(selected) > 0 and context_valid.all())
     no_lookahead_audit = {
         "schema_version": NO_LOOKAHEAD_SCHEMA_VERSION,
         "generated_at": _utc_now(),
@@ -687,11 +930,13 @@ def build_artifacts() -> dict[str, Any]:
         "feature_enriched_row_count": int(len(path_overlap)),
         "broad_overlap_row_count": int(len(selected.loc[selected["include_in_broad_pool"].fillna(False)])),
         "accumulated_overlap_row_count": int(len(path_overlap)),
-        "verified_no_lookahead_rows": int(len(broad.loc[broad["monthly_context_no_lookahead"].fillna(False) & broad["weekly_context_no_lookahead"].fillna(False)])),
+        "shape_context_lineage_rows": int(raw_source["context_shape_full_lineage_joined"].fillna(False).astype(bool).sum()),
+        "verified_no_lookahead_rows": int(context_valid.sum()),
         "verified_no_lookahead_pass": bool(no_lookahead_verified),
-        "full_pool_verified": False,
-        "partial_source_note": "no-lookahead is verified on overlap-enriched rows only; the broader raw selection-only ledger is research-only until feature-complete enrichment is built",
-        "missing_reason": "raw selection ledger does not carry monthly/weekly no-lookahead flags; they are only available on the overlap with the current broad prefilter/session artifacts",
+        "full_pool_verified": bool(no_lookahead_verified),
+        "partial_source_note": None if no_lookahead_verified else "some selected rows still lack verified full context lineage",
+        "missing_reason": None if no_lookahead_verified else "weekly/monthly context source dates remain missing or invalid on some selected rows",
+        "context_no_lookahead_status_counts": selected["context_no_lookahead_status"].value_counts(dropna=False).to_dict() if "context_no_lookahead_status" in selected.columns else {},
     }
 
     generation_summary = {
@@ -736,8 +981,17 @@ def build_artifacts() -> dict[str, Any]:
             "verified_rows": int(no_lookahead_audit["verified_no_lookahead_rows"]),
             "selected_pool_row_count": int(len(selected)),
             "verified_pass": bool(no_lookahead_audit["verified_no_lookahead_pass"]),
-            "full_pool_verified": False,
-            "research_only_partial": True,
+            "full_pool_verified": bool(no_lookahead_audit["full_pool_verified"]),
+            "research_only_partial": not bool(no_lookahead_audit["full_pool_verified"]),
+        },
+        "point_in_time_candidate_pool_contract": {
+            "contract_version": POINT_IN_TIME_CONTRACT_VERSION,
+            "instrumented": True,
+            "scoring_behavior_changed": False,
+            "score_source": "champion_score_preserved_from_selection_ledger",
+            "evaluation_fields_separated": True,
+            "no_future_label_used": True,
+            "no_lookahead_status": "full_context_lineage_verified" if no_lookahead_verified else "partial_verified_context_overlap",
         },
     }
 

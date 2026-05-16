@@ -38,6 +38,9 @@ COMPARE_SCHEMA_VERSION = "tradex_entry_timing_confirmed_signal_v1_compare_v1"
 DECISION_SCHEMA_VERSION = "tradex_entry_timing_confirmed_signal_v1_decision_v1"
 ANTI_LEAKAGE_SCHEMA_VERSION = "tradex_entry_timing_confirmed_signal_v1_anti_leakage_audit_v1"
 COMPLETE_SCHEMA_VERSION = "tradex_entry_timing_confirmed_signal_v1_artifact_complete_v1"
+FAMILY_LEADERBOARD_SCHEMA_VERSION = "tradex_entry_timing_confirmed_signal_v1_family_leaderboard_v1"
+BREAKDOWN_SCHEMA_VERSION = "tradex_entry_timing_confirmed_signal_v1_breakdown_v1"
+BRANCHING_SUMMARY_SCHEMA_VERSION = "tradex_entry_timing_confirmed_signal_v1_branching_summary_v1"
 
 LABEL_COLUMNS = {
     "forward_ret_5d",
@@ -80,6 +83,8 @@ def _load_frame(source_rows_parquet: Path) -> pd.DataFrame:
         "champion_selected_top20",
         "forward_ret_20d",
     }
+    if "champion_score" not in frame.columns and "score" in frame.columns:
+        frame["champion_score"] = frame["score"]
     missing = sorted(column for column in required if column not in frame.columns)
     if missing:
         raise ValueError(f"source rows missing required columns: {missing}")
@@ -92,6 +97,8 @@ def _load_frame(source_rows_parquet: Path) -> pd.DataFrame:
     frame["forward_ret_20d"] = pd.to_numeric(frame["forward_ret_20d"], errors="coerce")
     if "month_bucket" not in frame.columns:
         frame["month_bucket"] = frame["anchor_date"].str.slice(0, 7)
+    if "regime_label" not in frame.columns:
+        frame["regime_label"] = "unverified"
     return frame
 
 
@@ -152,8 +159,19 @@ def _apply_candidate(frame: pd.DataFrame) -> pd.DataFrame:
         ranked[f"candidate_selected_top{top_k}"] = ranked["candidate_rank"].le(top_k)
         ranked[f"champion_selected_top{top_k}"] = ranked["champion_rank"].le(top_k)
         ranked[f"changed_top{top_k}_member"] = ranked[f"candidate_selected_top{top_k}"] != ranked[f"champion_selected_top{top_k}"]
+    ranked["entry_timing_state"] = "entry_neutral"
+    ranked.loc[ranked["entry_timing_score"].ge(0.55), "entry_timing_state"] = "entry_confirmed"
+    ranked.loc[ranked["entry_timing_score"].lt(0.30), "entry_timing_state"] = "entry_blocked"
     ranked["rank_changed"] = ranked["candidate_rank"].astype("Int64") != ranked["champion_rank"]
     return ranked
+
+
+def _severe_loser_rate(selected: pd.DataFrame) -> float | None:
+    if selected.empty:
+        return None
+    if "bottom15_label" in selected.columns:
+        return _mean_or_none(selected["bottom15_label"].fillna(False).astype(bool).astype(float).tolist())
+    return _mean_or_none((selected["forward_ret_20d"] <= -0.15).astype(float).tolist())
 
 
 def _topk_metrics(frame: pd.DataFrame, prefix: str) -> dict[str, Any]:
@@ -165,8 +183,49 @@ def _topk_metrics(frame: pd.DataFrame, prefix: str) -> dict[str, Any]:
             "forward_ret_20d_mean": _mean_or_none(selected["forward_ret_20d"].tolist()),
             "hit_rate_positive_20d": _mean_or_none((selected["forward_ret_20d"] > 0).astype(float).tolist()),
             "bottom15_count": int(selected.get("bottom15_label", pd.Series(False, index=selected.index)).fillna(False).astype(bool).sum()),
+            "severe_loser_rate": _severe_loser_rate(selected),
         }
     return out
+
+
+def _candidate_shortage(frame: pd.DataFrame, prefix: str) -> dict[str, Any]:
+    groups = frame.groupby(["anchor_date", "side"], sort=False)
+    total = int(groups.ngroups)
+    out: dict[str, Any] = {"decision_sets_total": total}
+    for top_k in TOP_K_VALUES:
+        shortage = 0
+        for _, group in groups:
+            selected_count = int(group[f"{prefix}_selected_top{top_k}"].fillna(False).astype(bool).sum())
+            if selected_count < min(top_k, len(group)):
+                shortage += 1
+        out[f"top{top_k}_shortage_decision_sets"] = shortage
+        out[f"top{top_k}_shortage_rate"] = None if total == 0 else shortage / total
+    return out
+
+
+def _selection_change_rows(frame: pd.DataFrame, top_k: int, *, added: bool) -> list[dict[str, Any]]:
+    candidate_col = f"candidate_selected_top{top_k}"
+    champion_col = f"champion_selected_top{top_k}"
+    if added:
+        selected = frame[frame[candidate_col].fillna(False).astype(bool) & ~frame[champion_col].fillna(False).astype(bool)]
+    else:
+        selected = frame[frame[champion_col].fillna(False).astype(bool) & ~frame[candidate_col].fillna(False).astype(bool)]
+    cols = [
+        "anchor_date",
+        "side",
+        "symbol",
+        "champion_rank",
+        "candidate_rank",
+        "champion_score",
+        "entry_timing_score",
+        "entry_timing_state",
+        "forward_ret_20d",
+        "bottom15_label",
+    ]
+    rows = []
+    for row in selected.sort_values(["anchor_date", "side", "candidate_rank", "champion_rank", "symbol"], kind="stable")[cols].to_dict(orient="records"):
+        rows.append({key: (None if pd.isna(value) else value) for key, value in row.items()})
+    return rows
 
 
 def _build_compare(frame: pd.DataFrame) -> dict[str, Any]:
@@ -187,7 +246,23 @@ def _build_compare(frame: pd.DataFrame) -> dict[str, Any]:
                 else candidate[key]["hit_rate_positive_20d"] - champion[key]["hit_rate_positive_20d"]
             ),
             "bottom15_count_delta": candidate[key]["bottom15_count"] - champion[key]["bottom15_count"],
+            "severe_loser_rate_delta": (
+                None
+                if champion[key]["severe_loser_rate"] is None or candidate[key]["severe_loser_rate"] is None
+                else candidate[key]["severe_loser_rate"] - champion[key]["severe_loser_rate"]
+            ),
             "changed_member_count": int(frame[f"changed_top{top_k}_member"].fillna(False).astype(bool).sum()),
+        }
+    overlap = {}
+    for top_k in TOP_K_VALUES:
+        candidate_col = f"candidate_selected_top{top_k}"
+        champion_col = f"champion_selected_top{top_k}"
+        both = int((frame[candidate_col].fillna(False).astype(bool) & frame[champion_col].fillna(False).astype(bool)).sum())
+        champion_count = int(frame[champion_col].fillna(False).astype(bool).sum())
+        overlap[f"top{top_k}"] = {
+            "overlap_count": both,
+            "champion_count": champion_count,
+            "overlap_with_champion": None if champion_count == 0 else both / champion_count,
         }
     return {
         "schema_version": COMPARE_SCHEMA_VERSION,
@@ -206,6 +281,10 @@ def _build_compare(frame: pd.DataFrame) -> dict[str, Any]:
         "champion": champion,
         "candidate": candidate,
         "deltas": deltas,
+        "candidate_shortage": _candidate_shortage(frame, "candidate"),
+        "overlap": overlap,
+        "removed_champion_members": {f"top{top_k}": _selection_change_rows(frame, top_k, added=False) for top_k in TOP_K_VALUES},
+        "added_challenger_members": {f"top{top_k}": _selection_change_rows(frame, top_k, added=True) for top_k in TOP_K_VALUES},
         "branching": {
             "changed_top5_members_count": deltas["top5"]["changed_member_count"],
             "changed_top10_members_count": deltas["top10"]["changed_member_count"],
@@ -224,11 +303,23 @@ def _build_decision(compare: dict[str, Any]) -> dict[str, Any]:
     changed_top5 = _safe_int(compare["branching"]["changed_top5_members_count"], 0)
     changed_top10 = _safe_int(compare["branching"]["changed_top10_members_count"], 0)
     bottom15_top5_delta = _safe_int(deltas["top5"]["bottom15_count_delta"], 0)
+    severe_top5_delta = deltas["top5"]["severe_loser_rate_delta"]
+    shortage_top5 = compare["candidate_shortage"]["top5_shortage_rate"]
 
     if changed_top5 == 0 and changed_top10 == 0:
         decision = "drop"
         reason = "no_branching"
-    elif top5_delta is not None and top10_delta is not None and top5_delta > 0 and top10_delta >= 0 and bottom15_top5_delta <= 0:
+    elif shortage_top5 and shortage_top5 > 0:
+        decision = "hold"
+        reason = "candidate_shortage_requires_review"
+    elif (
+        top5_delta is not None
+        and top10_delta is not None
+        and top5_delta > 0
+        and top10_delta >= 0
+        and bottom15_top5_delta <= 0
+        and (severe_top5_delta is None or severe_top5_delta <= 0)
+    ):
         decision = "keep"
         reason = "top5_improved_without_top10_or_bottom15_regression"
     elif (top5_delta is not None and top5_delta > 0) or (top10_delta is not None and top10_delta > 0):
@@ -257,6 +348,8 @@ def _build_decision(compare: dict[str, Any]) -> dict[str, Any]:
             "changed_top10_members_count": changed_top10,
             "changed_rank_count": compare["branching"]["changed_rank_count"],
             "bottom15_top5_count_delta": bottom15_top5_delta,
+            "top5_severe_loser_rate_delta": severe_top5_delta,
+            "top5_candidate_shortage_rate": shortage_top5,
         },
         "non_goals": [
             "No MeeMee mutation",
@@ -264,6 +357,78 @@ def _build_decision(compare: dict[str, Any]) -> dict[str, Any]:
             "No promoter threshold retuning",
             "No publish registry mutation",
         ],
+    }
+
+
+def _build_breakdown(frame: pd.DataFrame, column: str) -> dict[str, Any]:
+    rows = []
+    for bucket, group in frame.groupby(column, sort=True):
+        compare = _build_compare(group)
+        rows.append(
+            {
+                column: str(bucket),
+                "decision_sets": int(group.groupby(["anchor_date", "side"], sort=False).ngroups),
+                "changed_top5_members_count": compare["branching"]["changed_top5_members_count"],
+                "changed_top10_members_count": compare["branching"]["changed_top10_members_count"],
+                "top5_forward_ret_20d_mean_delta": compare["deltas"]["top5"]["forward_ret_20d_mean_delta"],
+                "top10_forward_ret_20d_mean_delta": compare["deltas"]["top10"]["forward_ret_20d_mean_delta"],
+                "top5_severe_loser_rate_delta": compare["deltas"]["top5"]["severe_loser_rate_delta"],
+                "top5_candidate_shortage_rate": compare["candidate_shortage"]["top5_shortage_rate"],
+            }
+        )
+    improved = [row for row in rows if (row["top5_forward_ret_20d_mean_delta"] is not None and row["top5_forward_ret_20d_mean_delta"] > 0)]
+    branched = [row for row in rows if row["changed_top5_members_count"] > 0]
+    return {
+        "schema_version": BREAKDOWN_SCHEMA_VERSION,
+        "generated_at": _utc_now(),
+        "candidate_id": "entry_timing_confirmed_signal_v1",
+        "breakdown_column": column,
+        "rows": rows,
+        "breadth": {
+            "bucket_count": len(rows),
+            "top5_improved_bucket_count": len(improved),
+            "top5_branched_bucket_count": len(branched),
+        },
+    }
+
+
+def _build_family_leaderboard(compare: dict[str, Any], decision: dict[str, Any], by_month: dict[str, Any], by_regime: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "schema_version": FAMILY_LEADERBOARD_SCHEMA_VERSION,
+        "generated_at": _utc_now(),
+        "families": [
+            {
+                "family_id": "entry_timing_confirmed_signal_v1",
+                "candidate_id": "entry_timing_confirmed_signal_v1",
+                "champion_id": "champion_top5_capture_boundary_promoter_v1",
+                "decision": decision["authoritative_rollup_decision"],
+                "decision_reason": decision["decision_reason"],
+                "top5_forward_ret_20d_mean_delta": compare["deltas"]["top5"]["forward_ret_20d_mean_delta"],
+                "top10_forward_ret_20d_mean_delta": compare["deltas"]["top10"]["forward_ret_20d_mean_delta"],
+                "top20_forward_ret_20d_mean_delta": compare["deltas"]["top20"]["forward_ret_20d_mean_delta"],
+                "changed_top5_members_count": compare["branching"]["changed_top5_members_count"],
+                "changed_top10_members_count": compare["branching"]["changed_top10_members_count"],
+                "changed_rank_count": compare["branching"]["changed_rank_count"],
+                "month_breadth": by_month["breadth"],
+                "regime_breadth": by_regime["breadth"],
+                "research_fallback": decision["research_fallback"],
+            }
+        ],
+    }
+
+
+def _build_branching_summary(compare: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "schema_version": BRANCHING_SUMMARY_SCHEMA_VERSION,
+        "generated_at": _utc_now(),
+        "candidate_id": "entry_timing_confirmed_signal_v1",
+        "champion_id": "champion_top5_capture_boundary_promoter_v1",
+        "branching": compare["branching"],
+        "candidate_shortage": compare["candidate_shortage"],
+        "overlap": compare["overlap"],
+        "selection_divergence_reason": compare["branching"]["selection_divergence_reason"],
+        "removed_champion_members": compare["removed_champion_members"],
+        "added_challenger_members": compare["added_challenger_members"],
     }
 
 
@@ -289,9 +454,18 @@ def _build_feature_summary(frame: pd.DataFrame) -> dict[str, Any]:
 
 def _build_outputs(frame: pd.DataFrame, *, output_root: Path, source_rows_parquet: Path) -> dict[str, Any]:
     output_root.mkdir(parents=True, exist_ok=True)
-    ranked = _apply_candidate(frame)
+    working = frame.copy()
+    if "month_bucket" not in working.columns:
+        working["month_bucket"] = working["anchor_date"].astype(str).str.slice(0, 7)
+    if "regime_label" not in working.columns:
+        working["regime_label"] = "unverified"
+    ranked = _apply_candidate(working)
     compare = _build_compare(ranked)
     decision = _build_decision(compare)
+    by_month = _build_breakdown(ranked, "month_bucket")
+    by_regime = _build_breakdown(ranked, "regime_label")
+    family_leaderboard = _build_family_leaderboard(compare, decision, by_month, by_regime)
+    branching_summary = _build_branching_summary(compare)
     feature_summary = _build_feature_summary(ranked)
     manifest = {
         "schema_version": MANIFEST_SCHEMA_VERSION,
@@ -325,7 +499,11 @@ def _build_outputs(frame: pd.DataFrame, *, output_root: Path, source_rows_parque
         "evaluation_contract.json": evaluation_contract,
         "timing_feature_summary.json": feature_summary,
         "compare.json": compare,
-        "decision_summary.json": decision,
+        "candidate_decision.json": decision,
+        "family_leaderboard.json": family_leaderboard,
+        "by_month.json": by_month,
+        "by_regime.json": by_regime,
+        "branching_summary.json": branching_summary,
         "anti_leakage_audit.json": anti_leakage,
     }
     paths: dict[str, str] = {}
@@ -349,7 +527,10 @@ def main(argv: list[str] | None = None) -> int:
 
     source_rows_parquet = _safe_path(args.source_rows_parquet, DEFAULT_SOURCE_ROWS_PARQUET)
     base_output_root = _safe_path(args.output_root, DEFAULT_OUTPUT_ROOT)
-    output_root = base_output_root / (args.run_id.strip() or _run_id())
+    run_id = args.run_id.strip() or _run_id()
+    if not run_id.endswith("-entry_timing_confirmed_signal_v1"):
+        run_id = f"{run_id}-entry_timing_confirmed_signal_v1"
+    output_root = base_output_root / run_id
 
     runtime_status = get_runtime_stock_db_status()
     rankings_freshness = get_rankings_freshness()
@@ -359,6 +540,7 @@ def main(argv: list[str] | None = None) -> int:
         "runtime_stock_db_status": runtime_status,
         "rankings_freshness": rankings_freshness,
         "output_root": str(output_root),
+        "authoritative_decision_artifact": payload["paths"]["candidate_decision.json"],
         "decision": payload["decision"]["authoritative_rollup_decision"],
         "decision_reason": payload["decision"]["decision_reason"],
     }

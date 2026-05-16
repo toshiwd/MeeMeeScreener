@@ -161,6 +161,33 @@ def test_score_aggregate_uses_japanese_range_environment_labels(
     assert decision["environment_label"] == expected_label
 
 
+def test_score_aggregate_force_up_reclaim_does_not_require_missing_context_key() -> None:
+    decision = aggregate_tradex_score_decision(
+        trend_axis={
+            "components": {
+                "direction_up_component": 0.50,
+                "direction_down_component": 0.12,
+                "range_balance_component": 0.10,
+            },
+            "signals": {
+                "up_prob": 0.68,
+                "down_prob": 0.20,
+                "strong_up_signal": True,
+                "down_threshold": 0.58,
+            },
+        },
+        turning_axis={
+            "components": {"turn_up_component": 0.10, "turn_down_component": 0.03, "range_turn_component": 0.02},
+            "signals": {"turn_up": 0.55, "turn_down": 0.30},
+        },
+        ev_axis={"components": {"up_ev_component": 0.02, "down_ev_component": 0.0, "range_ev_component": 0.0}},
+        short_axis={"signals": {"short_score_norm": 0.0, "bullish_structure": False, "short_signal_confirmed": False}},
+    )
+
+    assert decision["tone"] == "up"
+    assert decision["confidence"] >= 0.56
+
+
 def test_tradex_analysis_adapter_composes_prepare_core_finalize_in_order(monkeypatch) -> None:
     calls: list[str] = []
 

@@ -68,7 +68,11 @@ def test_artifacts_include_decision_and_anti_leakage(tmp_path: Path) -> None:
         "evaluation_contract.json",
         "timing_feature_summary.json",
         "compare.json",
-        "decision_summary.json",
+        "candidate_decision.json",
+        "family_leaderboard.json",
+        "by_month.json",
+        "by_regime.json",
+        "branching_summary.json",
         "anti_leakage_audit.json",
         "_ARTIFACT_COMPLETE.json",
     }
@@ -77,11 +81,20 @@ def test_artifacts_include_decision_and_anti_leakage(tmp_path: Path) -> None:
         assert Path(path).exists()
 
     compare = json.loads(Path(payload["paths"]["compare.json"]).read_text(encoding="utf-8"))
-    decision = json.loads(Path(payload["paths"]["decision_summary.json"]).read_text(encoding="utf-8"))
+    decision = json.loads(Path(payload["paths"]["candidate_decision.json"]).read_text(encoding="utf-8"))
+    leaderboard = json.loads(Path(payload["paths"]["family_leaderboard.json"]).read_text(encoding="utf-8"))
+    by_month = json.loads(Path(payload["paths"]["by_month.json"]).read_text(encoding="utf-8"))
+    branching = json.loads(Path(payload["paths"]["branching_summary.json"]).read_text(encoding="utf-8"))
     anti = json.loads(Path(payload["paths"]["anti_leakage_audit.json"]).read_text(encoding="utf-8"))
 
     assert compare["same_condition_contract"]["same_universe"] is True
     assert compare["branching"]["changed_top5_members_count"] > 0
+    assert "candidate_shortage" in compare
+    assert "removed_champion_members" in compare
+    assert "added_challenger_members" in compare
     assert decision["authoritative_rollup_decision"] in {"keep", "hold", "drop"}
+    assert leaderboard["families"][0]["candidate_id"] == "entry_timing_confirmed_signal_v1"
+    assert by_month["breadth"]["bucket_count"] == 1
+    assert branching["selection_divergence_reason"] == "entry_timing_confirmed_signal_rerank_with_existing_top20_pool"
     assert anti["pass"] is True
     assert anti["used_future_labels_in_scoring"] is False

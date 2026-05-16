@@ -209,6 +209,9 @@ def aggregate_tradex_score_decision(
     )
     tone, environment_label = _resolve_tone_and_environment(
         context={
+            "up_score": up_score,
+            "down_score": down_score,
+            "range_score": range_score,
             "force_up_reclaim": force_up_reclaim,
             "force_down_confirm": force_down_confirm,
             "down_confirm": down_confirm,
