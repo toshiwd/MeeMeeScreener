@@ -70,6 +70,34 @@ def test_ai_explain_settings_roundtrip_and_secret_visibility(tmp_path) -> None:
     assert loaded.canUse is True
 
 
+def test_ai_explain_ui_remains_visible_when_credentials_are_missing(tmp_path) -> None:
+    store = FakeSecretStore()
+    service = _build_service(tmp_path, store)
+
+    saved = service.save_settings(
+        AiExplainSettingsUpdatePayload(
+            uiVisible=True,
+            enabled=True,
+            providerLabel="sakura",
+            providerType="openai_compatible",
+            endpointUrl="https://example.invalid/v1",
+            model="sakura-model",
+            credentialName="sakura",
+            sendImages=True,
+            answerLength="short",
+            dailyLimit=5,
+            compareEnabled=True,
+            debugEnabled=False,
+            authSecret=None,
+        )
+    )
+
+    assert saved.canShowUi is True
+    assert saved.canUse is False
+    assert saved.providerReady is True
+    assert saved.credentialConfigured is False
+
+
 def test_ai_explain_cache_hit_model_miss_and_compare_toggle(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     store = FakeSecretStore()
     service = _build_service(tmp_path, store)
