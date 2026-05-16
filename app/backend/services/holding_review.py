@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+import json
 from datetime import date, datetime, timezone
 from typing import Any
 
@@ -593,6 +594,216 @@ def _event_gate(conn: duckdb.DuckDBPyConnection, code: str, today_iso: str | Non
     )
 
 
+def _json_object(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if value is None:
+        return {}
+    try:
+        parsed = json.loads(str(value))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _first_payload_value(payload: dict[str, Any], keys: tuple[str, ...]) -> Any:
+    for key in keys:
+        if key in payload and payload.get(key) is not None:
+            return payload.get(key)
+    return None
+
+
+def _pct_change(current: float | None, previous: float | None) -> float | None:
+    if current is None or previous in (None, 0):
+        return None
+    return round((current - previous) / abs(previous) * 100.0, 2)
+
+
+def _progress_rate(actual: float | None, forecast: float | None) -> float | None:
+    if actual is None or forecast in (None, 0):
+        return None
+    return round(actual / forecast * 100.0, 2)
+
+
+def _forecast_revision_direction(current: float | None, previous: float | None) -> str:
+    if current is None or previous is None:
+        return "unknown"
+    if current > previous:
+        return "upward"
+    if current < previous:
+        return "downward"
+    return "unchanged"
+
+
+def _empty_fundamentals(reason: str) -> dict[str, Any]:
+    return {
+        "available": False,
+        "source": "local",
+        "latest_result_date": None,
+        "fiscal_year_end": None,
+        "quarter": None,
+        "sales_yoy_pct": None,
+        "operating_profit_yoy_pct": None,
+        "ordinary_profit_yoy_pct": None,
+        "net_profit_yoy_pct": None,
+        "company_forecast_operating_profit": None,
+        "company_forecast_ordinary_profit": None,
+        "progress_rate_operating_profit_pct": None,
+        "progress_rate_ordinary_profit_pct": None,
+        "forecast_revision_direction": "unknown",
+        "consensus_gap_pct": None,
+        "earnings_crossing_support": "unavailable",
+        "reasons": [reason],
+    }
+
+
+def _fundamentals_supplement(conn: duckdb.DuckDBPyConnection, code: str) -> tuple[dict[str, Any], list[str]]:
+    missing: list[str] = []
+    if not _has_table(conn, "edinetdb_company_map"):
+        return _empty_fundamentals("edinet_mapping_table_missing"), ["edinetdb_company_map"]
+    row = conn.execute(
+        """
+        SELECT edinet_code
+        FROM edinetdb_company_map
+        WHERE sec_code = ?
+        ORDER BY updated_at DESC
+        LIMIT 1
+        """,
+        [code],
+    ).fetchone()
+    if not row or not row[0]:
+        return _empty_fundamentals("edinet_mapping_missing"), [f"edinetdb_company_map:{code}"]
+    edinet_code = str(row[0])
+    if not _has_table(conn, "edinetdb_financials"):
+        return _empty_fundamentals("financials_table_missing"), ["edinetdb_financials"]
+    rows = conn.execute(
+        """
+        SELECT fiscal_year, accounting_standard, payload_json, fetched_at
+        FROM edinetdb_financials
+        WHERE edinet_code = ?
+        ORDER BY fiscal_year DESC
+        LIMIT 2
+        """,
+        [edinet_code],
+    ).fetchall()
+    if not rows:
+        return _empty_fundamentals("financials_missing"), [f"edinetdb_financials:{code}"]
+
+    latest = rows[0]
+    previous = rows[1] if len(rows) > 1 else None
+    latest_payload = _json_object(latest[2])
+    previous_payload = _json_object(previous[2]) if previous else {}
+    if not latest_payload:
+        return _empty_fundamentals("financials_payload_unreadable"), [f"edinetdb_financials.payload_json:{code}"]
+
+    revenue = _to_float(_first_payload_value(latest_payload, ("revenue", "net_sales", "sales")))
+    operating_income = _to_float(
+        _first_payload_value(latest_payload, ("operating_income", "operating_profit", "operating_profit_loss"))
+    )
+    ordinary_income = _to_float(
+        _first_payload_value(latest_payload, ("ordinary_income", "ordinary_profit", "ordinary_profit_loss"))
+    )
+    net_income = _to_float(_first_payload_value(latest_payload, ("net_income", "profit", "profit_attributable_to_owners")))
+    previous_revenue = _to_float(_first_payload_value(previous_payload, ("revenue", "net_sales", "sales")))
+    previous_operating = _to_float(
+        _first_payload_value(previous_payload, ("operating_income", "operating_profit", "operating_profit_loss"))
+    )
+    previous_ordinary = _to_float(
+        _first_payload_value(previous_payload, ("ordinary_income", "ordinary_profit", "ordinary_profit_loss"))
+    )
+    previous_net = _to_float(
+        _first_payload_value(previous_payload, ("net_income", "profit", "profit_attributable_to_owners"))
+    )
+
+    forecast_operating_keys = (
+        "company_forecast_operating_profit",
+        "forecast_operating_income",
+        "operating_income_forecast",
+        "full_year_operating_income_forecast",
+    )
+    forecast_ordinary_keys = (
+        "company_forecast_ordinary_profit",
+        "forecast_ordinary_income",
+        "ordinary_income_forecast",
+        "full_year_ordinary_income_forecast",
+    )
+    forecast_operating = _to_float(_first_payload_value(latest_payload, forecast_operating_keys))
+    forecast_ordinary = _to_float(_first_payload_value(latest_payload, forecast_ordinary_keys))
+    previous_forecast_operating = _to_float(_first_payload_value(previous_payload, forecast_operating_keys))
+    previous_forecast_ordinary = _to_float(_first_payload_value(previous_payload, forecast_ordinary_keys))
+    explicit_revision = str(
+        _first_payload_value(latest_payload, ("forecast_revision_direction", "revision_direction")) or ""
+    ).strip().lower()
+    if explicit_revision in {"upward", "downward", "unchanged", "unknown"}:
+        revision_direction = explicit_revision
+    else:
+        revision_direction = _forecast_revision_direction(
+            forecast_operating or forecast_ordinary,
+            previous_forecast_operating or previous_forecast_ordinary,
+        )
+
+    consensus = _to_float(
+        _first_payload_value(
+            latest_payload,
+            ("consensus_operating_profit", "consensus_ordinary_profit", "analyst_consensus_profit"),
+        )
+    )
+    consensus_base = forecast_operating or forecast_ordinary or operating_income or ordinary_income
+    consensus_gap = _pct_change(consensus_base, consensus)
+    operating_yoy = _pct_change(operating_income, previous_operating)
+    ordinary_yoy = _pct_change(ordinary_income, previous_ordinary)
+    net_yoy = _pct_change(net_income, previous_net)
+    operating_progress = _progress_rate(operating_income, forecast_operating)
+    ordinary_progress = _progress_rate(ordinary_income, forecast_ordinary)
+
+    reasons = ["local_edinet_financials_available"]
+    if previous is None:
+        reasons.append("previous_year_financials_missing")
+    if forecast_operating is None and forecast_ordinary is None:
+        reasons.append("forecast_data_missing")
+        missing.append(f"fundamentals_supplement.company_forecast:{code}")
+    if consensus is None:
+        reasons.append("consensus_data_missing")
+        missing.append(f"fundamentals_supplement.consensus_gap_pct:{code}")
+    if str(_first_payload_value(latest_payload, ("quarter", "period_type")) or "").strip() == "":
+        reasons.append("annual_financials_only")
+
+    avoid_signals = [value is not None and value <= -10.0 for value in (operating_yoy, ordinary_yoy, net_yoy)]
+    support_signals = [value is not None and value >= 5.0 for value in (operating_yoy, ordinary_yoy, net_yoy)]
+    progress_signals = [value is not None and value >= 75.0 for value in (operating_progress, ordinary_progress)]
+    if revision_direction == "downward" or any(avoid_signals):
+        crossing_support = "avoid_crossing"
+    elif revision_direction == "upward" or any(support_signals) or any(progress_signals):
+        crossing_support = "support_crossing"
+    else:
+        crossing_support = "neutral"
+
+    fiscal_year = latest[0]
+    fiscal_year_end = _first_payload_value(latest_payload, ("fiscal_year_end", "period_end", "fiscal_period_end"))
+    return (
+        {
+            "available": True,
+            "source": "local",
+            "latest_result_date": _timestamp_to_iso_date(latest[3]),
+            "fiscal_year_end": str(fiscal_year_end or fiscal_year) if fiscal_year_end or fiscal_year is not None else None,
+            "quarter": str(_first_payload_value(latest_payload, ("quarter", "period_type")) or "FY"),
+            "sales_yoy_pct": _pct_change(revenue, previous_revenue),
+            "operating_profit_yoy_pct": operating_yoy,
+            "ordinary_profit_yoy_pct": ordinary_yoy,
+            "net_profit_yoy_pct": net_yoy,
+            "company_forecast_operating_profit": forecast_operating,
+            "company_forecast_ordinary_profit": forecast_ordinary,
+            "progress_rate_operating_profit_pct": operating_progress,
+            "progress_rate_ordinary_profit_pct": ordinary_progress,
+            "forecast_revision_direction": revision_direction,
+            "consensus_gap_pct": consensus_gap,
+            "earnings_crossing_support": crossing_support,
+            "reasons": reasons,
+        },
+        missing,
+    )
+
+
 def _current_hold_reason(
     signal: dict[str, Any],
     ranking: dict[str, Any],
@@ -732,6 +943,8 @@ def build_holding_review_bundle(
         missing.extend(missing_signal)
         gate, missing_gate = _event_gate(conn, holding_code, (provisional or confirmed or {}).get("date") or now_iso)
         missing.extend(missing_gate)
+        fundamentals, missing_fundamentals = _fundamentals_supplement(conn, holding_code)
+        missing.extend(missing_fundamentals)
         chart_context, missing_chart = _chart_context(conn, holding_code, confirmed, provisional)
         missing.extend(missing_chart)
         if provisional:
@@ -763,6 +976,7 @@ def build_holding_review_bundle(
                 "confirmed_bar": confirmed,
                 "provisional_bar": provisional,
                 "chart_context": chart_context,
+                "fundamentals_supplement": fundamentals,
                 "event_gate": gate,
                 "decision": decision,
                 "data_quality": {

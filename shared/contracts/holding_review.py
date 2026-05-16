@@ -21,6 +21,7 @@ class HoldingReviewBundle(TypedDict):
     current_hold_reason: dict[str, Any]
     confirmed_bar: dict[str, Any] | None
     provisional_bar: dict[str, Any] | None
+    fundamentals_supplement: dict[str, Any]
     event_gate: dict[str, Any]
     decision: dict[str, Any]
     data_quality: dict[str, Any]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from contextlib import AbstractContextManager
 from pathlib import Path
 
@@ -143,6 +144,71 @@ def _seed_review_db(db_path: Path) -> None:
             """
         )
         conn.execute("INSERT INTO events_meta VALUES ('2531', 'earnings', 20260513)")
+        conn.execute(
+            """
+            CREATE TABLE edinetdb_company_map (
+                sec_code TEXT,
+                edinet_code TEXT,
+                name TEXT,
+                industry TEXT,
+                updated_at TIMESTAMP
+            )
+            """
+        )
+        conn.execute(
+            "INSERT INTO edinetdb_company_map VALUES ('2531', 'E00396', 'Takara Holdings', 'Foods', TIMESTAMP '2026-05-01')"
+        )
+        conn.execute(
+            """
+            CREATE TABLE edinetdb_financials (
+                edinet_code TEXT,
+                fiscal_year TEXT,
+                accounting_standard TEXT,
+                payload_json TEXT,
+                fetched_at TIMESTAMP
+            )
+            """
+        )
+        conn.execute(
+            "INSERT INTO edinetdb_financials VALUES (?, ?, ?, ?, TIMESTAMP '2026-02-14')",
+            [
+                "E00396",
+                "2026-03",
+                "JP",
+                json.dumps(
+                    {
+                        "quarter": "3Q",
+                        "revenue": 120.0,
+                        "operating_income": 20.0,
+                        "ordinary_income": 22.0,
+                        "net_income": 16.0,
+                        "company_forecast_operating_profit": 25.0,
+                        "company_forecast_ordinary_profit": 27.5,
+                        "forecast_revision_direction": "unchanged",
+                        "consensus_ordinary_profit": 25.0,
+                    }
+                ),
+            ],
+        )
+        conn.execute(
+            "INSERT INTO edinetdb_financials VALUES (?, ?, ?, ?, TIMESTAMP '2025-02-14')",
+            [
+                "E00396",
+                "2025-03",
+                "JP",
+                json.dumps(
+                    {
+                        "quarter": "3Q",
+                        "revenue": 100.0,
+                        "operating_income": 18.0,
+                        "ordinary_income": 20.0,
+                        "net_income": 15.0,
+                        "company_forecast_operating_profit": 25.0,
+                        "company_forecast_ordinary_profit": 27.5,
+                    }
+                ),
+            ],
+        )
 
 
 def test_holding_review_bundle_aggregates_read_only_payload(tmp_path: Path, monkeypatch) -> None:
@@ -188,6 +254,21 @@ def test_holding_review_bundle_aggregates_read_only_payload(tmp_path: Path, monk
     assert item["provisional_bar"]["above_ma20"] is True
     assert item["chart_context"]["chart_structure_state"] == "structurally_alive"
     assert item["chart_context"]["daily_6m_context"]["above_ma_count"] == 3
+    fundamentals = item["fundamentals_supplement"]
+    assert fundamentals["available"] is True
+    assert fundamentals["source"] == "local"
+    assert fundamentals["latest_result_date"] == "2026-02-14"
+    assert fundamentals["fiscal_year_end"] == "2026-03"
+    assert fundamentals["quarter"] == "3Q"
+    assert fundamentals["sales_yoy_pct"] == 20.0
+    assert fundamentals["operating_profit_yoy_pct"] == 11.11
+    assert fundamentals["ordinary_profit_yoy_pct"] == 10.0
+    assert fundamentals["net_profit_yoy_pct"] == 6.67
+    assert fundamentals["progress_rate_operating_profit_pct"] == 80.0
+    assert fundamentals["progress_rate_ordinary_profit_pct"] == 80.0
+    assert fundamentals["forecast_revision_direction"] == "unchanged"
+    assert fundamentals["consensus_gap_pct"] == 0.0
+    assert fundamentals["earnings_crossing_support"] == "support_crossing"
     assert item["event_gate"]["event_risk_level"] == "high"
     assert item["decision"]["action"] == "reduce"
     assert item["decision"]["position_proposal"] == {"from": "short300-long1000", "to": "short300-long500~700"}
@@ -215,7 +296,10 @@ def test_holding_review_by_code_degrades_when_optional_inputs_missing(tmp_path: 
     assert item["confirmed_bar"] is None
     assert item["provisional_bar"] is None
     assert item["decision"]["action"] == "hold"
+    assert item["fundamentals_supplement"]["available"] is False
+    assert item["fundamentals_supplement"]["earnings_crossing_support"] == "unavailable"
     assert "daily_bars" in item["data_quality"]["missing_fields"]
+    assert "edinetdb_company_map" in item["data_quality"]["missing_fields"]
     assert "trade_events" in item["data_quality"]["missing_fields"]
     assert item["data_quality"]["provisional_is_confirmed"] is False
 
