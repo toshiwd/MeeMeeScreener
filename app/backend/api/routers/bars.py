@@ -156,6 +156,65 @@ def _latest_row_date(rows: List[tuple] | None) -> int | None:
     return latest
 
 
+def _strip_source_from_daily_rows(rows: List[tuple] | None) -> List[tuple]:
+    stripped: List[tuple] = []
+    for row in rows or []:
+        if len(row) >= 7:
+            stripped.append(tuple(row[:6]))
+        else:
+            stripped.append(tuple(row))
+    return stripped
+
+
+def _daily_row_source(row: tuple) -> str:
+    if len(row) < 7:
+        return "pan"
+    return str(row[6] or "pan").strip().lower() or "pan"
+
+
+def _split_daily_rows_by_source(rows: List[tuple] | None) -> tuple[List[tuple], List[tuple]]:
+    confirmed: List[tuple] = []
+    provisional: List[tuple] = []
+    for row in rows or []:
+        stripped = tuple(row[:6]) if len(row) >= 7 else tuple(row)
+        if _daily_row_source(tuple(row)) == "yahoo":
+            provisional.append(stripped)
+        else:
+            confirmed.append(stripped)
+    return confirmed, provisional
+
+
+def _latest_source_row(rows: List[tuple]) -> tuple | None:
+    if not rows:
+        return None
+    return max(rows, key=lambda row: normalize_date_key(row[0]) or 0)
+
+
+def _source_aware_daily_rows(
+    repo: StockRepository,
+    codes: List[str],
+    limit: int,
+    *,
+    asof_dt: int | None,
+) -> tuple[Dict[str, List[tuple]], Dict[str, List[tuple]], Dict[str, tuple | None]]:
+    getter = getattr(repo, "get_daily_bars_with_source_batch", None)
+    if not callable(getter):
+        raw = repo.get_daily_bars_batch(codes, limit, asof_dt=asof_dt)
+        return raw, raw, {code: None for code in codes}
+
+    raw_with_source = getter(codes, limit, asof_dt=asof_dt)
+    all_rows_by_code: Dict[str, List[tuple]] = {}
+    confirmed_rows_by_code: Dict[str, List[tuple]] = {}
+    persisted_provisional_by_code: Dict[str, tuple | None] = {}
+    for code in codes:
+        source_rows = raw_with_source.get(code, [])
+        confirmed_rows, provisional_rows = _split_daily_rows_by_source(source_rows)
+        all_rows_by_code[code] = _strip_source_from_daily_rows(source_rows)
+        confirmed_rows_by_code[code] = confirmed_rows
+        persisted_provisional_by_code[code] = _latest_source_row(provisional_rows)
+    return all_rows_by_code, confirmed_rows_by_code, persisted_provisional_by_code
+
+
 def _should_apply_provisional_overlay(
     *,
     confirmed_last: int | None,
@@ -508,12 +567,28 @@ def _fetch_multi_timeframe_items(
             logger.debug("Yahoo provisional fetch skipped in batch bars: %s", exc)
 
     raw_daily_rows_by_code: Dict[str, List[tuple]] | None = None
+    confirmed_daily_rows_by_code: Dict[str, List[tuple]] | None = None
+    persisted_provisional_rows_by_code: Dict[str, tuple | None] = {}
     if "daily" in requested_frames:
-        raw_daily = repo.get_daily_bars_batch(codes, frame_limits["daily"], asof_dt=asof_dt)
+        raw_daily, confirmed_daily_rows_by_code, persisted_provisional_rows_by_code = _source_aware_daily_rows(
+            repo,
+            codes,
+            frame_limits["daily"],
+            asof_dt=asof_dt,
+        )
         raw_daily_rows_by_code = {}
         for code in codes:
             raw_rows = raw_daily.get(code, [])
-            provisional_row = provisional_map.get(code) if include_provisional else None
+            persisted_provisional_row = persisted_provisional_rows_by_code.get(code)
+            provisional_row = (
+                provisional_map.get(code)
+                or persisted_provisional_row
+                if include_provisional
+                else None
+            )
+            confirmed_rows_for_provenance = (
+                confirmed_daily_rows_by_code.get(code, raw_rows) if confirmed_daily_rows_by_code is not None else raw_rows
+            )
             raw_daily_rows_by_code[code] = raw_rows
             merged, provisional_applied = _merge_confirmed_daily_rows(
                 raw_rows,
@@ -521,6 +596,15 @@ def _fetch_multi_timeframe_items(
                 include_provisional=include_provisional,
                 asof_dt=asof_dt,
             )
+            if provisional_row is not None:
+                provisional_applied = bool(
+                    provisional_applied
+                    or _should_apply_provisional_overlay(
+                        confirmed_last=_latest_row_date(confirmed_rows_for_provenance),
+                        provisional_row=provisional_row,
+                        asof_dt=asof_dt,
+                    )
+                )
             daily_rows = merged[-frame_limits["daily"] :] if frame_limits["daily"] > 0 else merged
             payload = _to_payload_rows(daily_rows, boxes_enabled=False)
             payload["provenance"] = _build_frame_provenance(
@@ -528,7 +612,7 @@ def _fetch_multi_timeframe_items(
                 timeframe="daily",
                 runtime_db_path=str(config.DB_PATH) if getattr(config, "DB_PATH", None) else None,
                 rendered_rows=daily_rows,
-                confirmed_rows=raw_rows,
+                confirmed_rows=confirmed_rows_for_provenance,
                 provisional_row=provisional_row,
                 provisional_applied=provisional_applied,
                 include_provisional=include_provisional,
@@ -546,11 +630,21 @@ def _fetch_multi_timeframe_items(
         if include_provisional and asof_dt is None:
             if raw_daily_rows_by_code is not None:
                 weekly_confirmed_daily_rows_by_code = {
-                    code: list((raw_daily_rows_by_code.get(code, []) or [])[-_WEEKLY_PATCH_DAILY_LIMIT :])
+                    code: list(
+                        (
+                            (confirmed_daily_rows_by_code or raw_daily_rows_by_code).get(code, [])
+                            or []
+                        )[-_WEEKLY_PATCH_DAILY_LIMIT :]
+                    )
                     for code in codes
                 }
             else:
-                weekly_confirmed_daily_rows_by_code = repo.get_daily_bars_batch(
+                (
+                    _weekly_raw_rows_by_code,
+                    weekly_confirmed_daily_rows_by_code,
+                    persisted_provisional_rows_by_code,
+                ) = _source_aware_daily_rows(
+                    repo,
                     codes,
                     _WEEKLY_PATCH_DAILY_LIMIT,
                     asof_dt=asof_dt,
@@ -560,6 +654,8 @@ def _fetch_multi_timeframe_items(
             confirmed_weekly_rows = weekly_rows_by_code.get(code, [])
             weekly_rows = list(confirmed_weekly_rows)
             provisional_row = provisional_map.get(code) if include_provisional else None
+            if provisional_row is None and include_provisional:
+                provisional_row = persisted_provisional_rows_by_code.get(code)
             confirmed_rows_for_provenance: List[tuple] = confirmed_weekly_rows
             provisional_applied = False
             if weekly_confirmed_daily_rows_by_code is not None and weekly_patch_daily_rows_by_code is not None:
@@ -595,7 +691,16 @@ def _fetch_multi_timeframe_items(
         )
         for code in codes:
             monthly_rows = monthly_rows_by_code.get(code, [])
-            confirmed_rows = raw_daily_rows_by_code.get(code, []) if raw_daily_rows_by_code else monthly_rows
+            confirmed_rows = (
+                confirmed_daily_rows_by_code.get(code, [])
+                if confirmed_daily_rows_by_code is not None
+                else raw_daily_rows_by_code.get(code, [])
+                if raw_daily_rows_by_code
+                else monthly_rows
+            )
+            provisional_row = provisional_map.get(code) if include_provisional else None
+            if provisional_row is None and include_provisional:
+                provisional_row = persisted_provisional_rows_by_code.get(code)
             payload = _to_payload_rows(
                 monthly_rows,
                 boxes_enabled=include_boxes,
@@ -606,10 +711,10 @@ def _fetch_multi_timeframe_items(
                 runtime_db_path=str(config.DB_PATH) if getattr(config, "DB_PATH", None) else None,
                 rendered_rows=monthly_rows,
                 confirmed_rows=confirmed_rows,
-                provisional_row=provisional_map.get(code) if include_provisional else None,
+                provisional_row=provisional_row,
                 provisional_applied=_should_apply_provisional_overlay(
                     confirmed_last=_latest_row_date(confirmed_rows),
-                    provisional_row=provisional_map.get(code) if include_provisional else None,
+                    provisional_row=provisional_row,
                     asof_dt=asof_dt,
                 )
                 if include_provisional

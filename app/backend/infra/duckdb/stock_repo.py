@@ -138,6 +138,54 @@ class StockRepository:
             grouped[code] = self._maybe_fill_sparse_daily_history(code, trimmed_rows, limit=limit, asof_dt=asof_dt)
         return grouped
 
+    def get_daily_bars_with_source_batch(
+        self,
+        codes: List[str],
+        limit: int = 400,
+        asof_dt: int | None = None,
+    ) -> Dict[str, List[Tuple]]:
+        unique_codes = [code for code in dict.fromkeys(str(code).strip() for code in codes) if code]
+        if not unique_codes:
+            return {}
+
+        placeholders = ",".join(["?"] * len(unique_codes))
+        query = f"""
+            SELECT code, date, o, h, l, c, v, COALESCE(source, 'pan') AS source
+            FROM (
+                SELECT
+                    code,
+                    date,
+                    o,
+                    h,
+                    l,
+                    c,
+                    v,
+                    source,
+                    ROW_NUMBER() OVER (PARTITION BY code ORDER BY date DESC) AS rn
+                FROM daily_bars
+                WHERE code IN ({placeholders})
+        """
+        params: List[Any] = list(unique_codes)
+        if asof_dt is not None:
+            asof_ymd = int(datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y%m%d"))
+            query += " AND date <= CASE WHEN date >= 1000000000 THEN ? ELSE ? END"
+            params.extend([asof_dt, asof_ymd])
+        query += """
+            )
+            WHERE rn <= ?
+            ORDER BY code, date
+        """
+        params.append(limit)
+
+        with self._get_read_conn() as conn:
+            rows = conn.execute(query, params).fetchall()
+
+        grouped: Dict[str, List[Tuple]] = {code: [] for code in unique_codes}
+        for row in rows:
+            code = str(row[0])
+            grouped.setdefault(code, []).append(tuple(row[1:]))
+        return grouped
+
     def get_weekly_bars_batch(
         self,
         codes: List[str],

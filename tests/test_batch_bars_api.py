@@ -302,6 +302,71 @@ def test_batch_bars_v3_prefers_confirmed_overlapping_chart_gallery_data(monkeypa
     assert daily["provenance"]["overwrite_status"] == "provisional_replaced_by_confirmed"
 
 
+def test_batch_bars_v3_keeps_persisted_yahoo_rows_provisional(monkeypatch, tmp_path) -> None:
+    db_path = tmp_path / "stocks.duckdb"
+    db_path.touch()
+    os.utime(db_path, (1_700_000_000, 1_700_000_000))
+    monkeypatch.setenv("STOCKS_DB_PATH", str(db_path))
+
+    class _FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):  # type: ignore[override]
+            return datetime(2026, 4, 16, 12, 0, 0, tzinfo=timezone.utc)
+
+    class _PersistedYahooRepo:
+        def get_daily_bars_batch(self, codes, limit, asof_dt=None):
+            raise AssertionError("source-aware daily fetch should be used")
+
+        def get_daily_bars_with_source_batch(self, codes, limit, asof_dt=None):
+            rows = [
+                (20260414, 100.0, 110.0, 95.0, 105.0, 1000.0, "pan"),
+                (20260415, 106.0, 112.0, 101.0, 111.0, 1200.0, "pan"),
+                (20260416, 111.0, 115.0, 109.0, 114.0, 900.0, "yahoo"),
+            ]
+            return {code: rows[-limit:] for code in codes}
+
+        def get_weekly_bars_batch(self, codes, limit, asof_dt=None):
+            return {code: [] for code in codes}
+
+        def get_monthly_bars_batch(self, codes, limit, asof_dt=None, recent_daily_rows_by_code=None):
+            return {code: [] for code in codes}
+
+    monkeypatch.setattr(bars_module, "datetime", _FixedDatetime)
+    monkeypatch.setattr(
+        bars_module,
+        "get_provisional_daily_rows_from_spark",
+        lambda codes, prefer_chart_ohlc=True, force_refresh=False: {},
+    )
+    _clear_batch_bars_cache()
+
+    client = FastAPI()
+    client.include_router(bars_module.router)
+    client.dependency_overrides[get_stock_repo] = lambda: _PersistedYahooRepo()
+    test_client = TestClient(client)
+
+    response = test_client.post(
+        "/api/batch_bars_v3",
+        json={
+            "codes": ["7203"],
+            "timeframes": ["daily"],
+            "limit": 24,
+            "includeProvisional": True,
+            "includeBoxes": False,
+        },
+    )
+
+    assert response.status_code == 200
+    daily = response.json()["items"]["7203"]["daily"]
+    assert daily["bars"][-1][0] == 20260416
+    assert daily["provenance"]["chart_last_confirmed_date"] == 20260415
+    assert daily["provenance"]["chart_last_provisional_date"] == 20260416
+    assert daily["provenance"]["confirmed_judgment_available"] is False
+    assert daily["provenance"]["provisional_judgment_available"] is True
+    assert daily["provenance"]["display_basis_classification"] == "mixed"
+    assert daily["provenance"]["judgment_basis_classification"] == "provisional"
+    assert daily["provenance"]["overwrite_status"] == "provisional_only"
+
+
 def test_batch_bars_v3_uses_direct_weekly_source_without_daily_fetch(monkeypatch) -> None:
     class _WeeklyOnlyRepo:
         def get_daily_bars_batch(self, codes, limit, asof_dt=None):  # pragma: no cover - guardrail
