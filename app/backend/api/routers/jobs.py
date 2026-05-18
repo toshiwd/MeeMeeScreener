@@ -44,6 +44,7 @@ TXT_UPDATE_SUCCESSOR_ENDPOINT = "/api/jobs/txt-update"
 TXT_UPDATE_SUNSET_HTTP_DATE = "Tue, 30 Jun 2026 00:00:00 GMT"
 TXT_UPDATE_DEPRECATION_DOC = "/docs/TXT_UPDATE_RUNBOOK.md"
 TXT_UPDATE_DISABLE_LEGACY_ENV = "MEEMEE_DISABLE_LEGACY_TXT_UPDATE_ENDPOINTS"
+TXT_UPDATE_YAHOO_DAILY_INGEST_ENV = "MEEMEE_TXT_UPDATE_YAHOO_DAILY_INGEST"
 
 
 def _is_transient_db_lock_error(exc: Exception) -> bool:
@@ -106,6 +107,58 @@ def _submit_job(job_type: str, payload: dict | None = None):
         return JSONResponse(status_code=409, content=body)
     job_id = job_manager.submit(job_type, payload or {})
     return {"ok": True, "job_id": job_id}
+
+
+def _txt_update_should_submit_yahoo_daily_ingest(payload: dict | None) -> tuple[bool, str | None]:
+    request_value = (payload or {}).get("run_yahoo_daily_ingest")
+    if request_value is not None:
+        return _coerce_bool(request_value, default=True), "disabled_by_request"
+    env_value = os.getenv(TXT_UPDATE_YAHOO_DAILY_INGEST_ENV)
+    if env_value is not None:
+        return _coerce_bool(env_value, default=True), "disabled_by_env"
+    return True, None
+
+
+def _txt_update_submit_yahoo_daily_ingest_followup(
+    *,
+    txt_job_id: str,
+    txt_payload: dict | None,
+    source: str,
+) -> dict[str, object]:
+    enabled, disabled_reason = _txt_update_should_submit_yahoo_daily_ingest(txt_payload)
+    if not enabled:
+        return {
+            "scheduled": False,
+            "type": YF_DAILY_INGEST_JOB_TYPE,
+            "reason": disabled_reason or "disabled",
+        }
+
+    followup_payload = {
+        "dry_run": False,
+        "asof_dt": (txt_payload or {}).get("yahoo_daily_ingest_asof_dt"),
+        "max_codes": (txt_payload or {}).get("yahoo_daily_ingest_max_codes"),
+        "source": source,
+        "parent_job_id": txt_job_id,
+        "trigger": "txt_update_submission",
+    }
+    followup_job_id = job_manager.submit(
+        YF_DAILY_INGEST_JOB_TYPE,
+        followup_payload,
+        unique=True,
+        message="Yahoo daily ingest queued after TXT update submission",
+    )
+    if not followup_job_id:
+        return {
+            "scheduled": False,
+            "type": YF_DAILY_INGEST_JOB_TYPE,
+            "reason": "already_active",
+        }
+    return {
+        "scheduled": True,
+        "type": YF_DAILY_INGEST_JOB_TYPE,
+        "job_id": followup_job_id,
+        "jobId": followup_job_id,
+    }
 
 
 def _normalize_as_of_text(value: object) -> str | None:
@@ -179,6 +232,7 @@ def _txt_update_submit_response(
     source: str,
     legacy_endpoint: str | None = None,
     payload: dict | None = None,
+    daily_ingest_followup: dict[str, object] | None = None,
 ) -> dict[str, object]:
     response_payload: dict[str, object] = {
         "ok": True,
@@ -191,6 +245,10 @@ def _txt_update_submit_response(
         "jobId": job_id,
         "source": source,
     }
+    if daily_ingest_followup is not None:
+        response_payload["daily_ingest_followup"] = daily_ingest_followup
+        if daily_ingest_followup.get("scheduled") is True:
+            response_payload["yahoo_daily_ingest_followup_job_id"] = daily_ingest_followup.get("job_id")
     if payload:
         response_payload["request"] = payload
     if legacy_endpoint:
@@ -324,12 +382,28 @@ def submit_txt_update_job(
             legacy_endpoint=legacy_endpoint,
         )
 
-    job_id = job_manager.submit(TXT_UPDATE_JOB_TYPE, payload or {}, unique=True)
+    request_payload = payload or {}
+    job_id = job_manager.submit(TXT_UPDATE_JOB_TYPE, request_payload, unique=True)
     if not job_id:
         return _maybe_apply_legacy_headers(
             _txt_update_conflict_response(source=source, legacy_endpoint=legacy_endpoint),
             legacy_endpoint=legacy_endpoint,
         )
+
+    try:
+        daily_ingest_followup = _txt_update_submit_yahoo_daily_ingest_followup(
+            txt_job_id=job_id,
+            txt_payload=request_payload,
+            source=source,
+        )
+    except Exception as exc:
+        logger.exception("Failed to queue yahoo daily ingest follow-up for txt_update: %s", exc)
+        daily_ingest_followup = {
+            "scheduled": False,
+            "type": YF_DAILY_INGEST_JOB_TYPE,
+            "reason": "submit_failed",
+            "error": str(exc),
+        }
 
     return _maybe_apply_legacy_headers(
         _txt_update_submit_response(
@@ -337,6 +411,7 @@ def submit_txt_update_job(
             source=source,
             legacy_endpoint=legacy_endpoint,
             payload=payload,
+            daily_ingest_followup=daily_ingest_followup,
         ),
         legacy_endpoint=legacy_endpoint,
     )

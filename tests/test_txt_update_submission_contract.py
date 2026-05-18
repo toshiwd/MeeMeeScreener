@@ -18,11 +18,17 @@ def _json_body(response: JSONResponse) -> dict:
 
 
 def test_submit_txt_update_job_returns_canonical_payload():
+    submitted: list[tuple[str, dict, dict]] = []
+
+    def fake_submit(job_type, payload, **kwargs):
+        submitted.append((job_type, payload, kwargs))
+        return "job-123" if job_type == "txt_update" else "yf-job-123"
+
     with (
         patch("app.backend.api.routers.jobs.os.path.isfile", return_value=True),
         patch("app.backend.api.routers.jobs.cleanup_stale_jobs"),
         patch("app.backend.api.routers.jobs._count_active_jobs", return_value=0),
-        patch("app.backend.api.routers.jobs.job_manager.submit", return_value="job-123") as mock_submit,
+        patch("app.backend.api.routers.jobs.job_manager.submit", side_effect=fake_submit),
     ):
         payload = jobs.submit_txt_update_job(
             {"auto_ml_predict": True, "auto_ml_train": False},
@@ -37,9 +43,40 @@ def test_submit_txt_update_job_returns_canonical_payload():
     assert payload["state"] == "queued"
     assert payload["job_id"] == "job-123"
     assert payload["jobId"] == "job-123"
-    mock_submit.assert_called_once_with(
+    assert payload["daily_ingest_followup"]["scheduled"] is True
+    assert payload["daily_ingest_followup"]["type"] == "yf_daily_ingest"
+    assert payload["yahoo_daily_ingest_followup_job_id"] == "yf-job-123"
+    assert submitted[0] == (
         "txt_update",
         {"auto_ml_predict": True, "auto_ml_train": False},
+        {"unique": True},
+    )
+    assert submitted[1][0] == "yf_daily_ingest"
+    assert submitted[1][1]["parent_job_id"] == "job-123"
+    assert submitted[1][1]["trigger"] == "txt_update_submission"
+    assert submitted[1][2]["unique"] is True
+
+
+def test_submit_txt_update_job_can_disable_yahoo_daily_ingest_followup():
+    with (
+        patch("app.backend.api.routers.jobs.os.path.isfile", return_value=True),
+        patch("app.backend.api.routers.jobs.cleanup_stale_jobs"),
+        patch("app.backend.api.routers.jobs._count_active_jobs", return_value=0),
+        patch("app.backend.api.routers.jobs.job_manager.submit", return_value="job-123") as mock_submit,
+    ):
+        payload = jobs.submit_txt_update_job(
+            {"run_yahoo_daily_ingest": False},
+            source="/api/jobs/txt-update",
+        )
+
+    assert payload["daily_ingest_followup"] == {
+        "scheduled": False,
+        "type": "yf_daily_ingest",
+        "reason": "disabled_by_request",
+    }
+    mock_submit.assert_called_once_with(
+        "txt_update",
+        {"run_yahoo_daily_ingest": False},
         unique=True,
     )
 
@@ -66,7 +103,7 @@ def test_submit_txt_update_job_legacy_adds_deprecation_headers():
         patch("app.backend.api.routers.jobs.os.path.isfile", return_value=True),
         patch("app.backend.api.routers.jobs.cleanup_stale_jobs"),
         patch("app.backend.api.routers.jobs._count_active_jobs", return_value=0),
-        patch("app.backend.api.routers.jobs.job_manager.submit", return_value="job-legacy"),
+        patch("app.backend.api.routers.jobs.job_manager.submit", side_effect=["job-legacy", "yf-job-legacy"]),
     ):
         response = jobs.submit_txt_update_job(
             {},
@@ -78,6 +115,8 @@ def test_submit_txt_update_job_legacy_adds_deprecation_headers():
     assert response.status_code == 200
     payload = _json_body(response)
     assert payload["job_id"] == "job-legacy"
+    assert payload["daily_ingest_followup"]["scheduled"] is True
+    assert payload["yahoo_daily_ingest_followup_job_id"] == "yf-job-legacy"
     assert response.headers.get("Deprecation") == "true"
     assert response.headers.get("Sunset") == "Tue, 30 Jun 2026 00:00:00 GMT"
     assert "/api/jobs/txt-update" in (response.headers.get("Link") or "")
