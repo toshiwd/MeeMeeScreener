@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildTdnetHighlights,
+  formatTdnetDisclosureStatusLabel,
   formatTdnetEventTypeLabel,
   formatTdnetSentimentLabel,
+  normalizeTdnetDisclosureMeta,
   shouldAutoRefreshTdnet,
 } from "./detailHelpers";
 
@@ -29,6 +31,12 @@ describe("TDNET helper display", () => {
           sentiment: "positive",
           importanceScore: 0.9,
           tags: ["share_buyback"],
+          sourceProvider: "yanoshin",
+          markets: "TSE",
+          reportLinks: [
+            { label: "本文PDF", url: "https://example.com/a.pdf" },
+            { label: "XBRL", url: "https://example.com/a.zip" },
+          ],
         },
       ],
       3
@@ -45,6 +53,22 @@ describe("TDNET helper display", () => {
 
   it("requests refresh when TDNET data is missing or stale", () => {
     expect(shouldAutoRefreshTdnet([], Date.parse("2026-03-12T12:00:00+09:00"))).toBe(true);
+    expect(
+      shouldAutoRefreshTdnet(
+        [],
+        Date.parse("2026-03-12T12:00:00+09:00"),
+        {
+          status: "unconfigured",
+          statusDetail: "TDNET_MCP_FETCH_COMMAND is not set",
+          sourceConfigured: false,
+          missingTables: [],
+          totalCount: 0,
+          matchedCount: 0,
+          latestPublishedAt: null,
+          latestFetchedAt: null,
+        }
+      )
+    ).toBe(false);
     expect(
       shouldAutoRefreshTdnet(
         [
@@ -87,5 +111,22 @@ describe("TDNET helper display", () => {
         Date.parse("2026-03-12T12:30:00+09:00")
       )
     ).toBe(true);
+  });
+
+  it("normalizes and formats TDNET source metadata", () => {
+    const meta = normalizeTdnetDisclosureMeta({
+      status: "unconfigured",
+      statusDetail: "TDNET_MCP_FETCH_COMMAND is not set",
+      sourceConfigured: false,
+      missingTables: [],
+      totalCount: 0,
+      matchedCount: 0,
+      latestPublishedAt: null,
+      latestFetchedAt: null,
+    });
+
+    expect(meta?.status).toBe("unconfigured");
+    expect(meta?.sourceConfigured).toBe(false);
+    expect(formatTdnetDisclosureStatusLabel({ meta, items: [], loading: false })).toContain("TDNET");
   });
 });

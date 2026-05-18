@@ -208,31 +208,52 @@ class TradeRepository:
         """
         Parses raw bytes directly (used for upload preview/processing).
         """
-        # We need to decode to list of lists
-        lines = []
-        enc = ""
-        for encoding in ["cp932", "utf-8-sig", "utf-8"]:
+        best_result: Dict[str, Any] | None = None
+        best_score = -1
+        best_warnings = 10**9
+        seen_text: set[str] = set()
+
+        for encoding in ("cp932", "utf-8-sig", "utf-8"):
             try:
                 decoded = content.decode(encoding)
-                enc = encoding
-                lines = list(csv.reader(decoded.splitlines()))
-                break
-            except:
+            except UnicodeDecodeError:
                 continue
-        
-        if not lines:
+
+            if not decoded or decoded in seen_text:
+                continue
+            seen_text.add(decoded)
+            lines = list(csv.reader(decoded.splitlines()))
+            if not lines:
+                continue
+
+            if broker_override == "sbi":
+                candidates = [TradeParser.parse_sbi_rows(lines, encoding)]
+            elif broker_override == "rakuten":
+                candidates = [TradeParser.parse_rakuten_rows(lines, encoding)]
+            elif TradeParser.looks_like_sbi(lines):
+                candidates = [TradeParser.parse_sbi_rows(lines, encoding)]
+            else:
+                candidates = [
+                    TradeParser.parse_rakuten_rows(lines, encoding),
+                    TradeParser.parse_sbi_rows(lines, encoding),
+                ]
+
+            for result in candidates:
+                row_count = len(result.get("rows") or [])
+                warning_count = len(result.get("warnings") or [])
+                if row_count > best_score or (row_count == best_score and warning_count < best_warnings):
+                    best_result = result
+                    best_score = row_count
+                    best_warnings = warning_count
+
+        if best_result is not None:
+            return best_result
+
+        if not content:
             return {"rows": [], "warnings": [{"type": "decode_error", "message": "Could not decode file"}]}
-            
-        # Detect broker if not provided
-        is_sbi = False
-        if broker_override == "sbi":
-            is_sbi = True
-        elif broker_override == "rakuten":
-            is_sbi = False
-        else:
-            is_sbi = TradeParser.looks_like_sbi(lines)
-            
-        if is_sbi:
-            return TradeParser.parse_sbi_rows(lines, enc)
-        else:
-            return TradeParser.parse_rakuten_rows(lines, enc)
+
+        decoded = content.decode("utf-8", errors="replace")
+        lines = list(csv.reader(decoded.splitlines()))
+        result = TradeParser.parse_rakuten_rows(lines, "utf-8-replace")
+        result.setdefault("warnings", []).append({"type": "decode_error", "message": "Could not decode file cleanly"})
+        return result

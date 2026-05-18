@@ -41,6 +41,7 @@ def test_ensure_schema_bootstraps_events_and_tdnet_tables() -> None:
 def test_empty_events_and_tdnet_routes_do_not_500(tmp_path, monkeypatch) -> None:
     db_path = tmp_path / "stocks.duckdb"
     monkeypatch.setenv("STOCKS_DB_PATH", str(db_path))
+    monkeypatch.delenv("TDNET_MCP_FETCH_COMMAND", raising=False)
 
     from app.backend.api.routers import ticker as ticker_router
 
@@ -55,4 +56,10 @@ def test_empty_events_and_tdnet_routes_do_not_500(tmp_path, monkeypatch) -> None
 
         tdnet_response = client.get("/api/ticker/tdnet/disclosures", params={"code": "7203"})
         assert tdnet_response.status_code == 200
-        assert tdnet_response.json() == {"items": []}
+        tdnet_payload = tdnet_response.json()
+        assert tdnet_payload["items"] == []
+        assert tdnet_payload["meta"]["status"] == "unconfigured"
+        assert tdnet_payload["meta"]["statusDetail"] == "TDNET_MCP_FETCH_COMMAND is not set"
+        assert tdnet_payload["meta"]["sourceConfigured"] is False
+        assert tdnet_payload["meta"]["totalCount"] == 0
+        assert tdnet_payload["meta"]["matchedCount"] == 0

@@ -353,6 +353,25 @@ export type TdnetDisclosureItem = {
   sentiment: string | null;
   importanceScore: number | null;
   tags: string[];
+  sourceProvider: string | null;
+  markets: string | null;
+  reportLinks: TdnetReportLink[];
+};
+
+export type TdnetReportLink = {
+  label: string;
+  url: string;
+};
+
+export type TdnetDisclosureMeta = {
+  status: string | null;
+  statusDetail: string | null;
+  sourceConfigured: boolean | null;
+  missingTables: string[];
+  totalCount: number | null;
+  matchedCount: number | null;
+  latestPublishedAt: string | null;
+  latestFetchedAt: string | null;
 };
 
 export type TaisyakuBalanceItem = {

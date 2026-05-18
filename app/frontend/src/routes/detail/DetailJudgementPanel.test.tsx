@@ -124,4 +124,48 @@ describe("DetailJudgementPanel", () => {
     expect(markup).toContain("買い優先");
     expect(markup).toContain("売り優先");
   });
+
+  it("shows an explicit no-judgement state when ranking appearance is missing", () => {
+    const markup = renderToStaticMarkup(
+      <DetailJudgementPanel
+        {...baseProps}
+        analysisMissingDataVisible={true}
+        analysisDecision={{
+          tone: "neutral",
+          sideLabel: null,
+          patternLabel: null,
+          confidence: null,
+          buyProb: null,
+          sellProb: null,
+          neutralProb: null,
+        }}
+        analysisGuidance={{
+          ...baseProps.analysisGuidance,
+          confidenceRank: "low",
+          action: "neutral_watch",
+          watchpoint: "no ranking appearance data",
+          buyWidth: 0,
+          sellWidth: 0,
+          neutralWidth: 100,
+        }}
+        patternSummary={{
+          ...baseProps.patternSummary,
+          environmentLabel: "ranking",
+          environmentTone: "neutral",
+          markerTone: "neutral",
+          scenarios: [],
+        }}
+        analysisEntryPolicy={{
+          riskMode: "balanced",
+          up: null,
+          down: null,
+        }}
+      />
+    );
+
+    expect(markup).toContain("判定不可");
+    expect(markup).toContain("買い/売り判定に使えるランキング根拠なし");
+    expect(markup).toContain("買い・売り候補なし");
+    expect(markup).not.toContain("暫定");
+  });
 });

@@ -35,6 +35,8 @@ import {
 import { openDetailWithPrefetch } from "./detail/openDetailWithPrefetch";
 import { recordPerfEvent } from "../perfDiagnostics";
 const TIMELINE_LIMIT = 180;
+const THEME_ROTATION_LIMIT = 12;
+const THEME_CANDIDATE_LIMIT = 8;
 
 const PERIOD_OPTIONS: { key: MarketPeriodKey; label: string }[] = [
   { key: "1d", label: "1日" },
@@ -66,6 +68,296 @@ const formatSelectedSummary = (item: MarketSectorViewItem | null) => {
   return `${item.label} ${item.sector33_code}`;
 };
 
+type ThemeLeader = {
+  code: string;
+  name: string;
+  changePct: number;
+  volumeRatio?: number | null;
+  isEarnings?: boolean | null;
+};
+
+type ThemeRotationItem = {
+  themeId: string;
+  name: string;
+  avgChangePct: number;
+  advancerRatio: number;
+  avgVolumeRatio: number;
+  strength: number;
+  strengthDelta: number;
+  status: "NEW" | "ACCEL" | "HOT" | "FADE" | "COLD" | "WATCH";
+  count: number;
+  earningsCount: number;
+  leaders: ThemeLeader[];
+};
+
+type ThemeRotationPayload = {
+  label?: string | null;
+  themes?: ThemeRotationItem[];
+  excludeEarnings?: boolean | null;
+};
+
+type ThemeCandidateMode = "entry_ease" | "value_range" | "continuation";
+
+type ThemeCandidateItem = {
+  rank: number;
+  code: string;
+  name: string;
+  theme: string;
+  score: number;
+  mode: ThemeCandidateMode;
+  label?: string | null;
+  close: number;
+  changePct: number;
+  volumeRatio: number;
+  extended20: number;
+  themeCount: number;
+  themeAdvancerRatio: number;
+  candlestickState?: { states?: string[]; closePosition?: number } | null;
+  visualCheck?: {
+    required?: boolean;
+    setup?: string;
+    supports?: string[];
+    resistances?: string[];
+    warnings?: string[];
+    supportPrice?: number | null;
+    resistancePrice?: number | null;
+    detailRouteRequired?: boolean;
+  } | null;
+  reasonCodes?: string[];
+  penaltyCodes?: string[];
+  detailRoute?: string;
+};
+
+type ThemeCandidatePayload = {
+  label?: string | null;
+  mode?: ThemeCandidateMode;
+  items?: ThemeCandidateItem[];
+  excludeEarnings?: boolean | null;
+};
+
+const THEME_STATUS_LABEL: Record<ThemeRotationItem["status"], string> = {
+  NEW: "NEW",
+  ACCEL: "加速",
+  HOT: "強い",
+  FADE: "失速",
+  COLD: "弱い",
+  WATCH: "監視"
+};
+
+const formatSigned = (value: number, digits = 1) => {
+  if (!Number.isFinite(value)) return "--";
+  return `${value > 0 ? "+" : ""}${value.toFixed(digits)}`;
+};
+
+const formatRatio = (value: number) => {
+  if (!Number.isFinite(value)) return "--";
+  return `${Math.round(value * 100)}%`;
+};
+
+const CANDIDATE_MODE_LABEL: Record<ThemeCandidateMode, string> = {
+  entry_ease: "買いやすさ",
+  value_range: "値幅狙い",
+  continuation: "継続強度"
+};
+
+const CANDIDATE_CODE_LABEL: Record<string, string> = {
+  bearish_large_body: "大陰線",
+  upper_wick_rejection: "上ヒゲ",
+  weak_close: "引け弱い",
+  extended: "過熱",
+  volume_expansion: "出来高増",
+  breakout_60d: "60日高値",
+  theme_breadth: "テーマ幅",
+  thin_theme: "薄いテーマ",
+  ma_alignment: "MA良好",
+  bullish_close: "引け強い",
+  wide_range: "値幅余地",
+  below_ma60: "60MA下"
+};
+
+const codeLabel = (code: string) => CANDIDATE_CODE_LABEL[code] ?? code;
+
+const VISUAL_SETUP_LABEL: Record<string, string> = {
+  needs_detail_chart_check: "要チャート確認",
+  avoid_until_repair: "形状修復待ち",
+  momentum_only: "勢い限定",
+  breakout_watch: "上抜け確認",
+  constructive: "形状良好"
+};
+
+const visualSetupLabel = (setup?: string | null) => setup ? VISUAL_SETUP_LABEL[setup] ?? setup : "要チャート確認";
+
+function ThemeCandidateLane({
+  loading,
+  error,
+  payload,
+  mode,
+  onModeChange,
+  onOpenDetail
+}: {
+  loading: boolean;
+  error: string | null;
+  payload: ThemeCandidatePayload | null;
+  mode: ThemeCandidateMode;
+  onModeChange: (next: ThemeCandidateMode) => void;
+  onOpenDetail: (code: string) => void;
+}) {
+  const items = payload?.items ?? [];
+  return (
+    <section className="market-candidate-panel">
+      <div className="market-candidate-head">
+        <div>
+          <div className="market-theme-title">固定スコア候補</div>
+          <div className="market-theme-subtitle">
+            {payload?.label ? `${payload.label} / ` : ""}
+            テーマの強さと日足形状を固定ルールで採点
+          </div>
+        </div>
+        <div className="segmented segmented-compact market-candidate-mode">
+          {(Object.keys(CANDIDATE_MODE_LABEL) as ThemeCandidateMode[]).map((key) => (
+            <button
+              key={key}
+              type="button"
+              className={mode === key ? "active" : ""}
+              onClick={() => onModeChange(key)}
+            >
+              {CANDIDATE_MODE_LABEL[key]}
+            </button>
+          ))}
+        </div>
+      </div>
+      {loading && !items.length ? (
+        <div className="market-theme-empty">固定スコア候補を読み込み中...</div>
+      ) : error && !items.length ? (
+        <div className="market-theme-empty">{error}</div>
+      ) : items.length ? (
+        <div className="market-candidate-list">
+          {items.map((item) => {
+            const penalties = item.penaltyCodes ?? [];
+            const reasons = item.reasonCodes ?? [];
+            const visualWarnings = item.visualCheck?.warnings ?? [];
+            return (
+              <button
+                key={`${item.mode}:${item.code}`}
+                type="button"
+                className="market-candidate-row"
+                onClick={() => onOpenDetail(item.code)}
+              >
+                <span className="market-candidate-rank">{item.rank}</span>
+                <span className="market-candidate-main">
+                  <span className="market-candidate-title">
+                    <strong>{item.code}</strong>
+                    <span>{item.name}</span>
+                  </span>
+                  <span className="market-candidate-theme">{item.theme}</span>
+                  <span className={`market-candidate-visual is-${visualWarnings.length ? "warning" : "ok"}`}>
+                    {visualSetupLabel(item.visualCheck?.setup)}
+                  </span>
+                  <span className="market-candidate-chips">
+                    {reasons.slice(0, 3).map((code) => (
+                      <span key={code} className="market-candidate-chip">{codeLabel(code)}</span>
+                    ))}
+                    {penalties.slice(0, 3).map((code) => (
+                      <span key={code} className="market-candidate-chip is-penalty">{codeLabel(code)}</span>
+                    ))}
+                    <span className="market-candidate-chip is-visual">詳細確認</span>
+                  </span>
+                </span>
+                <span className="market-candidate-score">
+                  <strong>{Number.isFinite(item.score) ? item.score.toFixed(1) : "--"}</strong>
+                  <span>{formatSigned(item.changePct)}%</span>
+                  <span>出来高 {formatSigned(item.volumeRatio, 2)}x</span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="market-theme-empty">固定スコア候補がありません。</div>
+      )}
+    </section>
+  );
+}
+
+function ThemeRotationLane({
+  loading,
+  error,
+  payload,
+  excludeEarnings,
+  onExcludeEarningsChange
+}: {
+  loading: boolean;
+  error: string | null;
+  payload: ThemeRotationPayload | null;
+  excludeEarnings: boolean;
+  onExcludeEarningsChange: (next: boolean) => void;
+}) {
+  const themes = payload?.themes ?? [];
+  return (
+    <section className="market-theme-panel">
+      <div className="market-theme-head">
+        <div>
+          <div className="market-theme-title">テーマローテーション</div>
+          <div className="market-theme-subtitle">
+            {payload?.label ? `${payload.label} / ` : ""}
+            騰落・上昇銘柄比率・出来高で資金の向きを集約
+          </div>
+        </div>
+        <label className="market-theme-toggle">
+          <input
+            type="checkbox"
+            checked={excludeEarnings}
+            onChange={(event) => onExcludeEarningsChange(event.target.checked)}
+          />
+          <span>決算近辺を除外</span>
+        </label>
+      </div>
+      {loading && !themes.length ? (
+        <div className="market-theme-empty">テーマ集計を読み込み中...</div>
+      ) : error && !themes.length ? (
+        <div className="market-theme-empty">{error}</div>
+      ) : themes.length ? (
+        <div className="market-theme-scroll">
+          {themes.slice(0, 10).map((theme) => {
+            const tone =
+              theme.status === "FADE" || theme.status === "COLD"
+                ? "negative"
+                : theme.status === "WATCH"
+                  ? "neutral"
+                  : "positive";
+            const leader = theme.leaders?.[0] ?? null;
+            return (
+              <div key={theme.themeId} className={`market-theme-card is-${tone}`}>
+                <div className="market-theme-card-top">
+                  <span className="market-theme-name">{theme.name}</span>
+                  <span className={`market-theme-status is-${theme.status.toLowerCase()}`}>
+                    {THEME_STATUS_LABEL[theme.status]}
+                  </span>
+                </div>
+                <div className="market-theme-score-row">
+                  <strong>{formatSigned(theme.avgChangePct)}%</strong>
+                  <span>{formatRatio(theme.advancerRatio)}</span>
+                  <span>出来高 {formatSigned(theme.avgVolumeRatio, 2)}x</span>
+                </div>
+                <div className="market-theme-meta-row">
+                  <span>{theme.count}銘柄</span>
+                  <span>{theme.earningsCount ? `決算近辺 ${theme.earningsCount}` : "非決算中心"}</span>
+                  <span>{formatSigned(theme.strengthDelta, 2)}</span>
+                </div>
+                <div className="market-theme-leader">
+                  {leader ? `${leader.code} ${leader.name} ${formatSigned(leader.changePct)}%` : "リーダーなし"}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="market-theme-empty">テーマ集計対象がありません。</div>
+      )}
+    </section>
+  );
+}
+
 export default function MarketView() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -82,6 +374,14 @@ export default function MarketView() {
   const [cursorUserInteracted, setCursorUserInteracted] = useState(false);
   const [frames, setFrames] = useState<MarketTimelineFrame[]>([]);
   const [timelineSource, setTimelineSource] = useState<MarketTimelineCacheSource | null>(null);
+  const [themeRotation, setThemeRotation] = useState<ThemeRotationPayload | null>(null);
+  const [themeCandidates, setThemeCandidates] = useState<ThemeCandidatePayload | null>(null);
+  const [themeExcludeEarnings, setThemeExcludeEarnings] = useState(false);
+  const [themeCandidateMode, setThemeCandidateMode] = useState<ThemeCandidateMode>("entry_ease");
+  const [themeLoading, setThemeLoading] = useState(false);
+  const [candidateLoading, setCandidateLoading] = useState(false);
+  const [themeError, setThemeError] = useState<string | null>(null);
+  const [candidateError, setCandidateError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const cursorInitializedPeriodRef = useRef<MarketPeriodKey | null>(null);
@@ -205,6 +505,121 @@ export default function MarketView() {
       canceled = true;
     };
   }, [period]);
+
+  useEffect(() => {
+    if (!backendReady) return;
+    let canceled = false;
+    const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
+    const loadThemes = async () => {
+      setThemeLoading(true);
+      setThemeError(null);
+      let lastError: unknown = null;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          const res = await api.get("/market/theme-rotation", {
+            params: {
+              limit: THEME_ROTATION_LIMIT,
+              exclude_earnings: themeExcludeEarnings
+            }
+          });
+          if (canceled) return;
+          setThemeRotation((res.data ?? null) as ThemeRotationPayload | null);
+          recordPerfEvent("market_theme_rotation_fetch_end", {
+            count: Array.isArray(res.data?.themes) ? res.data.themes.length : 0,
+            excludeEarnings: themeExcludeEarnings,
+            attempt: attempt + 1
+          });
+          lastError = null;
+          break;
+        } catch (loadError) {
+          lastError = loadError;
+          if (canceled) return;
+          if (attempt < 2) {
+            await wait(1200 * (attempt + 1));
+            continue;
+          }
+        }
+      }
+      if (lastError) {
+        if (canceled) return;
+        const message = lastError instanceof Error && lastError.message.trim()
+          ? lastError.message.trim()
+          : "テーマ集計の取得に失敗しました。";
+        setThemeError(message);
+        setThemeRotation(null);
+        recordPerfEvent("market_theme_rotation_fetch_failed", {
+          message,
+          excludeEarnings: themeExcludeEarnings
+        });
+      }
+      if (!canceled) {
+        setThemeLoading(false);
+      }
+    };
+    void loadThemes();
+    return () => {
+      canceled = true;
+    };
+  }, [backendReady, themeExcludeEarnings]);
+
+  useEffect(() => {
+    if (!backendReady) return;
+    let canceled = false;
+    const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
+    const loadCandidates = async () => {
+      setCandidateLoading(true);
+      setCandidateError(null);
+      let lastError: unknown = null;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          const res = await api.get("/market/theme-candidates", {
+            params: {
+              mode: themeCandidateMode,
+              limit: THEME_CANDIDATE_LIMIT,
+              exclude_earnings: themeExcludeEarnings
+            }
+          });
+          if (canceled) return;
+          setThemeCandidates((res.data ?? null) as ThemeCandidatePayload | null);
+          recordPerfEvent("market_theme_candidates_fetch_end", {
+            count: Array.isArray(res.data?.items) ? res.data.items.length : 0,
+            excludeEarnings: themeExcludeEarnings,
+            mode: themeCandidateMode,
+            attempt: attempt + 1
+          });
+          lastError = null;
+          break;
+        } catch (loadError) {
+          lastError = loadError;
+          if (canceled) return;
+          if (attempt < 2) {
+            await wait(1200 * (attempt + 1));
+            continue;
+          }
+        }
+      }
+      if (lastError) {
+        if (canceled) return;
+        const message = lastError instanceof Error && lastError.message.trim()
+          ? lastError.message.trim()
+          : "固定スコア候補の取得に失敗しました。";
+        setCandidateError(message);
+        setThemeCandidates(null);
+        recordPerfEvent("market_theme_candidates_fetch_failed", {
+          message,
+          excludeEarnings: themeExcludeEarnings,
+          mode: themeCandidateMode
+        });
+      }
+      if (!canceled) {
+        setCandidateLoading(false);
+      }
+    };
+    void loadCandidates();
+    return () => {
+      canceled = true;
+    };
+  }, [backendReady, themeCandidateMode, themeExcludeEarnings]);
 
   const sectorMemberIndex = useMemo(() => buildSectorMemberIndex(tickers), [tickers]);
   const watchlistSectorIndex = useMemo(
@@ -391,17 +806,34 @@ export default function MarketView() {
 
       <main className="market-main market-layout">
         <section className="market-main-panel">
-          <MarketHeatmapPanel
-            loading={loading}
-            error={error}
-            items={allActiveItems}
-            metric={metric}
-            selectedSector={selectedSector}
-            onSectorSelect={selectSector}
-            onSectorHover={() => {
-              // tooltip handles the hover preview.
-            }}
-          />
+          <div className="market-main-stack">
+            <ThemeRotationLane
+              loading={themeLoading}
+              error={themeError}
+              payload={themeRotation}
+              excludeEarnings={themeExcludeEarnings}
+              onExcludeEarningsChange={setThemeExcludeEarnings}
+            />
+            <ThemeCandidateLane
+              loading={candidateLoading}
+              error={candidateError}
+              payload={themeCandidates}
+              mode={themeCandidateMode}
+              onModeChange={setThemeCandidateMode}
+              onOpenDetail={handleDetailOpen}
+            />
+            <MarketHeatmapPanel
+              loading={loading}
+              error={error}
+              items={allActiveItems}
+              metric={metric}
+              selectedSector={selectedSector}
+              onSectorSelect={selectSector}
+              onSectorHover={() => {
+                // tooltip handles the hover preview.
+              }}
+            />
+          </div>
         </section>
 
         <aside className="market-side-panel">

@@ -73,9 +73,20 @@ def _process_import(
     warnings: list[str],
     replace_existing: bool
 ) -> dict:
+    if not events:
+        return {
+            "ok": False,
+            "received": 0,
+            "inserted": 0,
+            "warnings": warnings,
+            "affected": [],
+            "rebuild": None,
+        }
+
+    broker_key = str(broker or "").strip().lower()
     with get_conn() as conn:
         if replace_existing:
-            conn.execute("DELETE FROM trade_events")
+            conn.execute("DELETE FROM trade_events WHERE lower(broker) = ?", [broker_key])
         inserted = _insert_events(conn, events)
         rebuild_summary = rebuild_positions(conn)
 

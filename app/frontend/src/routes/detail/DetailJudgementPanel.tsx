@@ -182,6 +182,35 @@ export function DetailJudgementPanel({
   const buyProb = analysisDecision.buyProb;
   const sellProb = analysisDecision.sellProb;
   const neutralProb = analysisDecision.neutralProb;
+  const hasPriorityData = [buyProb, sellProb, neutralProb].some((value) => Number.isFinite(value ?? NaN));
+  const judgementUnavailable = analysisMissingDataVisible || (!analysisSummaryLoading && !hasPriorityData && scenarioCount === 0);
+  const judgementStateLabel = analysisSummaryLoading
+    ? "確認中"
+    : judgementUnavailable
+      ? "判定不可"
+      : analysisDecision.sideLabel ?? resolveToneLabel(analysisDecision.tone);
+  const judgementBasisLabel = analysisSummaryLoading
+    ? "ranking appearance を読み込み中"
+    : judgementUnavailable
+      ? "選択日にこの銘柄の ranking appearance がないため、売買優先度は出せません。"
+      : analysisDecision.patternLabel ?? patternSummary.environmentLabel;
+  const confidenceLabel = analysisSummaryLoading
+    ? "確認中"
+    : judgementUnavailable
+      ? "--"
+      : resolveConfidenceRankLabel(analysisGuidance.confidenceRank);
+  const actionLabel = analysisSummaryLoading
+    ? "確認中"
+    : judgementUnavailable
+      ? "見送り"
+      : resolveActionLabel(analysisGuidance.action);
+  const watchpointLabel = analysisSummaryLoading
+    ? "ranking appearance を確認中"
+    : judgementUnavailable
+      ? "買い/売り判定に使えるランキング根拠なし"
+      : analysisGuidance.watchpoint;
+  const formatPriorityPercent = (value: number | null | undefined) =>
+    analysisSummaryLoading ? "確認中" : judgementUnavailable ? "--" : formatPercentLabel(value);
 
   return (
     <ScreenPanel title="判定サマリー" className="detail-analysis-panel">
@@ -199,32 +228,34 @@ export function DetailJudgementPanel({
             <div className="detail-analysis-card">
               <div className="detail-analysis-label">判定</div>
               <div className="detail-analysis-value">
-                {analysisSummaryLoading ? "暫定" : analysisDecision.sideLabel ?? resolveToneLabel(analysisDecision.tone)}
+                {judgementStateLabel}
               </div>
               <div className="detail-analysis-meta">
-                {analysisSummaryLoading ? "暫定" : analysisDecision.patternLabel ?? patternSummary.environmentLabel}
+                {judgementBasisLabel}
               </div>
             </div>
             <div className="detail-analysis-card">
               <div className="detail-analysis-label">確信度</div>
               <div className="detail-analysis-value">
-                {analysisSummaryLoading ? "暫定" : resolveConfidenceRankLabel(analysisGuidance.confidenceRank)}
+                {confidenceLabel}
               </div>
-              <div className="detail-analysis-meta">ranking 経由 / risk_mode {analysisEntryPolicy?.riskMode ?? "--"}</div>
+              <div className="detail-analysis-meta">ranking appearance / risk_mode {analysisEntryPolicy?.riskMode ?? "--"}</div>
             </div>
             <div className="detail-analysis-card">
               <div className="detail-analysis-label">今やること</div>
               <div className="detail-analysis-value">
-                {analysisSummaryLoading ? "暫定" : resolveActionLabel(analysisGuidance.action)}
+                {actionLabel}
               </div>
               <div className="detail-analysis-meta">
-                {analysisSummaryLoading ? "暫定" : analysisGuidance.watchpoint}
+                {watchpointLabel}
               </div>
             </div>
             <div className="detail-analysis-card">
               <div className="detail-analysis-label">判定要素</div>
               <div className="detail-analysis-value">{scenarioCount}本</div>
-              <div className="detail-analysis-meta">{patternSummary.environmentLabel}</div>
+              <div className="detail-analysis-meta">
+                {judgementUnavailable ? "ランキング根拠なし" : patternSummary.environmentLabel}
+              </div>
             </div>
           </div>
         </div>
@@ -233,7 +264,7 @@ export function DetailJudgementPanel({
           <div className="detail-analysis-prob-meter-list">
             <div className="detail-analysis-prob-meter-row tone-up">
               <div className="detail-analysis-prob-meter-label">
-                買い {analysisSummaryLoading ? "暫定" : formatPercentLabel(buyProb)}
+                買い {formatPriorityPercent(buyProb)}
               </div>
               <div className="detail-analysis-prob-meter-track">
                 <div className="detail-analysis-prob-meter-fill" style={{ width: `${analysisGuidance.buyWidth}%` }} />
@@ -241,7 +272,7 @@ export function DetailJudgementPanel({
             </div>
             <div className="detail-analysis-prob-meter-row tone-neutral">
               <div className="detail-analysis-prob-meter-label">
-                中立 {analysisSummaryLoading ? "暫定" : formatPercentLabel(neutralProb)}
+                中立 {formatPriorityPercent(neutralProb)}
               </div>
               <div className="detail-analysis-prob-meter-track">
                 <div className="detail-analysis-prob-meter-fill" style={{ width: `${analysisGuidance.neutralWidth}%` }} />
@@ -249,7 +280,7 @@ export function DetailJudgementPanel({
             </div>
             <div className="detail-analysis-prob-meter-row tone-down">
               <div className="detail-analysis-prob-meter-label">
-                売り {analysisSummaryLoading ? "暫定" : formatPercentLabel(sellProb)}
+                売り {formatPriorityPercent(sellProb)}
               </div>
               <div className="detail-analysis-prob-meter-track">
                 <div className="detail-analysis-prob-meter-fill" style={{ width: `${analysisGuidance.sellWidth}%` }} />
@@ -259,32 +290,36 @@ export function DetailJudgementPanel({
         </div>
         <div className="detail-analysis-section">
           <div className="detail-analysis-section-title">継続保有 / 仕込み</div>
-          <div className="detail-analysis-call-reason-list">
-            <div className="detail-analysis-call-reason">
-              <div>買い</div>
-              <div className="detail-analysis-meta">
-                {formatSetupIntent("buy", buyPolicy?.setupType)} / {formatHoldWindow(buyPolicy)} / {formatExitPlan(buyPolicy)}
+          {judgementUnavailable ? (
+            <div className="detail-analysis-empty">買い・売り候補なし。選択日のランキング掲載が確認できるまで見送りです。</div>
+          ) : (
+            <div className="detail-analysis-call-reason-list">
+              <div className="detail-analysis-call-reason">
+                <div>買い</div>
+                <div className="detail-analysis-meta">
+                  {formatSetupIntent("buy", buyPolicy?.setupType)} / {formatHoldWindow(buyPolicy)} / {formatExitPlan(buyPolicy)}
+                </div>
+                {buyPolicy?.recommendedHoldReason && (
+                  <div className="detail-analysis-meta">補足 {buyPolicy.recommendedHoldReason}</div>
+                )}
               </div>
-              {buyPolicy?.recommendedHoldReason && (
-                <div className="detail-analysis-meta">補足 {buyPolicy.recommendedHoldReason}</div>
-              )}
-            </div>
-            <div className="detail-analysis-call-reason">
-              <div>売り</div>
-              <div className="detail-analysis-meta">
-                {formatSetupIntent("sell", sellPolicy?.setupType)} / {formatHoldWindow(sellPolicy)} / {formatExitPlan(sellPolicy)}
+              <div className="detail-analysis-call-reason">
+                <div>売り</div>
+                <div className="detail-analysis-meta">
+                  {formatSetupIntent("sell", sellPolicy?.setupType)} / {formatHoldWindow(sellPolicy)} / {formatExitPlan(sellPolicy)}
+                </div>
+                {sellPolicy?.recommendedHoldReason && (
+                  <div className="detail-analysis-meta">補足 {sellPolicy.recommendedHoldReason}</div>
+                )}
               </div>
-              {sellPolicy?.recommendedHoldReason && (
-                <div className="detail-analysis-meta">補足 {sellPolicy.recommendedHoldReason}</div>
-              )}
-            </div>
-            <div className="detail-analysis-call-reason">
-              <div>中立</div>
-              <div className="detail-analysis-meta">
-                {analysisSummaryLoading ? "暫定" : `様子見 / ${analysisGuidance.watchpoint}`}
+              <div className="detail-analysis-call-reason">
+                <div>中立</div>
+                <div className="detail-analysis-meta">
+                  {analysisSummaryLoading ? "確認中" : `様子見 / ${analysisGuidance.watchpoint}`}
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </div>
         <div className="detail-analysis-section">
           <div className="detail-analysis-section-title">判定要素</div>
@@ -332,12 +367,12 @@ export function DetailJudgementPanel({
           </div>
         )}
         <div className="detail-analysis-meta">
-          現在の優先度: {resolveToneLabel(analysisDecision.tone)} / {analysisDecision.sideLabel ?? "--"}
-          {analysisDecision.confidence != null ? ` / 確信度 ${formatPercentLabel(analysisDecision.confidence)}` : ""}
-          {analysisDecision.patternLabel ? ` / 参照 ${analysisDecision.patternLabel}` : ""}
+          現在の優先度: {judgementStateLabel}
+          {!judgementUnavailable && analysisDecision.confidence != null ? ` / 確信度 ${formatPercentLabel(analysisDecision.confidence)}` : ""}
+          {!judgementUnavailable && analysisDecision.patternLabel ? ` / 参照 ${analysisDecision.patternLabel}` : ""}
         </div>
         <div className="detail-analysis-meta">
-          ここで見ているのは、ランキング指標から組み立てた買い・売り・中立の優先度です。
+          ランキングの売買判定は残っています。ここでは ranking appearance、表示スコア、厳選通過状態から買い・売り・中立の優先度を表示しています。
         </div>
       </div>
     </ScreenPanel>

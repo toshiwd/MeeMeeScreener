@@ -14,6 +14,15 @@ def _json_dumps(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
+def _json_loads(value: Any) -> Any:
+    if value is None:
+        return None
+    try:
+        return json.loads(str(value))
+    except (TypeError, json.JSONDecodeError):
+        return None
+
+
 def _text(value: Any) -> str | None:
     if value is None:
         return None
@@ -49,6 +58,33 @@ def _normalize_text(value: Any) -> str:
 
 def _contains_any(text: str, terms: tuple[str, ...]) -> bool:
     return any(term in text for term in terms)
+
+
+def _tdnet_report_links(raw_payload: Any, *, tdnet_url: Any, pdf_url: Any, xbrl_url: Any) -> list[dict[str, str]]:
+    payload = raw_payload if isinstance(raw_payload, dict) else {}
+    raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
+    candidates: list[tuple[str, Any]] = [
+        ("本文PDF", payload.get("tdnet_url") or payload.get("tdnetUrl") or tdnet_url),
+        ("PDF", payload.get("pdf_url") or payload.get("pdfUrl") or pdf_url),
+        ("短信サマリー", raw.get("url_report_type_summary") or payload.get("url_report_type_summary")),
+        ("連結FS", raw.get("url_report_type_fs_consolidated") or payload.get("url_report_type_fs_consolidated")),
+        ("非連結FS", raw.get("url_report_type_fs_non_consolidated") or payload.get("url_report_type_fs_non_consolidated")),
+        ("業績予想", raw.get("url_report_type_earnings_forecast") or payload.get("url_report_type_earnings_forecast")),
+        ("配当予想", raw.get("url_report_type_expected_dividends") or payload.get("url_report_type_expected_dividends")),
+        ("XBRL", payload.get("xbrl_url") or payload.get("xbrlUrl") or raw.get("url_xbrl") or xbrl_url),
+    ]
+    for item in payload.get("report_links") or payload.get("reportLinks") or []:
+        if isinstance(item, dict):
+            candidates.append((item.get("label") or "資料", item.get("url")))
+    links: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for label, url_value in candidates:
+        url = _text(url_value)
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        links.append({"label": _text(label) or "資料", "url": url})
+    return links
 
 
 def _build_feature_row(
@@ -143,6 +179,55 @@ class TdnetdbRepository:
 
     def _connect_write(self):
         return get_conn_for_path(self._db_path, timeout_sec=2.5, read_only=False)
+
+    def get_disclosure_state(self, sec_code: str | None = None) -> dict[str, Any]:
+        code = str(sec_code or "").strip()
+        required_tables = ("tdnet_disclosures", "tdnet_disclosure_features")
+        with self._connect_read() as conn:
+            existing_rows = conn.execute(
+                """
+                SELECT table_name
+                FROM information_schema.tables
+                WHERE table_schema = 'main'
+                  AND table_name IN ('tdnet_disclosures', 'tdnet_disclosure_features')
+                """
+            ).fetchall()
+            existing = {str(row[0]) for row in existing_rows}
+            missing = [table for table in required_tables if table not in existing]
+            if missing:
+                return {
+                    "missing_tables": missing,
+                    "total_count": 0,
+                    "matched_count": 0,
+                    "latest_published_at": None,
+                    "latest_fetched_at": None,
+                }
+
+            total_row = conn.execute(
+                """
+                SELECT COUNT(*), MAX(published_at), MAX(fetched_at)
+                FROM tdnet_disclosures
+                """
+            ).fetchone()
+            if code:
+                matched_row = conn.execute(
+                    """
+                    SELECT COUNT(*), MAX(published_at), MAX(fetched_at)
+                    FROM tdnet_disclosures
+                    WHERE sec_code = ?
+                    """,
+                    [code],
+                ).fetchone()
+            else:
+                matched_row = total_row
+
+        return {
+            "missing_tables": [],
+            "total_count": int((total_row[0] if total_row else 0) or 0),
+            "matched_count": int((matched_row[0] if matched_row else 0) or 0),
+            "latest_published_at": matched_row[1] if matched_row and matched_row[1] is not None else None,
+            "latest_fetched_at": matched_row[2] if matched_row and matched_row[2] is not None else None,
+        }
 
     def upsert_disclosures(self, items: list[dict[str, Any]], *, fetched_at: datetime | None = None) -> int:
         fetched_at = fetched_at or utcnow_naive()
@@ -251,7 +336,7 @@ class TdnetdbRepository:
                 """
                 SELECT d.disclosure_id, d.sec_code, d.company_name, d.title, d.category,
                        d.published_at, tdnet_url, pdf_url, xbrl_url, summary_text, d.fetched_at,
-                       f.event_type, f.sentiment, f.importance_score, f.tags_json
+                       d.raw_json, f.event_type, f.sentiment, f.importance_score, f.tags_json
                 FROM tdnet_disclosures d
                 LEFT JOIN tdnet_disclosure_features f ON f.disclosure_id = d.disclosure_id
                 WHERE d.sec_code = ?
@@ -262,6 +347,8 @@ class TdnetdbRepository:
             ).fetchall()
         items: list[dict[str, Any]] = []
         for row in rows:
+            raw_payload = _json_loads(row[11])
+            raw_source = raw_payload.get("raw") if isinstance(raw_payload, dict) and isinstance(raw_payload.get("raw"), dict) else {}
             items.append(
                 {
                     "disclosureId": row[0],
@@ -275,10 +362,16 @@ class TdnetdbRepository:
                     "xbrlUrl": row[8],
                     "summaryText": row[9],
                     "fetchedAt": row[10].isoformat() if isinstance(row[10], datetime) else None,
-                    "eventType": row[11],
-                    "sentiment": row[12],
-                    "importanceScore": float(row[13]) if row[13] is not None else None,
-                    "tags": json.loads(row[14]) if row[14] else [],
+                    "sourceProvider": _text((raw_payload or {}).get("provider") if isinstance(raw_payload, dict) else None),
+                    "markets": _text(
+                        (raw_payload or {}).get("markets") if isinstance(raw_payload, dict) else None
+                    )
+                    or _text(raw_source.get("markets_string")),
+                    "reportLinks": _tdnet_report_links(raw_payload, tdnet_url=row[6], pdf_url=row[7], xbrl_url=row[8]),
+                    "eventType": row[12],
+                    "sentiment": row[13],
+                    "importanceScore": float(row[14]) if row[14] is not None else None,
+                    "tags": json.loads(row[15]) if row[15] else [],
                 }
             )
         return items

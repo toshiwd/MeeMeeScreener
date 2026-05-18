@@ -36,6 +36,14 @@ TOP_K_VALUES = (5, 10, 20)
 PRIMARY_TOP_K = 10
 HOLDING_DAYS = 20
 SEVERE_LOSS_THRESHOLD = -0.15
+FIXED_CONDITIONS = {
+    "same_universe": True,
+    "same_period": True,
+    "same_top_k": list(TOP_K_VALUES),
+    "same_regime_condition": True,
+    "same_cost_slippage": True,
+    "same_artifact_detail_level": True,
+}
 
 LABEL_COLUMNS = {
     "forward_ret_5d",
@@ -299,6 +307,14 @@ def _load_source_rows(source_rows_parquet: Path, *, limit_anchor_dates: int | No
     return load_source_rows_from_frame(pd.read_parquet(source_rows_parquet), limit_anchor_dates=limit_anchor_dates)
 
 
+def _load_frame(source_rows_parquet: Path, *, limit_anchor_dates: int | None = None) -> pd.DataFrame:
+    frame = _load_source_rows(source_rows_parquet, limit_anchor_dates=limit_anchor_dates)
+    if "anchor_date" not in frame.columns and "trade_date_key" in frame.columns:
+        frame = frame.copy()
+        frame["anchor_date"] = frame["trade_date_key"]
+    return frame
+
+
 def _contains_any(series: pd.Series, terms: tuple[str, ...]) -> pd.Series:
     mask = pd.Series(False, index=series.index)
     for term in terms:
@@ -378,6 +394,47 @@ def apply_candidate_logic(frame: pd.DataFrame) -> pd.DataFrame:
         ranked[f"champion_selected_top{top_k}"] = ranked[f"champion_selected_top{top_k}"].fillna(False).astype(bool)
         ranked[f"changed_top{top_k}_member"] = ranked[f"challenger_selected_top{top_k}"] != ranked[f"champion_selected_top{top_k}"]
     ranked["rank_changed"] = ranked["challenger_rank"].astype("Int64") != ranked["champion_rank"].astype("Int64")
+    return ranked
+
+
+def _variant_masks(frame: pd.DataFrame) -> dict[str, tuple[str, pd.Series, list[str]]]:
+    reasons = _guard_reason_lists(frame)
+    reason_text = pd.Series([";".join(items) for items in reasons], index=frame.index)
+    breakout_trap = reason_text.str.contains("upper_wick_exhaustion", regex=False) | reason_text.str.contains(
+        "large_gap_up_risk",
+        regex=False,
+    )
+    return {
+        "bad_pick_removal_v1_breakout_trap_only": (
+            "Penalize only breakout-trap style exhaustion or large-gap risk rows.",
+            breakout_trap.fillna(False).astype(bool),
+            ["candle_upper_wick_ratio", "candle_lower_wick_ratio", "gap_pct"],
+        )
+    }
+
+
+def _rank_with_penalty(frame: pd.DataFrame, penalty_mask: pd.Series) -> pd.DataFrame:
+    working = frame.copy()
+    mask = penalty_mask.reindex(working.index, fill_value=False).fillna(False).astype(bool)
+    working["bad_pick_guard_score"] = mask.astype(float)
+    working["bad_pick_guard_active"] = mask
+    working["bad_pick_guard_reasons"] = mask.map(lambda active: "breakout_trap_only" if active else "no_guard")
+    working["bad_pick_guard_penalty"] = mask.astype(float) * float(FIXED_GUARD_CONFIG["max_penalty"])
+    working["bad_pick_veto"] = mask
+    working["challenger_score"] = working["champion_score"] - working["bad_pick_guard_penalty"]
+    ranked_parts: list[pd.DataFrame] = []
+    for _, group in working.groupby(["trade_date_key", "side"], sort=True):
+        ordered = group.sort_values(["challenger_score", "champion_rank", "symbol"], ascending=[False, True, True], kind="stable").copy()
+        ordered["challenger_rank"] = range(1, len(ordered) + 1)
+        ranked_parts.append(ordered)
+    ranked = pd.concat(ranked_parts, ignore_index=True) if ranked_parts else working.assign(challenger_rank=pd.Series(dtype="int"))
+    for top_k in TOP_K_VALUES:
+        ranked[f"challenger_selected_top{top_k}"] = ranked["challenger_rank"].le(top_k)
+        ranked[f"champion_selected_top{top_k}"] = ranked[f"champion_selected_top{top_k}"].fillna(False).astype(bool)
+        ranked[f"changed_top{top_k}_member"] = ranked[f"challenger_selected_top{top_k}"] != ranked[f"champion_selected_top{top_k}"]
+    ranked["rank_changed"] = ranked["challenger_rank"].astype("Int64") != ranked["champion_rank"].astype("Int64")
+    if "anchor_date" not in ranked.columns and "trade_date_key" in ranked.columns:
+        ranked["anchor_date"] = ranked["trade_date_key"]
     return ranked
 
 

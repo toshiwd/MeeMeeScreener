@@ -6,6 +6,10 @@
 # - Ctrl+Shift+I to open developer tools
 
 $env:DEBUG = "1"
+if ([string]::IsNullOrWhiteSpace($env:TDNET_MCP_FETCH_COMMAND)) {
+    $tdnetFetcher = Join-Path $PSScriptRoot "tools\setup\fetch_tdnet_yanoshin.py"
+    $env:TDNET_MCP_FETCH_COMMAND = 'python "' + $tdnetFetcher + '" --code "{code}" --limit {limit}'
+}
 
 Write-Host "Starting MeeMee Screener in DEBUG mode..." -ForegroundColor Green
 Write-Host "Features enabled:" -ForegroundColor Cyan

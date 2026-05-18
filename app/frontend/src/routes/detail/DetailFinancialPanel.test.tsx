@@ -133,4 +133,55 @@ describe("DetailFinancialPanel", () => {
     expect(markup).toContain("EDINETデータを取得中です。");
     expect(markup).toContain("日次取得");
   });
+  it("renders TDNET free-provider metadata and report links", () => {
+    const markup = renderToStaticMarkup(
+      <DetailFinancialPanel
+        financialPanelRef={{ current: null } as never}
+        financialPanel={null}
+        financialFetchedLabel={null}
+        financialLoading={false}
+        financialSeries={[]}
+        financialCards={[]}
+        financialKeyStats={[]}
+        tdnetHighlights={[
+          {
+            disclosureId: "yanoshin:1244728",
+            title: "FY2026 financial results",
+            publishedLabel: "2026-05-08 13:55",
+            eventLabel: "earnings",
+            sentimentLabel: "neutral",
+            summaryText: null,
+            tone: "neutral",
+            importanceLabel: null,
+            tdnetUrl: "https://example.test/report.pdf",
+            pdfUrl: "https://example.test/report.pdf",
+            xbrlUrl: "https://example.test/report.zip",
+            sourceProvider: "yanoshin",
+            markets: "TSE/NSE",
+            reportLinks: [
+              { label: "Summary", url: "https://example.test/summary.pdf" },
+              { label: "XBRL", url: "https://example.test/report.zip" },
+            ],
+          },
+        ]}
+        tdnetLoading={false}
+        tdnetStatusLabel="TDNET latest fetched"
+        taisyakuCards={[]}
+        taisyakuHistory={[]}
+        taisyakuRestrictions={[]}
+        taisyakuLoading={false}
+        taisyakuStatusLabel={null}
+        taisyakuWatchLabel={null}
+        formatNumber={fmtNumber}
+        formatPercentLabel={fmtPercent}
+        formatFinancialAmountLabel={fmtFinancialAmount}
+      />
+    );
+
+    expect(markup).toContain("yanoshin");
+    expect(markup).toContain("TSE/NSE");
+    expect(markup).toContain("Summary");
+    expect(markup).toContain('href="https://example.test/summary.pdf"');
+    expect(markup).toContain('href="https://example.test/report.zip"');
+  });
 });

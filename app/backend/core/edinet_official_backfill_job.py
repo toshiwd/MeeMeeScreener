@@ -3,6 +3,9 @@ from __future__ import annotations
 from datetime import datetime
 
 from app.backend.core.jobs import job_manager
+from app.backend.edinetdb.config import load_config
+from app.backend.edinetdb.official_api import sync_official_documents_for_codes
+from app.backend.edinetdb.repository import EdinetdbRepository
 from app.backend.edinetdb.targets import normalize_sec_code
 from app.core.config import config as app_config
 
@@ -23,10 +26,6 @@ def _to_int(value: object, default: int, *, minimum: int = 1, maximum: int | Non
 
 
 def handle_edinet_official_backfill(job_id: str, payload: dict) -> None:
-    from app.backend.edinetdb.config import load_config
-    from app.backend.edinetdb.official_api import sync_official_documents_for_codes
-    from app.backend.edinetdb.repository import EdinetdbRepository
-
     code = normalize_sec_code(payload.get("code"))
     days = _to_int(payload.get("days"), DEFAULT_LOOKBACK_DAYS, minimum=1, maximum=MAX_LOOKBACK_DAYS)
     if not code:

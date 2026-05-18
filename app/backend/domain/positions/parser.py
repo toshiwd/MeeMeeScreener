@@ -91,12 +91,12 @@ class TradeParser:
 
     @staticmethod
     def find_sbi_header_index(rows_all: List[List[str]]) -> Optional[int]:
-        start = min(6, max(0, len(rows_all)))
-        for idx in range(start, min(len(rows_all), start + 6)):
+        for idx in range(0, min(len(rows_all), 30)):
             row = rows_all[idx]
             if not row or not any(cell.strip() for cell in row):
                 continue
-            if "約定日" in row or "銘柄コード" in row:
+            normalized = {TradeParser.normalize_label(cell) for cell in row}
+            if "約定日" in normalized and "銘柄コード" in normalized:
                 return idx
         return None
 

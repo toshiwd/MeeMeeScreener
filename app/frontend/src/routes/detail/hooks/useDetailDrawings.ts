@@ -17,6 +17,7 @@ type Params = {
 };
 
 const DRAWING_STORAGE_PREFIX = "drawings:v1";
+const LINKED_DAILY_MONTHLY_BOX_SUFFIX = "daily-monthly-boxes";
 
 const createEmptyDrawings = (): ChartDrawings => ({
   timeZones: [],
@@ -53,6 +54,38 @@ const saveDrawingsToStorage = (key: string, drawings: ChartDrawings) => {
   }
 };
 
+const hasDrawingsInStorage = (key: string) => {
+  try {
+    return localStorage.getItem(key) != null;
+  } catch {
+    return false;
+  }
+};
+
+const drawBoxIdentity = (box: DrawBox) =>
+  [
+    Number(box.startTime).toFixed(3),
+    Number(box.endTime).toFixed(3),
+    Number(box.topPrice).toFixed(6),
+    Number(box.bottomPrice).toFixed(6),
+    box.color ?? "",
+    box.opacity ?? "",
+    box.lineWidth ?? ""
+  ].join("|");
+
+const mergeDrawBoxes = (...boxSets: DrawBox[][]) => {
+  const seen = new Set<string>();
+  const merged: DrawBox[] = [];
+  boxSets.flat().forEach((box) => {
+    if (!box || typeof box !== "object") return;
+    const identity = drawBoxIdentity(box);
+    if (seen.has(identity)) return;
+    seen.add(identity);
+    merged.push(box);
+  });
+  return merged;
+};
+
 export function useDetailDrawings({ code, compareCode, onResetSelection }: Params) {
   const [drawingsByKey, setDrawingsByKey] = useState<Record<string, ChartDrawings>>({});
   const emptyDrawingsRef = useRef<ChartDrawings>(createEmptyDrawings());
@@ -64,15 +97,33 @@ export function useDetailDrawings({ code, compareCode, onResetSelection }: Param
 
   const buildDrawingKey = (symbol: string | null | undefined, timeframe: Timeframe) =>
     symbol ? `${DRAWING_STORAGE_PREFIX}:${symbol}:${timeframe}` : null;
+  const buildLinkedBoxKey = (symbol: string | null | undefined) =>
+    symbol ? `${DRAWING_STORAGE_PREFIX}:${symbol}:${LINKED_DAILY_MONTHLY_BOX_SUFFIX}` : null;
 
   const dailyDrawingKey = useMemo(() => buildDrawingKey(code, "daily"), [code]);
   const weeklyDrawingKey = useMemo(() => buildDrawingKey(code, "weekly"), [code]);
   const monthlyDrawingKey = useMemo(() => buildDrawingKey(code, "monthly"), [code]);
+  const linkedDailyMonthlyBoxKey = useMemo(() => buildLinkedBoxKey(code), [code]);
   const compareDailyDrawingKey = useMemo(() => buildDrawingKey(compareCode, "daily"), [compareCode]);
   const compareMonthlyDrawingKey = useMemo(
     () => buildDrawingKey(compareCode, "monthly"),
     [compareCode]
   );
+  const compareLinkedDailyMonthlyBoxKey = useMemo(
+    () => buildLinkedBoxKey(compareCode),
+    [compareCode]
+  );
+
+  const resolveDrawBoxKey = (key: string | null) => {
+    if (!key) return null;
+    if (key === dailyDrawingKey || key === monthlyDrawingKey) {
+      return linkedDailyMonthlyBoxKey ?? key;
+    }
+    if (key === compareDailyDrawingKey || key === compareMonthlyDrawingKey) {
+      return compareLinkedDailyMonthlyBoxKey ?? key;
+    }
+    return key;
+  };
 
   const updateDrawings = (key: string | null, updater: (prev: ChartDrawings) => ChartDrawings) => {
     if (!key) return;
@@ -87,6 +138,14 @@ export function useDetailDrawings({ code, compareCode, onResetSelection }: Param
 
   const resolveDrawings = (key: string | null) =>
     key ? drawingsByKey[key] ?? emptyDrawingsRef.current : emptyDrawingsRef.current;
+  const resolveFrameDrawings = (key: string | null, linkedBoxKey: string | null) => {
+    const drawings = resolveDrawings(key);
+    if (!linkedBoxKey) return drawings;
+    return {
+      ...drawings,
+      drawBoxes: resolveDrawings(linkedBoxKey).drawBoxes
+    };
+  };
 
   const addTimeZone = (key: string | null) => (zone: TimeZone) =>
     updateDrawings(key, (prev) => ({ ...prev, timeZones: [...prev.timeZones, zone] }));
@@ -109,9 +168,12 @@ export function useDetailDrawings({ code, compareCode, onResetSelection }: Param
     });
 
   const addDrawBox = (key: string | null) => (box: DrawBox) =>
-    updateDrawings(key, (prev) => ({ ...prev, drawBoxes: [...prev.drawBoxes, box] }));
+    updateDrawings(resolveDrawBoxKey(key), (prev) => ({
+      ...prev,
+      drawBoxes: [...prev.drawBoxes, box]
+    }));
   const updateDrawBox = (key: string | null) => (index: number, box: DrawBox) =>
-    updateDrawings(key, (prev) => {
+    updateDrawings(resolveDrawBoxKey(key), (prev) => {
       const next = [...prev.drawBoxes];
       if (!next[index]) return prev;
       next[index] = box;
@@ -141,7 +203,7 @@ export function useDetailDrawings({ code, compareCode, onResetSelection }: Param
       priceBands: prev.priceBands.filter((_, i) => i !== index)
     }));
   const deleteDrawBox = (key: string | null) => (index: number) =>
-    updateDrawings(key, (prev) => ({
+    updateDrawings(resolveDrawBoxKey(key), (prev) => ({
       ...prev,
       drawBoxes: prev.drawBoxes.filter((_, i) => i !== index)
     }));
@@ -156,8 +218,10 @@ export function useDetailDrawings({ code, compareCode, onResetSelection }: Param
       dailyDrawingKey,
       weeklyDrawingKey,
       monthlyDrawingKey,
+      linkedDailyMonthlyBoxKey,
       compareDailyDrawingKey,
-      compareMonthlyDrawingKey
+      compareMonthlyDrawingKey,
+      compareLinkedDailyMonthlyBoxKey
     ].filter(Boolean) as string[];
     if (!keys.length) return;
     setDrawingsByKey((prev) => {
@@ -178,24 +242,59 @@ export function useDetailDrawings({ code, compareCode, onResetSelection }: Param
       weeklyDrawingKey,
       monthlyDrawingKey,
       compareDailyDrawingKey,
-      compareMonthlyDrawingKey
+      compareMonthlyDrawingKey,
+      linkedDailyMonthlyBoxKey,
+      compareLinkedDailyMonthlyBoxKey
     ].filter(Boolean) as string[];
     if (!keys.length) return;
     setDrawingsByKey((prev) => {
       let next = prev;
       let changed = false;
-      keys.forEach((key) => {
-        if (next[key]) return;
-        const loaded = loadDrawingsFromStorage(key);
+      const ensureNext = () => {
         if (!changed) {
           next = { ...prev };
           changed = true;
         }
+      };
+      const ensureLoaded = (key: string | null) => {
+        if (!key) return emptyDrawingsRef.current;
+        if (next[key]) return next[key];
+        const loaded = loadDrawingsFromStorage(key);
+        ensureNext();
         next[key] = loaded;
+        return loaded;
+      };
+      keys.forEach((key) => {
+        ensureLoaded(key);
+      });
+      [
+        { linkedKey: linkedDailyMonthlyBoxKey, sourceKeys: [dailyDrawingKey, monthlyDrawingKey] },
+        {
+          linkedKey: compareLinkedDailyMonthlyBoxKey,
+          sourceKeys: [compareDailyDrawingKey, compareMonthlyDrawingKey]
+        }
+      ].forEach(({ linkedKey, sourceKeys }) => {
+        if (!linkedKey || hasDrawingsInStorage(linkedKey)) return;
+        const linked = ensureLoaded(linkedKey);
+        const sourceBoxes = sourceKeys.map((sourceKey) => ensureLoaded(sourceKey).drawBoxes);
+        const merged = mergeDrawBoxes(linked.drawBoxes, ...sourceBoxes);
+        if (merged.length === linked.drawBoxes.length) return;
+        const migrated = { ...linked, drawBoxes: merged };
+        ensureNext();
+        next[linkedKey] = migrated;
+        saveDrawingsToStorage(linkedKey, migrated);
       });
       return changed ? next : prev;
     });
-  }, [dailyDrawingKey, weeklyDrawingKey, monthlyDrawingKey, compareDailyDrawingKey, compareMonthlyDrawingKey]);
+  }, [
+    dailyDrawingKey,
+    weeklyDrawingKey,
+    monthlyDrawingKey,
+    compareDailyDrawingKey,
+    compareMonthlyDrawingKey,
+    linkedDailyMonthlyBoxKey,
+    compareLinkedDailyMonthlyBoxKey
+  ]);
 
   return {
     dailyDrawingKey,
@@ -203,11 +302,17 @@ export function useDetailDrawings({ code, compareCode, onResetSelection }: Param
     monthlyDrawingKey,
     compareDailyDrawingKey,
     compareMonthlyDrawingKey,
-    dailyDrawings: resolveDrawings(dailyDrawingKey),
+    dailyDrawings: resolveFrameDrawings(dailyDrawingKey, linkedDailyMonthlyBoxKey),
     weeklyDrawings: resolveDrawings(weeklyDrawingKey),
-    monthlyDrawings: resolveDrawings(monthlyDrawingKey),
-    compareDailyDrawings: resolveDrawings(compareDailyDrawingKey),
-    compareMonthlyDrawings: resolveDrawings(compareMonthlyDrawingKey),
+    monthlyDrawings: resolveFrameDrawings(monthlyDrawingKey, linkedDailyMonthlyBoxKey),
+    compareDailyDrawings: resolveFrameDrawings(
+      compareDailyDrawingKey,
+      compareLinkedDailyMonthlyBoxKey
+    ),
+    compareMonthlyDrawings: resolveFrameDrawings(
+      compareMonthlyDrawingKey,
+      compareLinkedDailyMonthlyBoxKey
+    ),
     addTimeZone,
     updateTimeZone,
     addPriceBand,

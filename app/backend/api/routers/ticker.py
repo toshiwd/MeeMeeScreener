@@ -115,6 +115,54 @@ def _get_tdnet_repo() -> TdnetdbRepository:
     return _TDNET_REPO
 
 
+def _is_tdnet_fetch_configured() -> bool:
+    return bool(str(os.getenv("TDNET_MCP_FETCH_COMMAND") or "").strip())
+
+
+def _tdnet_isoformat(value: Any) -> str | None:
+    return value.isoformat() if isinstance(value, datetime) else None
+
+
+def _build_tdnet_meta(
+    state: dict[str, Any],
+    *,
+    source_configured: bool,
+    query_failed: bool = False,
+    status_detail: str | None = None,
+) -> dict[str, Any]:
+    missing_tables = [str(item) for item in state.get("missing_tables") or [] if str(item).strip()]
+    total_count = _to_int_or_none(state.get("total_count")) or 0
+    matched_count = _to_int_or_none(state.get("matched_count")) or 0
+    if query_failed:
+        status = "error"
+        detail = status_detail or "query_failed"
+    elif missing_tables:
+        status = "missing_tables"
+        detail = "tdnet_tables_missing"
+    elif total_count <= 0 and not source_configured:
+        status = "unconfigured"
+        detail = "TDNET_MCP_FETCH_COMMAND is not set"
+    elif total_count <= 0:
+        status = "empty"
+        detail = "no_tdnet_rows"
+    elif matched_count <= 0:
+        status = "no_symbol_rows"
+        detail = "code_has_no_rows"
+    else:
+        status = "ok"
+        detail = None
+    return {
+        "status": status,
+        "statusDetail": detail,
+        "sourceConfigured": bool(source_configured),
+        "missingTables": missing_tables,
+        "totalCount": total_count,
+        "matchedCount": matched_count,
+        "latestPublishedAt": _tdnet_isoformat(state.get("latest_published_at")),
+        "latestFetchedAt": _tdnet_isoformat(state.get("latest_fetched_at")),
+    }
+
+
 def _sample_rss_bytes() -> int | None:
     if _PROCESS is None:
         return None
@@ -2782,7 +2830,37 @@ def get_tdnet_disclosures(code: str, limit: int = Query(10, ge=1, le=100)) -> Di
     if not code:
         raise HTTPException(status_code=400, detail="code is required")
     repo = _get_tdnet_repo()
-    return {"items": repo.list_disclosures_by_code(code, limit=limit)}
+    source_configured = _is_tdnet_fetch_configured()
+    try:
+        state = repo.get_disclosure_state(code)
+    except Exception as exc:
+        logger.warning("TDNET disclosure state query failed for %s: %s", code, exc)
+        return {
+            "items": [],
+            "meta": _build_tdnet_meta(
+                {},
+                source_configured=source_configured,
+                query_failed=True,
+                status_detail="state_query_failed",
+            ),
+        }
+    meta = _build_tdnet_meta(state, source_configured=source_configured)
+    if meta.get("status") == "missing_tables":
+        return {"items": [], "meta": meta}
+    try:
+        items = repo.list_disclosures_by_code(code, limit=limit)
+    except Exception as exc:
+        logger.warning("TDNET disclosure list query failed for %s: %s", code, exc)
+        return {
+            "items": [],
+            "meta": _build_tdnet_meta(
+                state,
+                source_configured=source_configured,
+                query_failed=True,
+                status_detail="list_query_failed",
+            ),
+        }
+    return {"items": items, "meta": meta}
 
 
 @router.get("/taisyaku/snapshot", response_model=None)

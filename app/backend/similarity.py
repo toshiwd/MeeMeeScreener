@@ -38,13 +38,21 @@ from pydantic import BaseModel
 
 LONG_TERM_WINDOW = 60
 SHORT_TERM_WINDOW = 24
+DAILY_SHAPE_WINDOW = 60
 SEARCH_CACHE_TTL_SEC = max(1.0, float(os.getenv("MEEMEE_SIMILAR_SEARCH_CACHE_TTL_SEC", "15")))
 SEARCH_CACHE_MAX_ENTRIES = max(16, int(os.getenv("MEEMEE_SIMILAR_SEARCH_CACHE_MAX_ENTRIES", "128")))
+SHAPE_SCORE_WEIGHT = 0.85
+MA_PROFILE_SCORE_WEIGHT = 0.10
+SLOPE_PROFILE_SCORE_WEIGHT = 0.05
+MONTHLY_TOTAL_SCORE_WEIGHT = 0.85
+DAILY_SHAPE_TOTAL_SCORE_WEIGHT = 0.15
 
 class SearchResult(BaseModel):
     ticker: str
     asof: str  # YYYY-MM-DD
     score_total: float
+    score_monthly: Optional[float] = None
+    score_daily: Optional[float] = None
     score60: float
     score24: float
     tag_id: str
@@ -61,12 +69,14 @@ class SimilarityService:
         self.df_monthly_path = os.path.join(self.data_dir, "monthly_bars.parquet")
         self.df_vec60_path = os.path.join(self.data_dir, "vec60.parquet")
         self.df_vec24_path = os.path.join(self.data_dir, "vec24.parquet")
+        self.df_daily_vec_path = os.path.join(self.data_dir, "daily_vec60.parquet")
         self.df_env_path = os.path.join(self.data_dir, "monthly_env.parquet")
         self.tag_index_path = os.path.join(self.data_dir, "tag_index.pkl")
 
         # In-memory Cache
         self.df_vec60: Optional["pd.DataFrame"] = None
         self.df_vec24: Optional["pd.DataFrame"] = None
+        self.df_daily_vec: Optional["pd.DataFrame"] = None
         self.df_env: Optional["pd.DataFrame"] = None
         self.tag_index: Optional[Dict[str, List[int]]] = None
         self.tag_prefix_index: Dict[str, List[int]] = {}
@@ -128,6 +138,24 @@ class SimilarityService:
             [item.model_dump() for item in results],
         )
 
+    @staticmethod
+    def _relative_profile(values: "np.ndarray", denominators: "np.ndarray") -> "np.ndarray":
+        if np is None:
+            raise RuntimeError("numpy_missing")
+        denom = np.where(np.abs(denominators) > 1e-6, np.abs(denominators), np.nan)
+        return np.nan_to_num(values / denom, nan=0.0, posinf=0.0, neginf=0.0)
+
+    @staticmethod
+    def _normalize_shape_vector(values: "np.ndarray") -> "np.ndarray":
+        if np is None:
+            raise RuntimeError("numpy_missing")
+        matrix = np.asarray(values, dtype=np.float32)
+        means = np.mean(matrix, axis=1, keepdims=True)
+        stds = np.std(matrix, axis=1, keepdims=True) + 1e-9
+        z_scores = (matrix - means) / stds
+        l2_norms = np.linalg.norm(z_scores, axis=1, keepdims=True) + 1e-9
+        return z_scores / l2_norms
+
     def _month_values_to_compare_keys(self, values: "pd.Series") -> "pd.Series":
         if pd is None:
             raise RuntimeError("pandas_missing")
@@ -143,6 +171,19 @@ class SimilarityService:
         if ymd_mask.any():
             month_values.loc[ymd_mask] = (month_values.loc[ymd_mask] // 100).astype("int64")
         return month_values
+
+    def _date_values_to_compare_keys(self, values: "pd.Series") -> "pd.Series":
+        if pd is None:
+            raise RuntimeError("pandas_missing")
+        date_values = values.astype("int64").copy()
+        epoch_mask = date_values >= 1_000_000_000
+
+        if epoch_mask.any():
+            epoch_dt = pd.to_datetime(date_values.loc[epoch_mask], unit="s", utc=True)
+            date_values.loc[epoch_mask] = (
+                epoch_dt.dt.year * 10000 + epoch_dt.dt.month * 100 + epoch_dt.dt.day
+            ).astype("int64")
+        return date_values
 
     def _load_monthly_bars(
         self,
@@ -180,6 +221,41 @@ class SimilarityService:
         df_monthly["asof"] = df_monthly["period"].dt.to_timestamp("M")
         return df_monthly
 
+    def _load_daily_bars(
+        self,
+        conn: duckdb.DuckDBPyConnection,
+        codes: Optional[list[str]] = None
+    ) -> "pd.DataFrame":
+        if pd is None:
+            raise RuntimeError("pandas_missing")
+        if codes:
+            placeholders = ",".join(["?"] * len(codes))
+            query = f"""
+                SELECT code, date, c
+                FROM daily_bars
+                WHERE code IN ({placeholders})
+                ORDER BY code, date
+            """
+            df_daily = conn.execute(query, codes).df()
+        else:
+            df_daily = conn.execute(
+                """
+                SELECT code, date, c
+                FROM daily_bars
+                ORDER BY code, date
+                """
+            ).df()
+
+        if df_daily.empty:
+            return df_daily
+
+        if df_daily["date"].max() >= 1_000_000_000:
+            dt = pd.to_datetime(df_daily["date"], unit="s")
+        else:
+            dt = pd.to_datetime(df_daily["date"].astype(str), format="%Y%m%d")
+        df_daily["asof"] = dt.dt.normalize()
+        return df_daily
+
     def _build_vectors_and_tags(
         self, df_monthly: "pd.DataFrame"
     ) -> tuple["pd.DataFrame", "pd.DataFrame", "pd.DataFrame"]:
@@ -205,20 +281,12 @@ class SimilarityService:
         valid_vec_mask = df_vec_temp.notna().all(axis=1)
 
         matrix_60 = df_vec_temp[valid_vec_mask].values.astype(np.float32)
-        means = np.mean(matrix_60, axis=1, keepdims=True)
-        stds = np.std(matrix_60, axis=1, keepdims=True) + 1e-9
-        z_scores = (matrix_60 - means) / stds
-        l2_norms = np.linalg.norm(z_scores, axis=1, keepdims=True) + 1e-9
-        final_vec60 = z_scores / l2_norms
+        final_vec60 = self._normalize_shape_vector(matrix_60)
 
         # subset will be created later after tags, but we already have vec60
 
         matrix_short = matrix_60[:, :SHORT_TERM_WINDOW]
-        means_short = np.mean(matrix_short, axis=1, keepdims=True)
-        stds_short = np.std(matrix_short, axis=1, keepdims=True) + 1e-9
-        z_scores_short = (matrix_short - means_short) / stds_short
-        l2_norms_short = np.linalg.norm(z_scores_short, axis=1, keepdims=True) + 1e-9
-        final_vec24 = z_scores_short / l2_norms_short
+        final_vec24 = self._normalize_shape_vector(matrix_short)
         df_monthly["prev_ma60"] = df_monthly.groupby("code")["ma60"].shift(1)
         df_monthly["low120"] = df_monthly.groupby("code")["l"].transform(lambda x: x.rolling(120).min())
         df_monthly["high120"] = df_monthly.groupby("code")["h"].transform(lambda x: x.rolling(120).max())
@@ -277,15 +345,79 @@ class SimilarityService:
 
         return df_vec60, df_vec24, df_env
 
+    def _build_daily_vectors_for_env(
+        self,
+        df_daily: "pd.DataFrame",
+        df_env: "pd.DataFrame",
+    ) -> "pd.DataFrame":
+        if pd is None:
+            raise RuntimeError("pandas_missing")
+        if np is None:
+            raise RuntimeError("numpy_missing")
+
+        env = df_env[["code", "asof"]].reset_index(drop=True).copy()
+        zero_vec = np.zeros(DAILY_SHAPE_WINDOW, dtype=np.float32)
+        vectors: list[np.ndarray] = [zero_vec.copy() for _ in range(len(env))]
+        daily_asofs: list[pd.Timestamp | Any] = [pd.NaT for _ in range(len(env))]
+        available = [False for _ in range(len(env))]
+
+        if df_daily.empty or env.empty:
+            result = env.copy()
+            result["daily_asof"] = daily_asofs
+            result["daily_shape_available"] = available
+            result["vec_daily"] = vectors
+            return result
+
+        daily = df_daily[["code", "asof", "c"]].dropna(subset=["c"]).sort_values(["code", "asof"])
+        daily_by_code = {str(code): group for code, group in daily.groupby("code", sort=False)}
+
+        for code, env_group in env.groupby("code", sort=False):
+            daily_group = daily_by_code.get(str(code))
+            if daily_group is None or daily_group.empty:
+                continue
+
+            daily_dates = daily_group["asof"].to_numpy(dtype="datetime64[ns]")
+            closes = daily_group["c"].to_numpy(dtype=np.float32)
+            if closes.shape[0] <= DAILY_SHAPE_WINDOW:
+                continue
+
+            returns = np.empty_like(closes, dtype=np.float32)
+            returns[0] = np.nan
+            returns[1:] = (closes[1:] / (closes[:-1] + 1e-9)) - 1.0
+
+            env_dates = env_group["asof"].to_numpy(dtype="datetime64[ns]")
+            positions = np.searchsorted(daily_dates, env_dates, side="right") - 1
+
+            for output_idx, daily_pos in zip(env_group.index.to_numpy(), positions):
+                if daily_pos < DAILY_SHAPE_WINDOW:
+                    continue
+                start = int(daily_pos) - DAILY_SHAPE_WINDOW + 1
+                window = returns[start:int(daily_pos) + 1]
+                if window.shape[0] != DAILY_SHAPE_WINDOW or not np.isfinite(window).all():
+                    continue
+                # Match monthly vector orientation: most recent return first.
+                vector = self._normalize_shape_vector(window[::-1].reshape(1, -1))[0].astype(np.float32)
+                vectors[int(output_idx)] = vector
+                daily_asofs[int(output_idx)] = pd.Timestamp(daily_dates[int(daily_pos)]).normalize()
+                available[int(output_idx)] = True
+
+        result = env.copy()
+        result["daily_asof"] = daily_asofs
+        result["daily_shape_available"] = available
+        result["vec_daily"] = vectors
+        return result
+
     def _persist_artifacts(self) -> None:
         if pd is None:
             raise RuntimeError("pandas_missing")
         self.df_vec60 = self.df_vec60.sort_values(["code", "asof"]).reset_index(drop=True)
         self.df_vec24 = self.df_vec24.sort_values(["code", "asof"]).reset_index(drop=True)
+        self.df_daily_vec = self.df_daily_vec.sort_values(["code", "asof"]).reset_index(drop=True)
         self.df_env = self.df_env.sort_values(["code", "asof"]).reset_index(drop=True)
 
         self.df_vec60.to_parquet(self.df_vec60_path, index=False)
         self.df_vec24.to_parquet(self.df_vec24_path, index=False)
+        self.df_daily_vec.to_parquet(self.df_daily_vec_path, index=False)
         self.df_env.to_parquet(self.df_env_path, index=False)
 
         tag_map = {}
@@ -313,6 +445,7 @@ class SimilarityService:
             required_paths = [
                 self.df_vec60_path,
                 self.df_vec24_path,
+                self.df_daily_vec_path,
                 self.df_env_path,
                 self.tag_index_path
             ]
@@ -336,6 +469,7 @@ class SimilarityService:
             try:
                 self.df_vec60 = pd.read_parquet(self.df_vec60_path)
                 self.df_vec24 = pd.read_parquet(self.df_vec24_path)
+                self.df_daily_vec = pd.read_parquet(self.df_daily_vec_path)
                 self.df_env = pd.read_parquet(self.df_env_path)
             except ImportError as exc:
                 raise RuntimeError("Parquet engine missing. Install pyarrow or fastparquet.") from exc
@@ -360,7 +494,14 @@ class SimilarityService:
             if pd is None:
                 raise RuntimeError("pandas_missing")
 
-            if incremental and not os.path.exists(self.df_vec60_path):
+            incremental_required_paths = [
+                self.df_vec60_path,
+                self.df_vec24_path,
+                self.df_daily_vec_path,
+                self.df_env_path,
+                self.tag_index_path,
+            ]
+            if incremental and not all(os.path.exists(path) for path in incremental_required_paths):
                 incremental = False
 
             if incremental:
@@ -373,24 +514,63 @@ class SimilarityService:
             with get_conn_for_path(self.db_path, timeout_sec=2.5, read_only=True) as conn:
                 if incremental:
                     db_max = conn.execute(
-                        "SELECT code, MAX(month) AS max_month FROM monthly_bars GROUP BY code"
+                        """
+                        SELECT code, MAX(month) AS max_month
+                        FROM monthly_bars
+                        GROUP BY code
+                        HAVING COUNT(*) >= 120
+                        """
+                    ).df()
+                    db_daily_max = conn.execute(
+                        "SELECT code, MAX(date) AS max_date FROM daily_bars GROUP BY code"
                     ).df()
                     if db_max.empty:
                         raise RuntimeError(
                             "monthly_bars table is empty. Import monthly data before building similarity artifacts."
                         )
+                    if db_daily_max.empty:
+                        raise RuntimeError(
+                            "daily_bars table is empty. Import daily data before building similarity artifacts."
+                        )
 
                     db_max["month_key_db"] = self._month_values_to_compare_keys(db_max["max_month"])
+                    db_daily_max["daily_key_db"] = self._date_values_to_compare_keys(db_daily_max["max_date"])
                     existing = self.df_env[["code", "asof"]].copy()
                     existing["month_key_existing"] = (
                         existing["asof"].dt.year * 100 + existing["asof"].dt.month
                     )
-                    existing_max = existing.groupby("code", as_index=False)["month_key_existing"].max()
+                    existing["month_asof_key_existing"] = (
+                        existing["asof"].dt.year * 10000
+                        + existing["asof"].dt.month * 100
+                        + existing["asof"].dt.day
+                    )
+                    existing_max = existing.groupby("code", as_index=False).agg(
+                        month_key_existing=("month_key_existing", "max"),
+                        month_asof_key_existing=("month_asof_key_existing", "max"),
+                    )
+                    existing_daily = self.df_daily_vec[["code", "daily_asof"]].copy()
+                    existing_daily["daily_key_existing"] = (
+                        existing_daily["daily_asof"].dt.year * 10000
+                        + existing_daily["daily_asof"].dt.month * 100
+                        + existing_daily["daily_asof"].dt.day
+                    )
+                    existing_daily_max = existing_daily.groupby("code", as_index=False)["daily_key_existing"].max()
 
                     merged = db_max.merge(existing_max, on="code", how="left")
+                    merged = merged.merge(db_daily_max[["code", "daily_key_db"]], on="code", how="left")
+                    merged = merged.merge(existing_daily_max, on="code", how="left")
+                    merged["daily_key_needed"] = merged[["daily_key_db", "month_asof_key_existing"]].min(axis=1)
+                    current_month_key = int(pd.Timestamp.now(tz="Asia/Tokyo").strftime("%Y%m"))
+                    daily_stale = (
+                        merged["month_key_existing"].fillna(0).astype("int64") >= current_month_key
+                    ) & (
+                        merged["daily_key_existing"].isna()
+                        | (merged["daily_key_needed"] > merged["daily_key_existing"])
+                    )
                     needs_update = merged[
                         merged["month_key_existing"].isna() |
-                        (merged["month_key_db"] > merged["month_key_existing"])
+                        (merged["month_key_db"] > merged["month_key_existing"]) |
+                        daily_stale
                     ]
                     codes_to_update = needs_update["code"].tolist()
 
@@ -412,6 +592,7 @@ class SimilarityService:
                     if insufficient_codes:
                         self.df_vec60 = self.df_vec60[~self.df_vec60["code"].isin(insufficient_codes)]
                         self.df_vec24 = self.df_vec24[~self.df_vec24["code"].isin(insufficient_codes)]
+                        self.df_daily_vec = self.df_daily_vec[~self.df_daily_vec["code"].isin(insufficient_codes)]
                         self.df_env = self.df_env[~self.df_env["code"].isin(insufficient_codes)]
 
                     if df_monthly.empty:
@@ -421,14 +602,22 @@ class SimilarityService:
 
                     print(f"Incremental rebuild for {len(valid_codes)} tickers.")
                     df_vec60_new, df_vec24_new, df_env_new = self._build_vectors_and_tags(df_monthly)
+                    df_daily = self._load_daily_bars(conn, sorted(valid_codes))
+                    if df_daily.empty:
+                        raise RuntimeError(
+                            "daily_bars returned no rows for incremental similarity refresh."
+                        )
+                    df_daily_vec_new = self._build_daily_vectors_for_env(df_daily, df_env_new)
 
                     drop_codes = set(codes_to_update)
                     self.df_vec60 = self.df_vec60[~self.df_vec60["code"].isin(drop_codes)]
                     self.df_vec24 = self.df_vec24[~self.df_vec24["code"].isin(drop_codes)]
+                    self.df_daily_vec = self.df_daily_vec[~self.df_daily_vec["code"].isin(drop_codes)]
                     self.df_env = self.df_env[~self.df_env["code"].isin(drop_codes)]
 
                     self.df_vec60 = pd.concat([self.df_vec60, df_vec60_new], ignore_index=True)
                     self.df_vec24 = pd.concat([self.df_vec24, df_vec24_new], ignore_index=True)
+                    self.df_daily_vec = pd.concat([self.df_daily_vec, df_daily_vec_new], ignore_index=True)
                     self.df_env = pd.concat([self.df_env, df_env_new], ignore_index=True)
 
                     self._persist_artifacts()
@@ -436,24 +625,29 @@ class SimilarityService:
                     return
 
                 df_monthly = self._load_monthly_bars(conn)
+                if df_monthly.empty:
+                    raise RuntimeError(
+                        "monthly_bars table is empty. Import monthly data before building similarity artifacts."
+                    )
 
-            if df_monthly.empty:
-                raise RuntimeError(
-                    "monthly_bars table is empty. Import monthly data before building similarity artifacts."
-                )
-
-            counts = df_monthly["code"].value_counts()
-            valid_codes = counts[counts >= 120].index
-            df_monthly = df_monthly[df_monthly["code"].isin(valid_codes)].copy()
-            if df_monthly.empty:
-                raise RuntimeError(
-                    "No tickers have the 120 months of history required for similarity search."
-                )
+                counts = df_monthly["code"].value_counts()
+                valid_codes = counts[counts >= 120].index
+                df_monthly = df_monthly[df_monthly["code"].isin(valid_codes)].copy()
+                if df_monthly.empty:
+                    raise RuntimeError(
+                        "No tickers have the 120 months of history required for similarity search."
+                    )
+                df_daily = self._load_daily_bars(conn, list(valid_codes))
+                if df_daily.empty:
+                    raise RuntimeError(
+                        "daily_bars table is empty. Import daily data before building similarity artifacts."
+                    )
 
             print(f"Monthly Bars loaded: {len(df_monthly)} rows, {len(valid_codes)} tickers.")
-            print("Generating vectors and tags...")
+            print("Generating monthly and daily vectors and tags...")
 
             self.df_vec60, self.df_vec24, self.df_env = self._build_vectors_and_tags(df_monthly)
+            self.df_daily_vec = self._build_daily_vectors_for_env(df_daily, self.df_env)
             self._persist_artifacts()
             print("Refresh Complete.")
 
@@ -482,12 +676,14 @@ class SimilarityService:
                 or self.df_env is None
                 or self.df_vec60 is None
                 or self.df_vec24 is None
+                or self.df_daily_vec is None
                 or self.tag_index is None
             ):
                 raise RuntimeError("Similarity artifacts are not loaded. Run refresh_data() first.")
             df_env = self.df_env
             df_vec60 = self.df_vec60
             df_vec24 = self.df_vec24
+            df_daily_vec = self.df_daily_vec
             tag_index = self.tag_index
              
         # Parse AsOf
@@ -541,6 +737,13 @@ class SimilarityService:
         query_tag = query_row["tag_id"]
         query_vec60 = np.array(df_vec60.loc[query_idx]["vec60"], dtype=np.float32)
         query_vec24 = np.array(df_vec24.loc[query_idx]["vec24"], dtype=np.float32)
+        query_daily_row = df_daily_vec.loc[query_idx]
+        if not bool(query_daily_row.get("daily_shape_available", False)):
+            raise RuntimeError(
+                f"Daily similarity vector missing for {ticker} asof {query_row['asof']}. "
+                "Run refresh_data() after daily_bars import."
+            )
+        query_vec_daily = np.array(query_daily_row["vec_daily"], dtype=np.float32)
         
         # Fallback Levels
         # 0: Exact Tag
@@ -606,29 +809,52 @@ class SimilarityService:
         cand_env = df_env.loc[candidates_indices]
         cand_vec60 = np.vstack(df_vec60.loc[candidates_indices]["vec60"].values) # (N, 60)
         cand_vec24 = np.vstack(df_vec24.loc[candidates_indices]["vec24"].values) # (N, 24)
+        cand_daily_rows = df_daily_vec.loc[candidates_indices]
+        cand_vec_daily = np.vstack(cand_daily_rows["vec_daily"].values) # (N, 60 daily bars)
 
         # Dot Product base
         s60 = np.dot(cand_vec60, query_vec60)
         s24 = np.dot(cand_vec24, query_vec24)
-        scores = alpha * s60 + (1 - alpha) * s24
+        monthly_shape_scores = alpha * s60 + (1 - alpha) * s24
+        s_daily = np.dot(cand_vec_daily, query_vec_daily)
+        daily_available = cand_daily_rows["daily_shape_available"].fillna(False).to_numpy(dtype=bool)
+        s_daily = np.where(daily_available, s_daily, 0.0)
 
-        # Monthly MA similarity boost
+        # Monthly MA similarity boost. Compare MA profiles as ratios so search is
+        # shape-scale invariant across different nominal share prices.
         ma_cols = ["ma7", "ma20", "ma60", "ma100"]
         slope_cols = [f"{col}_slope" for col in ma_cols]
         query_ma = np.nan_to_num(query_row[ma_cols].to_numpy(dtype=np.float32), nan=0.0)
         query_slopes = np.nan_to_num(query_row[slope_cols].to_numpy(dtype=np.float32), nan=0.0)
         cand_ma = np.nan_to_num(cand_env[ma_cols].to_numpy(dtype=np.float32), nan=0.0)
         cand_slopes = np.nan_to_num(cand_env[slope_cols].to_numpy(dtype=np.float32), nan=0.0)
-        ma_diff = np.abs(cand_ma - query_ma) / (np.abs(query_ma) + 1e-3)
-        slope_diff = np.abs(cand_slopes - query_slopes) / (np.abs(query_slopes) + 1e-3)
+        query_close = np.array([[float(query_row["c"])]], dtype=np.float32)
+        cand_close = cand_env["c"].to_numpy(dtype=np.float32).reshape(-1, 1)
+        query_ma_profile = self._relative_profile(query_ma.reshape(1, -1), query_close)[0]
+        cand_ma_profile = self._relative_profile(cand_ma, cand_close)
+        query_slope_profile = self._relative_profile(query_slopes.reshape(1, -1), query_ma.reshape(1, -1))[0]
+        cand_slope_profile = self._relative_profile(cand_slopes, cand_ma)
+        ma_diff = np.abs(cand_ma_profile - query_ma_profile)
+        slope_diff = np.abs(cand_slope_profile - query_slope_profile)
         ma_similarity = np.exp(-np.sum(ma_diff, axis=1))
         slope_similarity = np.exp(-np.sum(slope_diff, axis=1))
-        scores = scores + 0.25 * ma_similarity + 0.15 * slope_similarity
+        monthly_scores = (
+            SHAPE_SCORE_WEIGHT * monthly_shape_scores
+            + MA_PROFILE_SCORE_WEIGHT * ma_similarity
+            + SLOPE_PROFILE_SCORE_WEIGHT * slope_similarity
+        )
+        scores = (
+            MONTHLY_TOTAL_SCORE_WEIGHT * monthly_scores
+            + DAILY_SHAPE_TOTAL_SCORE_WEIGHT * s_daily
+        )
+        scores = np.minimum(scores, 1.0)
         
         # Build Result DF
         df_res = pd.DataFrame({
             "idx": candidates_indices,
             "score": scores,
+            "score_monthly": monthly_scores,
+            "score_daily": s_daily,
             "s60": s60,
             "s24": s24
         })
@@ -684,6 +910,8 @@ class SimilarityService:
                 ticker=code,
                 asof=r_asof.strftime("%Y-%m-%d"),
                 score_total=float(r["score"]),
+                score_monthly=float(r["score_monthly"]),
+                score_daily=float(r["score_daily"]),
                 score60=float(r["s60"]),
                 score24=float(r["s24"]),
                 tag_id=row_meta["tag_id"],
@@ -692,7 +920,13 @@ class SimilarityService:
                     "ma60": str(row_meta["tag_ma60"]),
                     "dir": str(row_meta["tag_dir60"]),
                     "range": str(row_meta["tag_range"]),
-                    "fallback": str(level_desc)
+                    "fallback": str(level_desc),
+                    "daily_shape": "available" if bool(df_daily_vec.iloc[idx]["daily_shape_available"]) else "missing",
+                    "daily_asof": (
+                        df_daily_vec.iloc[idx]["daily_asof"].strftime("%Y-%m-%d")
+                        if pd.notna(df_daily_vec.iloc[idx]["daily_asof"])
+                        else None
+                    )
                 },
                 vec60=[float(x) for x in df_vec60.iloc[idx]["vec60"]],
                 vec24=[float(x) for x in df_vec24.iloc[idx]["vec24"]]

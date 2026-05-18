@@ -114,6 +114,7 @@ import type {
   EdinetFinancialPanel,
   TaisyakuSnapshot,
   TdnetDisclosureItem,
+  TdnetDisclosureMeta,
   AnalysisFallback,
 } from "./detail/detailTypes";
 import {
@@ -142,6 +143,7 @@ import {
   buildTaisyakuDisplay,
   buildTdnetReactionSummary,
   buildTdnetHighlights,
+  formatTdnetDisclosureStatusLabel,
   formatResearchPriorMetaLine,
   formatEdinetStatus,
   isNonEmptyString,
@@ -169,6 +171,7 @@ import {
   normalizeEdinetFinancialPanel,
   normalizeTaisyakuSnapshot,
   normalizeTdnetDisclosureItem,
+  normalizeTdnetDisclosureMeta,
   resolveAutoEdinetOfficialBackfillRequest,
   resolveAutoEdinetOfficialBackfillSubmitOutcome,
   shouldAutoRefreshTaisyaku,
@@ -489,6 +492,7 @@ export default function DetailView() {
   const [taisyakuLoading, setTaisyakuLoading] = useState(false);
   const [taisyakuFetchedOnce, setTaisyakuFetchedOnce] = useState(false);
   const [tdnetDisclosures, setTdnetDisclosures] = useState<TdnetDisclosureItem[]>([]);
+  const [tdnetMeta, setTdnetMeta] = useState<TdnetDisclosureMeta | null>(null);
   const [tdnetLoading, setTdnetLoading] = useState(false);
   const [tdnetFetchedOnce, setTdnetFetchedOnce] = useState(false);
   const [selectedTdnetDisclosures, setSelectedTdnetDisclosures] = useState<TdnetDisclosureItem[]>([]);
@@ -778,6 +782,7 @@ export default function DetailView() {
     setTradeErrors([]);
     setCurrentPositionsFromApi(null);
     setTdnetDisclosures([]);
+    setTdnetMeta(null);
     setTdnetLoading(false);
     setTdnetFetchedOnce(false);
     // Keep selectedDate so we can restore cursor position in new candle data
@@ -1163,14 +1168,28 @@ export default function DetailView() {
         const items = response.data && typeof response.data === "object"
           ? (response.data as { items?: unknown }).items
           : [];
+        const meta = response.data && typeof response.data === "object"
+          ? (response.data as { meta?: unknown }).meta
+          : null;
         const normalized = Array.isArray(items)
           ? items.map(normalizeTdnetDisclosureItem).filter((item): item is TdnetDisclosureItem => item !== null)
           : [];
         setTdnetDisclosures(normalized);
+        setTdnetMeta(normalizeTdnetDisclosureMeta(meta));
       })
       .catch((error) => {
         if (cancelled || isCanceledRequestError(error)) return;
         setTdnetDisclosures([]);
+        setTdnetMeta({
+          status: "error",
+          statusDetail: "request_failed",
+          sourceConfigured: null,
+          missingTables: [],
+          totalCount: null,
+          matchedCount: null,
+          latestPublishedAt: null,
+          latestFetchedAt: null,
+        });
       })
       .finally(() => {
         if (!cancelled) {
@@ -1187,7 +1206,7 @@ export default function DetailView() {
   useEffect(() => {
     if (!backendReady || !code || !secondaryJobReady || !financialBackgroundJobReady || headerMode !== "financial") return;
     if (!tdnetFetchedOnce || tdnetLoading) return;
-    if (!shouldAutoRefreshTdnet(tdnetDisclosures)) return;
+    if (!shouldAutoRefreshTdnet(tdnetDisclosures, Date.now(), tdnetMeta)) return;
     const requestKey = `${code}:${tdnetDisclosures.length > 0 ? "stale" : "empty"}`;
     if (tdnetAutoImportRequestedRef.current.has(requestKey)) return;
     tdnetAutoImportRequestedRef.current.add(requestKey);
@@ -1204,7 +1223,7 @@ export default function DetailView() {
     return () => {
       cancelled = true;
     };
-  }, [backendReady, code, financialBackgroundJobReady, headerMode, secondaryJobReady, tdnetDisclosures, tdnetFetchedOnce, tdnetLoading]);
+  }, [backendReady, code, financialBackgroundJobReady, headerMode, secondaryJobReady, tdnetDisclosures, tdnetFetchedOnce, tdnetLoading, tdnetMeta]);
 
   // 依存配列で参照する派生値は先に宣言して、TDZ を避ける。
   const edinetOfficialBackfillRequest = useMemo(
@@ -2053,6 +2072,10 @@ export default function DetailView() {
     const latestFetched = Math.max(...fetchedValues);
     return `TDNET最終取得 ${formatDateTimeLabel(latestFetched)}`;
   }, [tdnetDisclosures, tdnetLoading]);
+  const tdnetResolvedStatusLabel = useMemo(
+    () => formatTdnetDisclosureStatusLabel({ meta: tdnetMeta, items: tdnetDisclosures, loading: tdnetLoading }),
+    [tdnetDisclosures, tdnetLoading, tdnetMeta]
+  );
   const showFinancialPanel = headerMode === "financial" && !compareCode && !showReplayPanel;
   const swingPlan = analysisFallback?.swingPlan ?? null;
   const swingDiagnostics = analysisFallback?.swingDiagnostics ?? null;
@@ -2074,12 +2097,16 @@ export default function DetailView() {
     (rankingDisplayScore != null ? "none" : null);
   const rankingDisplayScoreSourceLabel =
     rankingDisplayScoreSource === "ranking_entry"
-      ? "rankings_cache entryScore"
+      ? "entryScore（売買候補）"
       : rankingDisplayScoreSource === "ranking_hybrid"
-        ? "rankings_cache hybridScore"
+        ? "hybridScore（補完）"
         : rankingDisplayScoreSource === "none"
           ? "score source 未設定"
           : "--";
+  const rankingJudgementSurfaceLabel =
+    rankingDisplayScore != null || activeTicker?.entryPriorityScore != null || activeTicker?.hybridScore != null
+      ? "残存: 表示スコアと厳選通過で買い/売り優先度を出す"
+      : "根拠不足: この銘柄のランキング判定なし";
   const rightRailKind = showReplayPanel
     ? "replay"
     : showAnalysisPanel
@@ -6436,19 +6463,21 @@ export default function DetailView() {
                 <ScreenPanel title="ランキング指標" className="detail-analysis-panel">
                   <div className="detail-analysis-body">
                     <div className="detail-analysis-meta">
-                      score {rankingDisplayScore != null ? formatNumber(rankingDisplayScore, 2) : "--"}
+                      売買判定 {rankingJudgementSurfaceLabel}
                     </div>
                     <div className="detail-analysis-meta">
-                      source {rankingDisplayScoreSourceLabel}
+                      表示スコア {rankingDisplayScore != null ? `${formatNumber(rankingDisplayScore, 2)}点` : "--"}
+                      {" / "}
+                      根拠 {rankingDisplayScoreSourceLabel}
                     </div>
                     {activeTicker?.entryPriorityScore != null && (
                       <div className="detail-analysis-meta">
-                        entryPriorityScore {formatNumber(activeTicker.entryPriorityScore, 2)}
+                        厳選優先度 {formatNumber(activeTicker.entryPriorityScore, 2)}
                       </div>
                     )}
                     {activeTicker?.hybridScore != null && (
                       <div className="detail-analysis-meta">
-                        hybridScore {formatNumber(activeTicker.hybridScore, 2)}
+                        補完スコア {formatNumber(activeTicker.hybridScore, 2)}
                       </div>
                     )}
                   </div>
@@ -6507,7 +6536,7 @@ export default function DetailView() {
                   financialKeyStats={financialDisplay.stats}
                   tdnetHighlights={tdnetHighlights}
                   tdnetLoading={tdnetLoading}
-                  tdnetStatusLabel={tdnetStatusLabel}
+                  tdnetStatusLabel={tdnetResolvedStatusLabel ?? tdnetStatusLabel}
                   taisyakuCards={taisyakuDisplay.cards}
                   taisyakuHistory={taisyakuDisplay.history}
                   taisyakuRestrictions={taisyakuSnapshot?.restrictions ?? []}
@@ -6634,6 +6663,7 @@ export default function DetailView() {
             isOpen={showSimilar}
             onClose={() => setShowSimilar(false)}
             queryTicker={code ?? null}
+            queryAsOf={mainAsOf}
           />
         </Suspense>
       )}

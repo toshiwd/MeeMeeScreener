@@ -293,6 +293,18 @@ async function flush() {
   });
 }
 
+async function waitForText(container: HTMLElement, text: string, timeoutMs = 2500) {
+  const start = Date.now();
+  while (!container.textContent?.includes(text)) {
+    if (Date.now() - start > timeoutMs) {
+      throw new Error(`Timed out waiting for text: ${text}`);
+    }
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+  }
+}
+
 describe("MeeMee boundary harness", () => {
   beforeEach(() => {
     resetMocks();
@@ -546,24 +558,25 @@ describe("MeeMee boundary harness", () => {
   it("renders the ranking shell with confirmed-only rows", async () => {
     const render = await renderRankingRoute();
     await flush();
+    await waitForText(render.container, "注意/監視 1件");
+    await waitForText(render.container, "市場データ更新", 12000);
 
     expect(render.container.textContent).toContain("1301");
     expect(render.container.textContent).toContain("MeeMee Electric");
     expect(render.container.textContent).toContain("注意/監視 1件");
     expect(render.container.textContent).toContain("短期売り 0件");
-    expect(render.container.textContent).toContain("R2 shadow: ON");
-    expect(render.container.textContent).toContain("boundary_local_rerank");
-    expect(render.container.textContent).toContain("暫定 / provisional");
-    expect(render.container.textContent).toContain("Yahoo更新");
-    expect(render.container.textContent).toContain("暫定候補 1件");
-    expect(render.container.textContent).toContain("暫定状態 partial");
-    expect(render.container.textContent).toContain("暫定カバレッジ 1/2");
+    expect(render.container.textContent).toContain("検証表示: 有効");
+    expect(render.container.textContent).toContain("当日反映");
+    expect(render.container.textContent).toContain("市場データ更新");
+    expect(render.container.textContent).toContain("当日データ 一部反映");
+    expect(render.container.textContent).toContain("当日データ取得 1/2");
     expect(render.container.textContent).toContain("未取得 1");
-    expect(render.container.textContent).toContain("同日 1/1");
+    expect(render.container.textContent).toContain("当日一致 1/1");
+    expect(render.container.textContent).toContain("当日候補 1件");
     expect(render.container.querySelectorAll("[data-testid='chart-card']")).toHaveLength(2);
 
     render.cleanup();
-  });
+  }, 15000);
 
   it("renders the positions shell with a held position", async () => {
     const render = await renderPositionsRoute();

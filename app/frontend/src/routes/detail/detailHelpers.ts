@@ -32,6 +32,8 @@ import type {
   TaisyakuRestrictionItem,
   TaisyakuIssueItem,
   TdnetDisclosureItem,
+  TdnetDisclosureMeta,
+  TdnetReportLink,
   TdnetReactionSummary,
   AnalysisSwingPlan,
   AnalysisSwingSetupExpectancy,
@@ -450,6 +452,9 @@ export type TdnetHighlightItem = {
   tdnetUrl: string | null;
   pdfUrl: string | null;
   xbrlUrl: string | null;
+  sourceProvider: string | null;
+  markets: string | null;
+  reportLinks: TdnetReportLink[];
 };
 
 export const formatTdnetEventTypeLabel = (value: string | null | undefined) => {
@@ -503,11 +508,48 @@ export const buildTdnetHighlights = (items: TdnetDisclosureItem[], limit = 3): T
         tdnetUrl: item.tdnetUrl ?? null,
         pdfUrl: item.pdfUrl ?? null,
         xbrlUrl: item.xbrlUrl ?? null,
+        sourceProvider: item.sourceProvider ?? null,
+        markets: item.markets ?? null,
+        reportLinks: item.reportLinks ?? [],
       };
     });
 };
 
-export const shouldAutoRefreshTdnet = (items: TdnetDisclosureItem[], nowMs = Date.now()) => {
+export const formatTdnetDisclosureStatusLabel = ({
+  meta,
+  items,
+  loading,
+}: {
+  meta: TdnetDisclosureMeta | null;
+  items: TdnetDisclosureItem[];
+  loading: boolean;
+}) => {
+  if (loading) return "TDNETデータを取得中です";
+  if (meta?.status === "unconfigured") return "TDNET取得コマンド未設定: 自動取得をスキップ中";
+  if (meta?.status === "missing_tables") return "TDNETテーブルが未作成です";
+  if (meta?.status === "error") {
+    return meta.statusDetail ? `TDNET状態確認エラー: ${meta.statusDetail}` : "TDNET状態確認エラー";
+  }
+  if (meta?.status === "empty") return "TDNET取得済みデータはまだありません";
+  if (meta?.status === "no_symbol_rows") return "TDNET DBにこの銘柄の開示はありません";
+  const fetchedValues = items
+    .map((item) => (item.fetchedAt ? Date.parse(item.fetchedAt) : Number.NaN))
+    .filter((value) => Number.isFinite(value));
+  const latestFetchedFromItems = fetchedValues.length > 0 ? Math.max(...fetchedValues) : Number.NaN;
+  const latestFetchedFromMeta = meta?.latestFetchedAt ? Date.parse(meta.latestFetchedAt) : Number.NaN;
+  const latestFetched = Number.isFinite(latestFetchedFromMeta) ? latestFetchedFromMeta : latestFetchedFromItems;
+  if (Number.isFinite(latestFetched)) {
+    return `TDNET最終取得 ${formatDateTimeLabel(latestFetched)}`;
+  }
+  return null;
+};
+
+export const shouldAutoRefreshTdnet = (
+  items: TdnetDisclosureItem[],
+  nowMs = Date.now(),
+  meta: TdnetDisclosureMeta | null = null
+) => {
+  if (meta?.sourceConfigured === false) return false;
   if (!Array.isArray(items) || items.length === 0) return true;
   let latestFetchedMs = Number.NaN;
   for (const item of items) {
@@ -1702,6 +1744,7 @@ export const normalizeEdinetFinancialPanel = (value: unknown): EdinetFinancialPa
 export const normalizeTdnetDisclosureItem = (value: unknown): TdnetDisclosureItem | null => {
   if (!value || typeof value !== "object") return null;
   const source = value as Record<string, unknown>;
+  const rawReportLinks = Array.isArray(source.reportLinks) ? source.reportLinks : [];
   return {
     disclosureId: typeof source.disclosureId === "string" ? source.disclosureId : null,
     title: typeof source.title === "string" ? source.title : null,
@@ -1715,6 +1758,32 @@ export const normalizeTdnetDisclosureItem = (value: unknown): TdnetDisclosureIte
     sentiment: typeof source.sentiment === "string" ? source.sentiment : null,
     importanceScore: toFiniteNumber(source.importanceScore),
     tags: Array.isArray(source.tags) ? source.tags.map((item) => String(item)) : [],
+    sourceProvider: typeof source.sourceProvider === "string" ? source.sourceProvider : null,
+    markets: typeof source.markets === "string" ? source.markets : null,
+    reportLinks: rawReportLinks
+      .map((item) => {
+        if (!item || typeof item !== "object") return null;
+        const link = item as Record<string, unknown>;
+        const label = typeof link.label === "string" ? link.label.trim() : "";
+        const url = typeof link.url === "string" ? link.url.trim() : "";
+        return label && url ? { label, url } : null;
+      })
+      .filter((item): item is TdnetReportLink => item !== null),
+  };
+};
+
+export const normalizeTdnetDisclosureMeta = (value: unknown): TdnetDisclosureMeta | null => {
+  if (!value || typeof value !== "object") return null;
+  const source = value as Record<string, unknown>;
+  return {
+    status: typeof source.status === "string" ? source.status : null,
+    statusDetail: typeof source.statusDetail === "string" ? source.statusDetail : null,
+    sourceConfigured: source.sourceConfigured == null ? null : toBoolean(source.sourceConfigured),
+    missingTables: Array.isArray(source.missingTables) ? source.missingTables.map((item) => String(item)) : [],
+    totalCount: toFiniteNumber(source.totalCount),
+    matchedCount: toFiniteNumber(source.matchedCount),
+    latestPublishedAt: typeof source.latestPublishedAt === "string" ? source.latestPublishedAt : null,
+    latestFetchedAt: typeof source.latestFetchedAt === "string" ? source.latestFetchedAt : null,
   };
 };
 

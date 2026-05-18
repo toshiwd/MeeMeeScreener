@@ -44,6 +44,12 @@ type TdnetHighlight = {
   readonly tdnetUrl: string | null;
   readonly pdfUrl: string | null;
   readonly xbrlUrl: string | null;
+  readonly sourceProvider: string | null;
+  readonly markets: string | null;
+  readonly reportLinks: readonly {
+    readonly label: string;
+    readonly url: string;
+  }[];
 };
 
 type TaisyakuCard = {
@@ -136,7 +142,7 @@ export function DetailFinancialPanel(props: Props) {
   const hasEdinetAnalysisSection = Boolean(financialPanel?.analysisSummary || financialPanel?.status);
   const hasEdinetTextSection = textHighlights.length > 0;
   const hasOfficialFilingsSection = officialFilings.length > 0;
-  const hasTdnetSection = tdnetLoading || tdnetHighlights.length > 0;
+  const hasTdnetSection = tdnetLoading || tdnetHighlights.length > 0 || tdnetStatusLabel != null;
   const hasTaisyakuSection =
     taisyakuLoading ||
     taisyakuCards.length > 0 ||
@@ -319,25 +325,37 @@ export function DetailFinancialPanel(props: Props) {
                             <span className="detail-financial-tdnet-pill">{item.eventLabel}</span>
                             {item.sentimentLabel && <span className="detail-financial-tdnet-pill">{item.sentimentLabel}</span>}
                             {item.importanceLabel && <span className="detail-financial-tdnet-pill">{item.importanceLabel}</span>}
+                            {item.sourceProvider && <span className="detail-financial-tdnet-pill">{item.sourceProvider}</span>}
+                            {item.markets && <span className="detail-financial-tdnet-pill">{item.markets}</span>}
                           </div>
                         </div>
                         <div className="detail-analysis-meta">{item.publishedLabel}</div>
                         {item.summaryText && <div className="detail-financial-tdnet-summary">{item.summaryText}</div>}
                         <div className="detail-financial-tdnet-links">
-                          {item.tdnetUrl && (
-                            <a href={item.tdnetUrl} target="_blank" rel="noreferrer">
-                              TDNET
-                            </a>
-                          )}
-                          {item.pdfUrl && (
-                            <a href={item.pdfUrl} target="_blank" rel="noreferrer">
-                              PDF
-                            </a>
-                          )}
-                          {item.xbrlUrl && (
-                            <a href={item.xbrlUrl} target="_blank" rel="noreferrer">
-                              XBRL
-                            </a>
+                          {item.reportLinks.length > 0 ? (
+                            item.reportLinks.map((link) => (
+                              <a key={`${item.disclosureId}:${link.label}:${link.url}`} href={link.url} target="_blank" rel="noreferrer">
+                                {link.label}
+                              </a>
+                            ))
+                          ) : (
+                            <>
+                              {item.tdnetUrl && (
+                                <a href={item.tdnetUrl} target="_blank" rel="noreferrer">
+                                  TDNET
+                                </a>
+                              )}
+                              {item.pdfUrl && (
+                                <a href={item.pdfUrl} target="_blank" rel="noreferrer">
+                                  PDF
+                                </a>
+                              )}
+                              {item.xbrlUrl && (
+                                <a href={item.xbrlUrl} target="_blank" rel="noreferrer">
+                                  XBRL
+                                </a>
+                              )}
+                            </>
                           )}
                         </div>
                       </div>

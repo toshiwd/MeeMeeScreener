@@ -707,8 +707,84 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
   };
   const buildDetailChromeSnapshotStable = useStableCallback(buildDetailChromeSnapshot);
 
-  const HANDLE_RADIUS = 8;
+  const HANDLE_RADIUS = 11;
+  const HANDLE_DRAW_SIZE = 6;
   const isNear = (a: number, b: number, radius = HANDLE_RADIUS) => Math.abs(a - b) <= radius;
+
+  const resolveShapeFillOpacity = (value: number | null | undefined, fallback = 0.12) => {
+    if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+    return Math.max(0.04, Math.min(0.28, value * 0.16));
+  };
+
+  const resolveShapeLineWidth = (value: number | null | undefined, fallback = 2) => {
+    if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+    return Math.max(1, Math.min(6, value));
+  };
+
+  const findNearestCandle = (time: number | null | undefined) => {
+    const candles = candlesRef.current ?? [];
+    if (!candles.length || !Number.isFinite(time)) return null;
+    let bestIndex = 0;
+    let bestDistance = Infinity;
+    for (let index = 0; index < candles.length; index += 1) {
+      const distance = Math.abs(candles[index].time - Number(time));
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestIndex = index;
+      }
+    }
+    return { candle: candles[bestIndex], index: bestIndex };
+  };
+
+  const expandDrawBoxForVisibility = (box: DrawBox): DrawBox => {
+    const nearest = findNearestCandle((box.startTime + box.endTime) / 2);
+    let startTime = box.startTime;
+    let endTime = box.endTime;
+    let topPrice = box.topPrice;
+    let bottomPrice = box.bottomPrice;
+
+    if (startTime === endTime) {
+      const candles = candlesRef.current ?? [];
+      const index = nearest?.index ?? -1;
+      const previous = index > 0 ? candles[index - 1]?.time : null;
+      const next = index >= 0 && index < candles.length - 1 ? candles[index + 1]?.time : null;
+      if (previous != null && next != null) {
+        startTime = previous;
+        endTime = next;
+      } else if (previous != null) {
+        startTime = previous;
+        endTime = box.endTime;
+      } else if (next != null) {
+        startTime = box.startTime;
+        endTime = next;
+      } else {
+        startTime = box.startTime - 24 * 60 * 60;
+        endTime = box.endTime + 24 * 60 * 60;
+      }
+    }
+
+    const midpoint = Math.max(1, Math.abs((topPrice + bottomPrice) / 2));
+    const minimumSpan = Math.max(1, midpoint * 0.003);
+    if (Math.abs(topPrice - bottomPrice) < minimumSpan) {
+      if (nearest?.candle) {
+        topPrice = Math.max(nearest.candle.high, nearest.candle.low);
+        bottomPrice = Math.min(nearest.candle.high, nearest.candle.low);
+      }
+      if (Math.abs(topPrice - bottomPrice) < minimumSpan) {
+        const center = (topPrice + bottomPrice) / 2;
+        topPrice = center + minimumSpan / 2;
+        bottomPrice = center - minimumSpan / 2;
+      }
+    }
+
+    return {
+      ...box,
+      startTime: Math.min(startTime, endTime),
+      endTime: Math.max(startTime, endTime),
+      topPrice: Math.max(topPrice, bottomPrice),
+      bottomPrice: Math.min(topPrice, bottomPrice)
+    };
+  };
 
   const resolveGapAsOf = (asOf: number | null) => {
     if (asOf == null) return null;
@@ -911,15 +987,21 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     }
     if (tool === "priceBand") {
       const startPrice = drawStartRef.current.price ?? null;
-      const band = buildPriceBandShape(startPrice, price, 0.12);
+      const band = buildPriceBandShape(
+        startPrice,
+        price,
+        resolveShapeFillOpacity(activeLineOpacityRef.current),
+        resolveShapeLineWidth(activeLineWidthRef.current, 1)
+      );
       draftPriceBandRef.current = band;
       return;
     }
     const startTime = drawStartRef.current.time ?? null;
     const startPrice = drawStartRef.current.price ?? null;
     const box = buildDrawBoxShape(startTime, time, startPrice, price, {
-      opacity: 0.08,
-      color: activeDrawColorRef.current ?? undefined
+      opacity: resolveShapeFillOpacity(activeLineOpacityRef.current, 0.08),
+      color: activeDrawColorRef.current ?? undefined,
+      lineWidth: resolveShapeLineWidth(activeLineWidthRef.current)
     });
     draftDrawBoxRef.current = box;
   };
@@ -940,7 +1022,12 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
       return;
     }
     if (tool === "priceBand") {
-      const band = buildPriceBandShape(drawStartRef.current.price ?? null, price, 0.12);
+      const band = buildPriceBandShape(
+        drawStartRef.current.price ?? null,
+        price,
+        resolveShapeFillOpacity(activeLineOpacityRef.current),
+        resolveShapeLineWidth(activeLineWidthRef.current, 1)
+      );
       if (band) onAddPriceBandRef.current?.(band);
       return;
     }
@@ -950,11 +1037,12 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
       drawStartRef.current.price ?? null,
       price,
       {
-        opacity: 0.08,
-        color: activeDrawColorRef.current ?? undefined
+        opacity: resolveShapeFillOpacity(activeLineOpacityRef.current, 0.08),
+        color: activeDrawColorRef.current ?? undefined,
+        lineWidth: resolveShapeLineWidth(activeLineWidthRef.current)
       }
     );
-    if (box) onAddDrawBoxRef.current?.(box);
+    if (box) onAddDrawBoxRef.current?.(expandDrawBoxForVisibility(box));
   };
 
   const formatChartDate = (value: any) => {
@@ -1585,7 +1673,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     const selected = selectedShapeRef.current;
     if (selected && typeof timeScale.timeToCoordinate === "function" && typeof series?.priceToCoordinate === "function") {
       const drawHandle = (x: number, y: number) => {
-        const size = 4;
+        const size = HANDLE_DRAW_SIZE;
         ctx.save();
         ctx.fillStyle = "#ffffff";
         ctx.strokeStyle = "rgba(100, 116, 139, 0.8)";
@@ -2045,6 +2133,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
 
   const readChartColorsStable = useStableCallback(readChartColors);
   const updateGapBandsStable = useStableCallback(updateGapBands);
+  const updatePriceBandAtStable = useStableCallback(updatePriceBandAt);
   const updateDrawBoxAtStable = useStableCallback(updateDrawBoxAt);
   const updateHorizontalLineAtStable = useStableCallback(updateHorizontalLineAt);
   const drawOverlayStable = useStableCallback(drawOverlay);
@@ -2269,7 +2358,23 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     if (selected.kind === "drawBox") {
       const box = drawBoxesRef.current[selected.index];
       if (!box) return;
-      updateDrawBoxAtStable(selected.index, { ...box, color: activeDrawColor });
+      updateDrawBoxAtStable(selected.index, {
+        ...box,
+        color: activeDrawColor,
+        opacity: resolveShapeFillOpacity(activeLineOpacity, box.opacity ?? 0.08),
+        lineWidth: resolveShapeLineWidth(activeLineWidth, box.lineWidth ?? 2)
+      });
+      drawOverlayStable();
+      return;
+    }
+    if (selected.kind === "priceBand") {
+      const band = priceBandsRef.current[selected.index];
+      if (!band) return;
+      updatePriceBandAtStable(selected.index, {
+        ...band,
+        opacity: resolveShapeFillOpacity(activeLineOpacity, band.opacity ?? 0.12),
+        lineWidth: resolveShapeLineWidth(activeLineWidth, band.lineWidth ?? 1)
+      });
       drawOverlayStable();
     }
   }, [
@@ -2278,7 +2383,8 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     activeLineWidth,
     drawOverlayStable,
     updateDrawBoxAtStable,
-    updateHorizontalLineAtStable
+    updateHorizontalLineAtStable,
+    updatePriceBandAtStable
   ]);
 
   useEffect(() => {
