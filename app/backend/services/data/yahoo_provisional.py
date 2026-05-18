@@ -28,6 +28,10 @@ _cache_lock = Lock()
 _chart_cache: dict[str, tuple[float, tuple[int, float, float, float, float, float] | None]] = {}
 _spark_cache: dict[str, tuple[float, tuple[int, float, float, float, float, float] | None]] = {}
 _history_cache: dict[str, tuple[float, list[tuple[int, float, float, float, float, float]]]] = {}
+_SPECIAL_YAHOO_SYMBOLS = {
+    # MeeMee uses 1001 as the Nikkei 225 benchmark code; Yahoo Finance exposes it as an index symbol.
+    "1001": "^N225",
+}
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -91,6 +95,8 @@ def _user_agent() -> str:
 
 def code_to_yahoo_symbol(code: str) -> str | None:
     value = str(code or "").strip()
+    if value in _SPECIAL_YAHOO_SYMBOLS:
+        return _SPECIAL_YAHOO_SYMBOLS[value]
     if len(value) != 4 or not value.isdigit():
         return None
     return f"{value}.T"

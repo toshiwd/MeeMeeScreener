@@ -127,6 +127,10 @@ def test_invalid_code_skips_fetch(monkeypatch) -> None:
     assert called["count"] == 0
 
 
+def test_nikkei_benchmark_code_uses_yahoo_index_symbol() -> None:
+    assert yp.code_to_yahoo_symbol("1001") == "^N225"
+
+
 def test_spark_builds_close_only_synthetic_ohlc(monkeypatch) -> None:
     monkeypatch.setenv("MEEMEE_YF_PROVISIONAL_ENABLED", "1")
 

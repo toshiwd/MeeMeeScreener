@@ -1779,12 +1779,18 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
     )
     manifest_matches, manifest_miss_reason = _manifests_match_for_noop(previous_manifest, current_manifest)
     force_export = _to_bool(payload.get("force_export"), False) or full_rebuild_requested
+    allow_manifest_fast_noop = _to_bool(
+        payload.get("allow_manifest_fast_noop"),
+        _to_bool(os.getenv("MEEMEE_TXT_UPDATE_ALLOW_MANIFEST_FAST_NOOP"), False),
+    )
     repair_mode = bool(auto_fill_missing_history or force_export)
-    export_required = bool(force_export or repair_mode or not manifest_matches)
+    export_required = bool(force_export or repair_mode or (not allow_manifest_fast_noop) or not manifest_matches)
     if force_export:
         export_reason = "forced_export"
     elif repair_mode:
         export_reason = "repair_mode"
+    elif not allow_manifest_fast_noop:
+        export_reason = "manual_refresh_after_pan_import"
     elif manifest_matches:
         export_reason = None
     else:

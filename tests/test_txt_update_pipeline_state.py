@@ -230,7 +230,14 @@ def test_txt_update_manifest_no_change_skips_export_import_ranking_and_tracking(
         patches[13] as mock_refresh_cache,
         patches[14] as mock_refresh_tracking,
     ):
-        txt_update_job.handle_txt_update("job-manifest-no-change", {"auto_ml_predict": False, "auto_ml_train": False})
+        txt_update_job.handle_txt_update(
+            "job-manifest-no-change",
+            {
+                "allow_manifest_fast_noop": True,
+                "auto_ml_predict": False,
+                "auto_ml_train": False,
+            },
+        )
 
     mock_export.assert_not_called()
     mock_ingest.assert_not_called()
@@ -244,6 +251,70 @@ def test_txt_update_manifest_no_change_skips_export_import_ranking_and_tracking(
     assert any(
         call.args[2] == "success"
         and call.kwargs.get("message") == "No confirmed TXT/PAN source changes detected. Daily update fast path completed."
+        for call in mock_update_db.call_args_list
+    )
+
+
+def test_txt_update_manifest_match_still_runs_export_by_default():
+    state_store: dict = {
+        "last_cache_refresh_at": "2026-04-22T01:00:00",
+        "last_cache_refresh_db_latest_key": 20260101,
+    }
+    manifest = {
+        "schema_version": 1,
+        "source_files": [{"path": "code.txt", "mtime_ns": 1, "size": 10}],
+        "export_outputs": [{"path": "1001.txt", "mtime_ns": 2, "size": 20}],
+        "db_latest_date": "2026-01-01",
+        "source_latest_date": "2026-01-01",
+        "ranking_snapshot_as_of": "2026-01-01",
+    }
+    patches = _build_common_patches()
+    patches[3] = patch(
+        "app.backend.core.txt_update_job.run_ingest",
+        return_value=("", "", {"rows": "10", "changed_files": 0, "pan_finalized_rows": 0}),
+    )
+    patches.extend(
+        [
+            patch("app.backend.core.txt_update_job._load_update_state", return_value=state_store),
+            patch("app.backend.core.txt_update_job._save_update_state"),
+            patch("app.backend.core.txt_update_job._load_txt_source_manifest", return_value=manifest),
+            patch("app.backend.core.txt_update_job._build_txt_source_manifest_snapshot", return_value=dict(manifest)),
+            patch("app.backend.jobs.scoring_job.ScoringJob.run"),
+            patch("app.backend.services.rankings_cache.refresh_cache"),
+            patch("app.backend.services.signal_tracking_service.refresh_daily_tracking_window"),
+        ]
+    )
+
+    with (
+        patches[0],
+        patches[1],
+        patches[2] as mock_export,
+        patches[3] as mock_ingest,
+        patches[4] as mock_phase,
+        patches[5],
+        patches[6] as mock_update_db,
+        patches[7],
+        patches[8],
+        patches[9] as mock_save_state,
+        patches[10],
+        patches[11],
+        patches[12],
+        patches[13] as mock_refresh_cache,
+        patches[14] as mock_refresh_tracking,
+    ):
+        txt_update_job.handle_txt_update("job-manifest-refresh", {"auto_ml_predict": False, "auto_ml_train": False})
+
+    mock_export.assert_called_once()
+    mock_ingest.assert_called_once()
+    mock_phase.assert_not_called()
+    mock_refresh_cache.assert_not_called()
+    mock_refresh_tracking.assert_not_called()
+    saved_state = mock_save_state.call_args[0][0]
+    assert saved_state["last_pipeline_status"] == "success"
+    assert saved_state["last_tracking_refresh_skipped_reason"] == "no_confirmed_change"
+    assert any(
+        call.args[2] == "running"
+        and call.kwargs.get("message") == "Running Pan Rolling export..."
         for call in mock_update_db.call_args_list
     )
 
