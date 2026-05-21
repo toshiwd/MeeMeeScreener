@@ -198,7 +198,7 @@ SPLIT_SUSPECTS_PATH = str(config.DATA_DIR / "_split_suspects.csv")
 DEFAULT_UPDATE_STATE_PATH = str(config.DATA_DIR / "update_state.json")
 UPDATE_STATE_PATH = os.path.abspath(os.getenv("UPDATE_STATE_PATH") or DEFAULT_UPDATE_STATE_PATH)
 
-APP_VERSION = os.getenv("APP_VERSION", "dev")
+APP_VERSION = os.getenv("APP_VERSION", "1.5.0")
 APP_ENV = os.getenv("APP_ENV") or os.getenv("ENV") or "dev"
 DEBUG = os.getenv("DEBUG", "0") == "1"
 

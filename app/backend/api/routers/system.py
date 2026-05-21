@@ -848,7 +848,7 @@ def get_system_status(config: ConfigRepository = Depends(get_config_repo)):
         db_status_error = str(exc)
     return {
         "last_update": state.get("last_txt_update_at"),
-        "version": "2.0.0-clean-arch",
+        "version": "1.5.0",
         "pipeline": {
             "status": state.get("last_pipeline_status"),
             "stage": state.get("last_pipeline_stage"),
