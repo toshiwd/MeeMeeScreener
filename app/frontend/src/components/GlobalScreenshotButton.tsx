@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useLocation, useParams } from "react-router-dom";
 import { IconAlertCircle, IconCamera, IconCheck, IconLoader2 } from "@tabler/icons-react";
-import { captureWindowBlob, getScreenType, saveBlobToFile } from "../utils/windowScreenshot";
+import { captureAndCopyScreenshot, getScreenType, saveBlobToFile } from "../utils/windowScreenshot";
 
 type ButtonState = "idle" | "saving" | "saved" | "failed";
 
@@ -21,12 +21,12 @@ export default function GlobalScreenshotButton() {
   const busy = state === "saving";
   const label =
     state === "saving"
-      ? "スクショ保存中"
+      ? "スクショコピー中"
       : state === "saved"
-        ? "スクショ保存済み"
+        ? "スクショコピー済み"
         : state === "failed"
           ? "スクショ失敗"
-          : "画面スクショを保存";
+          : "画面スクショをコピー";
   const Icon =
     state === "saving"
       ? IconLoader2
@@ -40,12 +40,16 @@ export default function GlobalScreenshotButton() {
     if (busy) return;
     setState("saving");
     try {
-      const capture = await captureWindowBlob({
+      const capture = await captureAndCopyScreenshot({
         screenType: getScreenType(location.pathname),
         code,
       });
       if (!capture.success || !capture.blob || !capture.filename) {
         setState("failed");
+        return;
+      }
+      if (capture.copied) {
+        setState("saved");
         return;
       }
       const save = await saveBlobToFile(capture.blob, capture.filename);

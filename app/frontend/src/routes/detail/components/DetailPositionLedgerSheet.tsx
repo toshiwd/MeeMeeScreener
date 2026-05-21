@@ -52,6 +52,8 @@ type Props = {
   formatLedgerDate: (value: string) => string;
   formatNumber: (value: number | null | undefined, digits?: number) => string;
   formatSignedNumber: (value: number | null | undefined, digits?: number) => string;
+  exitLinePrice?: number | null;
+  exitLineSide?: "long" | "short" | null;
 };
 
 const formatLotValue = (value: number) => {
@@ -270,6 +272,8 @@ export default function DetailPositionLedgerSheet({
   formatLedgerDate,
   formatNumber,
   formatSignedNumber,
+  exitLinePrice,
+  exitLineSide,
 }: Props) {
   if (!isOpen) return null;
 
@@ -322,6 +326,17 @@ export default function DetailPositionLedgerSheet({
         <div className="position-ledger-group-list">
           <div className="position-ledger-summary">
             <div className="position-ledger-summary-title">現在建玉</div>
+            {exitLinePrice != null && Number.isFinite(exitLinePrice) && (
+              <div className="position-ledger-exit-line">
+                <span className="position-ledger-exit-label">撤退</span>
+                <span className="position-ledger-exit-value">{formatNumber(exitLinePrice, 0)}</span>
+                {exitLineSide && (
+                  <span className="position-ledger-exit-side">
+                    {exitLineSide === "long" ? "買い建玉" : "売り建玉"}
+                  </span>
+                )}
+              </div>
+            )}
             <div className="position-ledger-summary-list">
               {summaryGroups.map((group) => {
                 const summary =

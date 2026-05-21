@@ -3,6 +3,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { IconX, IconChartArrows } from "@tabler/icons-react";
 import { api } from "../api";
+import { DEFAULT_LIMITS } from "../routes/detail/detailHelpers";
+import { prefetchDetailChartFrames } from "../routes/detail/detailChartPrefetch";
 
 type SimilarSearchPanelProps = {
     isOpen: boolean;
@@ -15,6 +17,8 @@ type SearchResult = {
     ticker: string;
     asof: string;
     score_total: number;
+    score_monthly?: number | null;
+    score_daily?: number | null;
     score60: number;
     score24: number;
     tag_id: string;
@@ -38,6 +42,9 @@ type RefreshStatus = {
 };
 
 const SEARCH_DEBOUNCE_MS = 250;
+const COMPARE_PREFETCH_DAILY_LIMIT = 420;
+const COMPARE_PREFETCH_TOP_N = 5;
+const COMPARE_NAVIGATION_PREFETCH_WAIT_MS = 250;
 
 export default function SimilarSearchPanel({
     isOpen,
@@ -155,7 +162,8 @@ export default function SimilarSearchPanel({
         const params: any = {
             ticker: queryTicker,
             alpha: debouncedAlpha,
-            k: 30
+            k: 30,
+            include_vectors: true
         };
         if (debouncedTargetDate) {
             params.asof = debouncedTargetDate;
@@ -194,6 +202,23 @@ export default function SimilarSearchPanel({
         lastFinishedAtRef.current = null;
     }, [isOpen]);
 
+    useEffect(() => {
+        if (!isOpen || !results.length) return;
+        for (const item of results.slice(0, COMPARE_PREFETCH_TOP_N)) {
+            if (!item.ticker) continue;
+            void prefetchDetailChartFrames(
+                {
+                    code: item.ticker,
+                    dailyLimit: COMPARE_PREFETCH_DAILY_LIMIT,
+                    weeklyLimit: DEFAULT_LIMITS.weekly,
+                    monthlyLimit: DEFAULT_LIMITS.monthly,
+                    asof: item.asof || null,
+                },
+                { timeframes: ["daily", "monthly"] }
+            ).catch(() => undefined);
+        }
+    }, [isOpen, results]);
+
     const handleJump = (item: SearchResult) => {
         const params = new URLSearchParams();
         if (item.asof) {
@@ -203,8 +228,18 @@ export default function SimilarSearchPanel({
         navigate(params.size > 0 ? `/detail/${item.ticker}?${params.toString()}` : `/detail/${item.ticker}`);
     };
 
-    const handleCompare = (item: SearchResult) => {
+    const handleCompare = async (item: SearchResult) => {
         if (!queryTicker) return;
+        const comparePrefetch = prefetchDetailChartFrames(
+            {
+                code: item.ticker,
+                dailyLimit: COMPARE_PREFETCH_DAILY_LIMIT,
+                weeklyLimit: DEFAULT_LIMITS.weekly,
+                monthlyLimit: DEFAULT_LIMITS.monthly,
+                asof: item.asof || null,
+            },
+            { timeframes: ["daily", "monthly"] }
+        ).catch(() => undefined);
         if (typeof window !== "undefined") {
             try {
                 const payload = {
@@ -231,6 +266,10 @@ export default function SimilarSearchPanel({
         if (item.asof) {
             params.set("compareAsOf", item.asof);
         }
+        await Promise.race([
+            comparePrefetch,
+            new Promise((resolve) => window.setTimeout(resolve, COMPARE_NAVIGATION_PREFETCH_WAIT_MS)),
+        ]);
         onClose();
         navigate(`/detail/${queryTicker}?${params.toString()}`);
     };
@@ -415,6 +454,10 @@ function ResultItem({
             </svg>
         );
     }, [item.vec60]);
+    const monthlyScoreLabel =
+        typeof item.score_monthly === "number" ? `${(item.score_monthly * 100).toFixed(1)}%` : "--";
+    const dailyScoreLabel =
+        typeof item.score_daily === "number" ? `${(item.score_daily * 100).toFixed(1)}%` : "--";
 
     return (
         <div
@@ -448,6 +491,9 @@ function ResultItem({
                 <div style={{ fontSize: '10px', color: 'var(--theme-text-muted)' }}>
                     {getFallbackText(item.tags.fallback)}
                 </div>
+                <div style={{ fontSize: '10px', color: 'var(--theme-text-muted)' }}>
+                    月 {monthlyScoreLabel} / 日 {dailyScoreLabel}
+                </div>
                 <button
                     type="button"
                     className="tech-filter-row-remove"
@@ -465,7 +511,7 @@ function ResultItem({
 }
 
 function getFallbackText(text: string) {
-    if (text === "Level 0 (Exact)") return "完全一致";
+    if (text === "Level 0 (Exact)") return "タグ一致";
     if (text === "Level 1 (Ignore Range)") return "⚠️ レベル1 (レンジ無視)";
     if (text === "Level 2 (Ignore Dir)") return "⚠️ レベル2 (方向無視)";
     if (text === "Level 3 (MA60 Only)") return "⚠️ レベル3 (MA60のみ)";

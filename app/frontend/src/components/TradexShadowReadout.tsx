@@ -39,11 +39,13 @@ export default function TradexShadowReadout({ className, variant = "ranking" }: 
   if (!shadow.isReady) return null;
 
   const readinessLabel =
-    shadow.adoptionReadiness === "ready"
-      ? "確認済み"
-      : shadow.adoptionReadiness
-        ? "確認中"
-        : null;
+    variant === "detail"
+      ? null
+      : shadow.adoptionReadiness === "ready"
+        ? "確認済み"
+        : shadow.adoptionReadiness
+          ? "採用準備を確認中"
+          : null;
 
   return (
     <div className={rootClassName} data-testid="tradex-shadow-readout" aria-label="検証表示が有効">

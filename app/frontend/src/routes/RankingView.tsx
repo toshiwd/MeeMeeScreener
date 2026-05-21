@@ -27,7 +27,7 @@ import {
   ConsultationTimeframe
 } from "../utils/consultation";
 import { downloadChartScreenshots } from "../utils/chartScreenshot";
-import { captureWindowBlob, getScreenType, saveBlobToFile } from "../utils/windowScreenshot";
+import { captureAndCopyScreenshot, getScreenType, saveBlobToFile } from "../utils/windowScreenshot";
 import { openDetailWithPrefetch } from "./detail/openDetailWithPrefetch";
 import { shouldUseDetailV2Navigation } from "./detail/detailV2Navigation";
 import { buildTradexListSummaryKey } from "./list/tradexSummary";
@@ -537,6 +537,18 @@ const resolveProbSide = (item: RankItem, dir: "up" | "down") => {
 };
 
 const resolveScoreSide = (item: RankItem) => firstFinite(item.tradePriorityScore, item.entryScore, item.hybridScore);
+
+const formatSetupType = (setupType?: string | null) => {
+  if (!setupType) return "--";
+  if (setupType === "failed_high_retest") return "トライ届かず";
+  if (setupType === "breakdown") return "下抜け";
+  if (setupType === "pressure") return "売り圧";
+  if (setupType === "rebound") return "反発";
+  if (setupType === "turn") return "転換";
+  if (setupType === "continuation") return "継続";
+  if (setupType === "watch" || setupType === "watchlist") return "監視";
+  return setupType;
+};
 
 const matchesMtfStrictRule = (item: RankItem, minQualified: number, winGate: number) => {
   const mtfQualified = firstFinite(item.mtfQualifiedCount) ?? 0;
@@ -1787,7 +1799,7 @@ export default function RankingView() {
     setToastAction(null);
     try {
       const screenType = getScreenType(location.pathname);
-      const captureResult = await captureWindowBlob({
+      const captureResult = await captureAndCopyScreenshot({
         screenType,
         code: "screen"
       });
@@ -1795,12 +1807,39 @@ export default function RankingView() {
         setToastMessage(captureResult.error ?? "スクショを作成できませんでした。");
         return;
       }
-      const saveResult = await saveBlobToFile(captureResult.blob, captureResult.filename);
-      if (!saveResult.success) {
-        setToastMessage(saveResult.error ?? "スクショの保存に失敗しました。");
+      if (captureResult.copied) {
+        setToastMessage("画面スクショをクリップボードにコピーしました。");
+        setToastAction({
+          label: "保存...",
+          onClick: async () => {
+            const saveResult = await saveBlobToFile(captureResult.blob!, captureResult.filename!);
+            if (!saveResult.success) {
+              setToastMessage(saveResult.error ?? "スクショの保存に失敗しました。");
+              setToastAction(null);
+              return;
+            }
+            setToastMessage("画面スクショを保存しました。");
+            const targetPath = saveResult.savedPath || saveResult.savedDir;
+            if (targetPath && window.pywebview?.api?.open_path) {
+              setToastAction({
+                label: "保存先を開く",
+                onClick: async () => {
+                  await window.pywebview!.api.open_path(targetPath);
+                }
+              });
+            } else {
+              setToastAction(null);
+            }
+          }
+        });
         return;
       }
-      setToastMessage("画面スクショを保存しました。");
+      const saveResult = await saveBlobToFile(captureResult.blob, captureResult.filename);
+      if (!saveResult.success) {
+        setToastMessage("スクショをクリップボードにコピーできず、保存にも失敗しました。");
+        return;
+      }
+      setToastMessage("スクショをクリップボードにコピーできなかったため、画像ファイルとして保存しました。");
       const targetPath = saveResult.savedPath || saveResult.savedDir;
       if (targetPath && window.pywebview?.api?.open_path) {
         setToastAction({
@@ -1838,15 +1877,22 @@ export default function RankingView() {
         snapshot_as_of?: string | null;
         freshness_state?: string | null;
         duration_ms?: number | null;
+        effective_snapshot_as_of?: string | null;
+        effective_freshness_state?: string | null;
+        provisional_snapshot_as_of?: string | null;
+        provisional_freshness_state?: string | null;
       };
-      const suffix = payload.snapshot_as_of ? ` / 基準日 ${payload.snapshot_as_of}` : "";
+      const reflectedSnapshot = payload.effective_snapshot_as_of ?? payload.provisional_snapshot_as_of ?? payload.snapshot_as_of ?? null;
+      const suffix = reflectedSnapshot ? ` / 基準日 ${reflectedSnapshot}` : "";
       const nextMessage = `ランキング更新を反映しました${suffix}`;
       setRankingRefreshMessage(nextMessage);
       setToastMessage(nextMessage);
       recordPerfEvent("ranking_cache_refresh_end", {
         cacheKey: rankingCacheKey,
-        snapshotAsOf: payload.snapshot_as_of ?? null,
-        freshnessState: payload.freshness_state ?? null,
+        snapshotAsOf: reflectedSnapshot,
+        freshnessState: payload.effective_freshness_state ?? payload.freshness_state ?? null,
+        provisionalSnapshotAsOf: payload.provisional_snapshot_as_of ?? null,
+        provisionalFreshnessState: payload.provisional_freshness_state ?? null,
         durationMs: payload.duration_ms ?? null,
       });
     } catch (error) {

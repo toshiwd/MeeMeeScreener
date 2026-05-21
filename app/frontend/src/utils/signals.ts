@@ -145,6 +145,61 @@ const buildSignals = (counts: Record<number, MaCountState>, maxSignals: number) 
   return signals.slice(0, maxSignals);
 };
 
+const finiteNumber = (value: unknown) => {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+};
+
+const averageLast = (values: number[], period: number) => {
+  if (period <= 0 || values.length < period) return null;
+  const slice = values.slice(values.length - period);
+  return slice.reduce((sum, value) => sum + value, 0) / period;
+};
+
+const buildFailedHighRetestSignal = (bars: number[][]): SignalChip | null => {
+  const normalized = bars
+    .map((row) => {
+      const time = finiteNumber(row?.[0]);
+      const high = finiteNumber(row?.[2]);
+      const close = finiteNumber(row?.[4]);
+      return time == null || high == null || close == null ? null : { time, high, close };
+    })
+    .filter((row): row is { time: number; high: number; close: number } => row != null)
+    .sort((a, b) => a.time - b.time);
+
+  if (normalized.length < 80) return null;
+
+  const latest = normalized[normalized.length - 1];
+  const previous = normalized[normalized.length - 2];
+  if (!latest || !previous) return null;
+
+  const recentWindow = normalized.slice(Math.max(0, normalized.length - 20), normalized.length - 1);
+  const priorWindow = normalized.slice(0, Math.max(0, normalized.length - 20));
+  if (recentWindow.length < 5 || priorWindow.length < 40) return null;
+
+  const priorHigh = Math.max(...priorWindow.map((row) => row.high));
+  const recentRetestHigh = Math.max(...recentWindow.map((row) => row.high));
+  const closes = normalized.map((row) => row.close);
+  const ma7 = averageLast(closes, 7);
+  const ma20 = averageLast(closes, 20);
+  if (priorHigh <= 0 || ma7 == null || ma20 == null) return null;
+
+  const attemptedPriorHigh = recentRetestHigh >= priorHigh * 0.88 && recentRetestHigh < priorHigh * 1.01;
+  const rolledOverFromRetest = latest.close <= recentRetestHigh * 0.94;
+  const belowShortMAs = latest.close < ma7 && latest.close < ma20;
+  const stillFalling = latest.close < previous.close;
+
+  if (attemptedPriorHigh && rolledOverFromRetest && belowShortMAs && stillFalling) {
+    return {
+      label: "売り:高値未達失速",
+      kind: "warning",
+      priority: 460
+    };
+  }
+
+  return null;
+};
+
 const hasDirectionalThresholdSignal = (
   counts: Record<number, MaCountState>,
   direction: "up" | "down"
@@ -221,9 +276,16 @@ export const computeSignalMetrics = (bars: number[][], maxSignals = 5): SignalMe
     });
   }
 
+  const signals = buildSignals(counts, maxSignals);
+  const failedHighRetestSignal = buildFailedHighRetestSignal(validBars);
+  if (failedHighRetestSignal) {
+    signals.push(failedHighRetestSignal);
+    signals.sort((a, b) => b.priority - a.priority);
+  }
+
   return {
     counts,
-    signals: buildSignals(counts, maxSignals),
+    signals: signals.slice(0, maxSignals),
     trendStrength: computeTrendStrength(counts),
     exhaustionRisk: computeExhaustionRisk(counts)
   };

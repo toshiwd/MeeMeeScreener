@@ -43,10 +43,15 @@ describe('DetailPositionLedgerSheet', () => {
         formatLedgerDate={formatLedgerDate}
         formatNumber={formatNumber}
         formatSignedNumber={formatSignedNumber}
+        exitLinePrice={2710}
+        exitLineSide="long"
       />
     );
 
     expect(miniMarkup).toContain('現在建玉');
+    expect(miniMarkup).toContain('撤退');
+    expect(miniMarkup).toContain('2710');
+    expect(miniMarkup).toContain('買い建玉');
     expect(miniMarkup).toContain('L2026-03-18');
     expect(miniMarkup).not.toContain('当日Δ（売玉）');
 

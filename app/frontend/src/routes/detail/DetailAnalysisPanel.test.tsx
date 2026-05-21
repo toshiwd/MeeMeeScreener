@@ -251,4 +251,5 @@ describe("DetailAnalysisPanel", () => {
     expect(markup).toContain("stop5");
     expect(markup).toContain("box_reclaim");
   });
+
 });

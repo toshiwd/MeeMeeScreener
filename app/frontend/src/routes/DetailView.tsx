@@ -11,6 +11,7 @@ import {
   IconCamera,
   IconHeart,
   IconHeartFilled,
+  IconInfoCircle,
   IconSparkles,
   IconPointer,
   IconPointerOff,
@@ -78,6 +79,7 @@ import DetailDebugBanner from "./detail/components/DetailDebugBanner";
 import DetailReplayPanel from "./detail/DetailReplayPanel";
 import DetailPositionLedgerSheet from "./detail/components/DetailPositionLedgerSheet";
 import { useDetailDrawings } from "./detail/hooks/useDetailDrawings";
+import { buildPositionRiskOverlayDrawings } from "./detail/positionRiskOverlay";
 
 const loadSimilarSearchPanel = () => import("../components/SimilarSearchPanel");
 const loadDetailJudgementPanel = () =>
@@ -197,6 +199,7 @@ import { formatDateTimeLabel } from "../utils/dateLabels";
 const DETAIL_DAILY_ROW_RATIO = 0.72;
 const DETAIL_DEFAULT_WEEKLY_RATIO = 0.64;
 const COMPARE_DETAIL_PREFETCH_TIMEFRAMES: Timeframe[] = ["daily", "monthly"];
+const COMPARE_INITIAL_DAILY_LIMIT = 420;
 const DETAIL_CHROME_DAILY = { timeframe: "daily" as const };
 const DETAIL_CHROME_WEEKLY = { timeframe: "weekly" as const };
 const DETAIL_CHROME_MONTHLY = { timeframe: "monthly" as const };
@@ -224,6 +227,25 @@ type DetailOverwriteObservability = {
   daily: DetailFrameOverwriteObservability | null;
   weekly: DetailFrameOverwriteObservability | null;
   monthly: DetailFrameOverwriteObservability | null;
+};
+
+type DailyChartShape = {
+  confirmed?: boolean | null;
+  shape_label?: string | null;
+  shape_family?: string | null;
+  bias?: string | null;
+  actionability?: string | null;
+  description?: string | null;
+  confidence?: number | null;
+  window?: number | null;
+  reasons?: string[] | null;
+  metrics?: Record<string, number | string | null> | null;
+  multi_window?: {
+    event_shape?: DailyChartShape | null;
+    context_shape?: DailyChartShape | null;
+    trend_shape?: DailyChartShape | null;
+    conflict_flags?: string[] | null;
+  } | null;
 };
 
 const summarizeDetailFrameOverwriteObservability = (
@@ -618,7 +640,7 @@ export default function DetailView() {
     const dailyRows = Array.isArray(dailySeed?.rows) ? dailySeed.rows : [];
     const monthlyRows = Array.isArray(monthlySeed?.rows) ? monthlySeed.rows : [];
     const monthlyBoxes = Array.isArray(monthlySeed?.boxes) ? monthlySeed.boxes : [];
-    setCompareDailyLimit(DEFAULT_LIMITS.daily);
+    setCompareDailyLimit(COMPARE_INITIAL_DAILY_LIMIT);
     setCompareMonthlyData(monthlyRows);
     setCompareMonthlyErrors([]);
     setCompareLoading(false);
@@ -665,7 +687,7 @@ export default function DetailView() {
   const [compareDailyErrors, setCompareDailyErrors] = useState<string[]>([]);
   const [compareDailyLoading, setCompareDailyLoading] = useState(false);
   const [compareChartPendingSwap, setCompareChartPendingSwap] = useState(false);
-  const [compareDailyLimit, setCompareDailyLimit] = useState(DEFAULT_LIMITS.daily);
+  const [compareDailyLimit, setCompareDailyLimit] = useState(COMPARE_INITIAL_DAILY_LIMIT);
   const [analysisHorizon] = useState<AnalysisHorizonKey>(20);
   const [analysisRiskMode, setAnalysisRiskMode] = useState<RankRiskMode>(() => resolveRiskModeFromSession());
   const [analysisAsOfTime, setAnalysisAsOfTime] = useState<number | null>(null);
@@ -738,11 +760,11 @@ export default function DetailView() {
         ? undefined
         : readDetailChartPrefetchSync({
             code: compareCode,
-            dailyLimit: DEFAULT_LIMITS.daily,
+            dailyLimit: COMPARE_INITIAL_DAILY_LIMIT,
             weeklyLimit: DEFAULT_LIMITS.weekly,
             monthlyLimit: DEFAULT_LIMITS.monthly,
-            asof: compareAsOf,
-          });
+            asof: null,
+          }, COMPARE_DETAIL_PREFETCH_TIMEFRAMES);
     setCompareChartPendingSwap(!hasCompleteDetailChartPrefetch(seed, COMPARE_DETAIL_PREFETCH_TIMEFRAMES));
     resetCompareChartState(seed);
   }, [compareAsOf, compareCode, resetCompareChartState]);
@@ -1013,6 +1035,52 @@ export default function DetailView() {
         decision: normalizeAnalysisDecision(source.decision),
         swingPlan: normalizeSwingPlan(source.swingPlan),
         swingDiagnostics: normalizeSwingDiagnostics(source.swingDiagnostics),
+      };
+    },
+  });
+
+  const {
+    item: dailyChartShape,
+    loading: dailyChartShapeLoading,
+  } = useAsOfItemFetch<DailyChartShape>({
+    backendReady,
+    code,
+    asof: analysisAsOfTime,
+    prefetchAsofs: analysisDeferredPrefetchAsofs,
+    enabled: analysisFetchEnabled,
+    readyToFetch: analysisNetworkReady,
+    endpoint: "/ticker/daily/shape",
+    timeoutMs: 10000,
+    requestKeyExtra: "windows:10,20,60",
+    buildParams: (symbol, asof) => ({ code: symbol, asof, window: 10, windows: "10,20,60" }),
+    parseItem: (item) => {
+      if (!item || typeof item !== "object") return null;
+      const source = item as Record<string, unknown>;
+      const shapeSource =
+        source.shape && typeof source.shape === "object"
+          ? (source.shape as Record<string, unknown>)
+          : source;
+      const multiWindow =
+        source.multi_window && typeof source.multi_window === "object"
+          ? (source.multi_window as Record<string, unknown>)
+          : null;
+      return {
+        confirmed: typeof shapeSource.confirmed === "boolean" ? shapeSource.confirmed : null,
+        shape_label: typeof shapeSource.shape_label === "string" ? shapeSource.shape_label : null,
+        shape_family: typeof shapeSource.shape_family === "string" ? shapeSource.shape_family : null,
+        bias: typeof shapeSource.bias === "string" ? shapeSource.bias : null,
+        actionability: typeof shapeSource.actionability === "string" ? shapeSource.actionability : null,
+        description: typeof shapeSource.description === "string" ? shapeSource.description : null,
+        confidence: toFiniteNumber(shapeSource.confidence),
+        window: toFiniteNumber(shapeSource.window),
+        reasons: Array.isArray(shapeSource.reasons)
+          ? shapeSource.reasons.filter((value): value is string => typeof value === "string")
+          : [],
+        metrics:
+          shapeSource.metrics && typeof shapeSource.metrics === "object"
+            ? (shapeSource.metrics as Record<string, number | string | null>)
+            : {},
+        multi_window: multiWindow as DailyChartShape["multi_window"],
       };
     },
   });
@@ -2487,7 +2555,7 @@ export default function DetailView() {
       dailyLimit: compareDailyLimit,
       weeklyLimit: DEFAULT_LIMITS.weekly,
       monthlyLimit,
-      asof: compareAsOf,
+      asof: null,
     };
     const applyCompareFrames = (frames: ChartPrefetchFrames) => {
       if (!hasCompleteDetailChartPrefetch(frames, COMPARE_DETAIL_PREFETCH_TIMEFRAMES)) return false;
@@ -3962,6 +4030,23 @@ export default function DetailView() {
     return buildDetailMaLines(dailyCandles, maSettings.daily);
   }, [dailyCandles, maSettings.daily]);
   const dailyChartMaLines = useMemo(() => toDetailChartMaLines(dailyMaLines), [dailyMaLines]);
+  const dailyPositionRiskOverlayDrawings = useMemo(
+    () =>
+      buildPositionRiskOverlayDrawings({
+        candles: dailyCandles,
+        maLines: dailyMaLines,
+        currentPositions,
+      }),
+    [currentPositions, dailyCandles, dailyMaLines]
+  );
+  const dailyPriceBandsWithPositionRisk = useMemo(
+    () => [...dailyDrawings.priceBands, ...dailyPositionRiskOverlayDrawings.priceBands],
+    [dailyDrawings.priceBands, dailyPositionRiskOverlayDrawings.priceBands]
+  );
+  const dailyHorizontalLinesWithPositionRisk = useMemo(
+    () => [...dailyDrawings.horizontalLines, ...dailyPositionRiskOverlayDrawings.horizontalLines],
+    [dailyDrawings.horizontalLines, dailyPositionRiskOverlayDrawings.horizontalLines]
+  );
   const dailyMaLineByPeriod = useMemo(
     () => new Map(dailyMaLines.map((line) => [line.period, line])),
     [dailyMaLines]
@@ -4542,9 +4627,6 @@ export default function DetailView() {
   const compareMonthlyInitialRange = useMemo(() => {
     const months = rangeMonths ?? (compareAsOfTime ? COMPARE_FOCUS_MONTHS : null);
     if (!months) return null;
-    if (compareAsOfTime != null) {
-      return buildRangeFromEndTime(months, compareAsOfTime);
-    }
     return buildRange(compareMonthlyCandles, months);
   }, [rangeMonths, compareMonthlyCandles, compareAsOfTime]);
   const compareMonthlyBaseRange = useMemo(() => {
@@ -4556,7 +4638,7 @@ export default function DetailView() {
     if (!compareDailyCandles.length) return null;
     const months = rangeMonths ?? (compareAsOfTime ? COMPARE_FOCUS_MONTHS : null);
     if (!months) return null;
-    return buildRangeEndingAt(compareDailyCandles, months, compareAsOfTime);
+    return buildRange(compareDailyCandles, months);
   }, [compareDailyCandles, rangeMonths, compareAsOfTime]);
   const compareMonthlyVisibleRange = useMemo(
     () => manualCompareMonthlyRangeRef.current ?? compareMonthlyInitialRange,
@@ -5617,8 +5699,15 @@ export default function DetailView() {
         }
         summaryCenter={
           <div className="detail-status-stack">
-            <TradexShadowReadout variant="detail" />
-            <DataFreshnessBadges contract={detailDataFreshnessContract} scope="detail" compact />
+            <details className="detail-status-disclosure">
+              <summary className="detail-status-disclosure-button" aria-label="表示状態">
+                <IconInfoCircle size={16} />
+              </summary>
+              <div className="detail-status-disclosure-panel">
+                <TradexShadowReadout variant="detail" />
+                <DataFreshnessBadges contract={detailDataFreshnessContract} scope="detail" compact />
+              </div>
+            </details>
             {headerRangeControls}
           </div>
         }
@@ -5877,9 +5966,9 @@ export default function DetailView() {
                         gapBands={gapBandsOverride}
                         drawingEnabled={activeDrawTool != null}
                         timeZones={dailyDrawings.timeZones}
-                        priceBands={dailyDrawings.priceBands}
+                        priceBands={dailyPriceBandsWithPositionRisk}
                         drawBoxes={dailyDrawings.drawBoxes}
-                        horizontalLines={dailyDrawings.horizontalLines}
+                        horizontalLines={dailyHorizontalLinesWithPositionRisk}
                         showPriceBands
                         meeMeeDetailChrome={DETAIL_CHROME_DAILY}
                         activeTool={activeDrawTool}
@@ -6007,17 +6096,6 @@ export default function DetailView() {
           )}
           {compareCode ? null : focusPanel ? (
             <div className="detail-row detail-row-focus">
-              <div className="detail-pane-header">
-                <span>{focusTitle}</span>
-                {focusPanel && (
-                  <DataFreshnessBadges
-                    contract={detailDataFreshnessContract}
-                    scope="chart"
-                    timeframe={focusPanel}
-                    compact
-                  />
-                )}
-              </div>
               <div
                 className="detail-chart detail-chart-focused"
                 onDoubleClick={() => toggleFocus(focusPanel)}
@@ -6036,9 +6114,9 @@ export default function DetailView() {
                       gapBands={gapBandsOverride}
                       drawingEnabled={activeDrawTool != null}
                       timeZones={dailyDrawings.timeZones}
-                      priceBands={dailyDrawings.priceBands}
+                      priceBands={dailyPriceBandsWithPositionRisk}
                       drawBoxes={dailyDrawings.drawBoxes}
-                      horizontalLines={dailyDrawings.horizontalLines}
+                      horizontalLines={dailyHorizontalLinesWithPositionRisk}
                       showPriceBands
                       meeMeeDetailChrome={DETAIL_CHROME_DAILY}
                       activeTool={activeDrawTool}
@@ -6222,10 +6300,6 @@ export default function DetailView() {
           ) : (
             <>
               <div className="detail-row detail-row-top" style={{ flex: `${DETAIL_DAILY_ROW_RATIO} 1 0%` }}>
-                <div className="detail-pane-header">
-                  <span>日足</span>
-                  <DataFreshnessBadges contract={detailDataFreshnessContract} scope="chart" timeframe="daily" compact />
-                </div>
                 <div
                   className="detail-chart detail-chart-focusable"
                   onDoubleClick={() => toggleFocus("daily")}
@@ -6243,9 +6317,9 @@ export default function DetailView() {
                       gapBands={gapBandsOverride}
                       drawingEnabled={activeDrawTool != null}
                       timeZones={dailyDrawings.timeZones}
-                      priceBands={dailyDrawings.priceBands}
+                      priceBands={dailyPriceBandsWithPositionRisk}
                       drawBoxes={dailyDrawings.drawBoxes}
-                      horizontalLines={dailyDrawings.horizontalLines}
+                      horizontalLines={dailyHorizontalLinesWithPositionRisk}
                       showPriceBands
                       meeMeeDetailChrome={DETAIL_CHROME_DAILY}
                       activeTool={activeDrawTool}
@@ -6303,10 +6377,6 @@ export default function DetailView() {
                 ref={bottomRowRef}
               >
                 <div className="detail-pane" style={{ flex: `${weeklyRatio} 1 0%` }}>
-                  <div className="detail-pane-header">
-                    <span>週足</span>
-                    <DataFreshnessBadges contract={detailDataFreshnessContract} scope="chart" timeframe="weekly" compact />
-                  </div>
                   <div
                     className="detail-chart detail-chart-focusable"
                     onDoubleClick={() => toggleFocus("weekly")}
@@ -6374,10 +6444,6 @@ export default function DetailView() {
                   onTouchStart={startDrag()}
                 />
                 <div className="detail-pane" style={{ flex: `${monthlyRatio} 1 0%` }}>
-                  <div className="detail-pane-header">
-                    <span>月足</span>
-                    <DataFreshnessBadges contract={detailDataFreshnessContract} scope="chart" timeframe="monthly" compact />
-                  </div>
                   <div
                     className="detail-chart detail-chart-focusable"
                     onDoubleClick={() => toggleFocus("monthly")}
@@ -6487,6 +6553,8 @@ export default function DetailView() {
                     analysisDtLabel={selectedRankingJudgement.analysisDtLabel ?? selectedAnalysisDtLabel ?? analysisDtLabel}
                     analysisSummaryLoading={persistedMarkersLoading && selectedRankingAppearancesForSummary.length === 0}
                     analysisMissingDataVisible={selectedDate != null && !persistedMarkersLoading && selectedRankingAppearancesForSummary.length === 0}
+                    dailyChartShape={dailyChartShape}
+                    dailyChartShapeLoading={dailyChartShapeLoading}
                     analysisDecision={selectedRankingJudgement.analysisDecision}
                     analysisGuidance={selectedRankingJudgement.analysisGuidance}
                     analysisEntryPolicy={selectedRankingJudgement.analysisEntryPolicy}
@@ -6569,12 +6637,12 @@ export default function DetailView() {
       {!focusPanel && (
         <div className="detail-footer" data-testid="detail-footer">
           <div className="detail-footer-left">
-            <button className="load-more" onClick={loadMoreDailyAndMonthly} disabled={loadMoreDisabled}>
-              {loadMoreLabel}
+            <button className="load-more is-compact" onClick={loadMoreDailyAndMonthly} disabled={loadMoreDisabled}>
+              追加読込
             </button>
           </div>
           <div className="detail-footer-right">
-            <div className="detail-hint">
+            <div className="detail-hint detail-hint-compact" title={loadMoreLabel}>
               日足 {dailyCandles.length}本 | 週足 {weeklyCandles.length}本 | 月足 {monthlyCandles.length}本
             </div>
             {aiExplainDockMounted && (
@@ -6636,6 +6704,8 @@ export default function DetailView() {
         formatLedgerDate={formatLedgerDate}
         formatNumber={formatNumber}
         formatSignedNumber={formatSignedNumber}
+        exitLinePrice={dailyPositionRiskOverlayDrawings.exitLinePrice}
+        exitLineSide={dailyPositionRiskOverlayDrawings.exitLineSide}
       />
       {showIndicators && (
         <Suspense fallback={null}>

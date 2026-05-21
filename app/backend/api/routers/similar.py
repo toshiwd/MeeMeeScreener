@@ -40,6 +40,7 @@ def search_similar(
     k: int = 30,
     alpha: float = 0.7,
     match_tag: bool = False,
+    include_vectors: bool = False,
 ):
     if not ticker:
         raise HTTPException(status_code=400, detail="ticker is required")
@@ -57,12 +58,30 @@ def search_similar(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"search failed: {exc}") from exc
-    return [item.dict() for item in results]
+    payload = [item.model_dump() for item in results]
+    if not include_vectors:
+        for item in payload:
+            item.pop("vec60", None)
+            item.pop("vec24", None)
+    return payload
 
 
 @router.get("/status")
 def similar_status():
     return {"status": _status}
+
+
+@router.post("/prewarm")
+def prewarm_recent_daily_shape(asof: Optional[str] = None):
+    service = _get_service()
+    try:
+        return service.prewarm_recent_daily_shape_cache(asof=asof)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"prewarm failed: {exc}") from exc
 
 
 def _run_refresh(incremental: bool) -> None:

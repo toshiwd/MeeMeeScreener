@@ -18,6 +18,7 @@ from app.core.config import config as core_config
 from app.db.session import get_conn, is_transient_duckdb_error
 from app.backend.core.text_encoding import repair_cp932_mojibake
 from app.backend.domain.screening.metrics import _calc_liquidity_20d
+from app.backend.services.market_baskets import get_market_basket_defs
 from shared.market_semantics import is_confirmed_market_semantics
 from ..analysis import swing_plan_service
 from ..data.bar_aggregation import merge_monthly_rows_with_daily
@@ -139,7 +140,6 @@ def _load_analysis_provisional_overlay(
     from ..data.yahoo_provisional import get_provisional_daily_rows_from_spark, normalize_date_key
 
     now_jst = datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=9)))
-    today_key = int(now_jst.strftime("%Y%m%d"))
     provisional_map: dict[str, tuple[int, float, float, float, float, float]] = {}
     meta: dict[str, Any] = {
         "is_provisional": False,
@@ -175,13 +175,47 @@ def _load_analysis_provisional_overlay(
         )
     except Exception as exc:
         logger.debug("rankings provisional overlay fetch failed: %s", exc)
-        return {}, meta
+        provisional_map = {}
+
+    if not provisional_map:
+        try:
+            placeholders = ",".join(["?"] * len(codes))
+            with get_conn() as conn:
+                rows = conn.execute(
+                    f"""
+                    SELECT code, date, o, h, l, c, v
+                    FROM (
+                        SELECT
+                            code,
+                            date,
+                            o,
+                            h,
+                            l,
+                            c,
+                            v,
+                            ROW_NUMBER() OVER (PARTITION BY code ORDER BY date DESC) AS rn
+                        FROM daily_bars
+                        WHERE source = 'yahoo'
+                          AND code IN ({placeholders})
+                    )
+                    WHERE rn = 1
+                    """,
+                    codes,
+                ).fetchall()
+            provisional_map = {
+                str(row[0]): (int(row[1]), float(row[2]), float(row[3]), float(row[4]), float(row[5]), float(row[6] or 0.0))
+                for row in rows
+                if row and row[0] is not None and row[1] is not None
+            }
+        except Exception as exc:
+            logger.debug("rankings DB provisional overlay fetch failed: %s", exc)
+            provisional_map = {}
 
     covered = 0
     complete_ohlcv = 0
-    same_day = 0
     latest_ts: int | None = None
-    for row in provisional_map.values():
+    normalized_by_code: dict[str, int] = {}
+    for code, row in provisional_map.items():
         if not row:
             continue
         covered += 1
@@ -190,9 +224,9 @@ def _load_analysis_provisional_overlay(
         ts = normalize_date_key(row[0])
         if ts is None:
             continue
+        normalized_by_code[str(code)] = ts
         latest_ts = ts if latest_ts is None else max(latest_ts, ts)
-        if ts == today_key:
-            same_day += 1
+    same_day = sum(1 for ts in normalized_by_code.values() if latest_ts is not None and ts == latest_ts)
 
     missing = max(0, len(codes) - covered)
     coverage_ratio = (covered / float(len(codes))) if codes else 0.0
@@ -208,7 +242,19 @@ def _load_analysis_provisional_overlay(
         else:
             missing_reason_summary["fetch_none"] += 1
 
-    same_day_ok = covered > 0 and same_day_ratio >= _PROVISIONAL_MIN_SAME_DAY_RATIO
+    latest_freshness_days: int | None = None
+    if latest_ts is not None:
+        try:
+            latest_dt = datetime.strptime(str(int(latest_ts)), "%Y%m%d").date()
+            latest_freshness_days = max(0, (now_jst.date() - latest_dt).days)
+        except Exception:
+            latest_freshness_days = None
+    same_day_ok = (
+        covered > 0
+        and latest_freshness_days is not None
+        and latest_freshness_days < _CURRENT_RANKINGS_MAX_AGE_DAYS
+        and same_day_ratio >= _PROVISIONAL_MIN_SAME_DAY_RATIO
+    )
     meets_coverage = coverage_ratio >= _PROVISIONAL_MIN_COVERAGE_RATIO
     freshness_state = "unavailable"
     is_provisional = False
@@ -415,6 +461,10 @@ _STRICT_RULE_TRADE_DOWN_MIN_MONTHLY = 0.58
 _STRICT_RULE_TRADE_UP_MIN_PROB = 0.60
 _STRICT_RULE_TRADE_DOWN_MIN_PROB = 0.58
 _STRICT_TRADE_DOWN_ENTRY_CLASSES = {"upper_rejection_primary", "strict_breakdown_secondary"}
+_TRADE_UP_ENTRY_WEAK_CLOSE_FLOOR = -0.0075
+_TRADE_UP_ENTRY_UPPER_WICK_MAX = 0.45
+_TRADE_UP_ENTRY_OVEREXTENDED_CHANGE = 0.035
+_TRADE_THEME_LEADERSHIP_WEIGHT = 0.035
 
 
 def _is_tradable_rank_item(item: dict[str, Any], *, direction: RankDir) -> bool:
@@ -449,6 +499,44 @@ def _is_strict_trade_rank_item(item: dict[str, Any], *, direction: RankDir) -> b
         return monthly_box_state in _STRICT_TRADE_UP_BOX_STATES
     entry_class = str(item.get("tradeEntryClass") or "").strip()
     return monthly_box_state in _STRICT_TRADE_DOWN_BOX_STATES and entry_class in _STRICT_TRADE_DOWN_ENTRY_CLASSES
+
+
+def _trade_up_entry_block_reasons(item: dict[str, Any]) -> list[str]:
+    reasons: list[str] = []
+    change_pct = _first_finite(item.get("changePct"))
+    if change_pct is not None and change_pct <= _TRADE_UP_ENTRY_WEAK_CLOSE_FLOOR:
+        reasons.append("current_weak_close")
+    upper_wick = _first_finite(item.get("candleUpperWickRatio"))
+    if upper_wick is not None and upper_wick >= _TRADE_UP_ENTRY_UPPER_WICK_MAX:
+        reasons.append("upper_wick_rejection")
+    if bool(item.get("buy_overextended")) and change_pct is not None and change_pct >= _TRADE_UP_ENTRY_OVEREXTENDED_CHANGE:
+        reasons.append("overextended_chase_risk")
+    return reasons
+
+
+def _annotate_trade_entry_fit(item: dict[str, Any], *, direction: RankDir) -> None:
+    if direction != "up":
+        item["tradeEntryFitState"] = "not_applicable"
+        item["tradeEntryBlockReasons"] = []
+        return
+    reasons = _trade_up_entry_block_reasons(item)
+    item["tradeEntryFitState"] = "blocked" if reasons else "entry_fit"
+    item["tradeEntryBlockReasons"] = reasons
+    if reasons:
+        risk_watch = item.get("tradeRiskWatch")
+        risk_watch_list = list(risk_watch) if isinstance(risk_watch, list) else []
+        for reason in reasons:
+            if reason not in risk_watch_list:
+                risk_watch_list.append(reason)
+        item["tradeRiskWatch"] = risk_watch_list
+
+
+def _has_trade_entry_fit(item: dict[str, Any], *, direction: RankDir) -> bool:
+    if direction != "up":
+        return True
+    if item.get("tradeEntryFitState") == "blocked":
+        return False
+    return not _trade_up_entry_block_reasons(item)
 
 
 def _filter_strict_trade_rank_items(items: list[dict[str, Any]], *, direction: RankDir) -> list[dict[str, Any]]:
@@ -5531,11 +5619,100 @@ def _trade_direction_adjusted_profit_raw(item: dict, *, direction: RankDir) -> f
     return float(total / weight_sum)
 
 
+def _calc_trade_theme_leadership(items: list[dict]) -> dict[str, dict[str, Any]]:
+    basket_defs = get_market_basket_defs()
+    code_to_basket: dict[str, dict[str, Any]] = {}
+    for basket in basket_defs:
+        for code in basket.get("codes") or set():
+            code_text = str(code).strip()
+            if code_text and code_text not in code_to_basket:
+                code_to_basket[code_text] = basket
+
+    basket_rows: dict[str, list[dict[str, Any]]] = {}
+    for item in items:
+        code = str(item.get("code") or "").strip()
+        basket = code_to_basket.get(code)
+        if not basket:
+            continue
+        basket_id = str(basket.get("theme_id") or "")
+        if basket_id:
+            basket_rows.setdefault(basket_id, []).append(item)
+
+    basket_stats: dict[str, dict[str, Any]] = {}
+    for basket in basket_defs:
+        basket_id = str(basket.get("theme_id") or "")
+        rows = basket_rows.get(basket_id) or []
+        changes = [_first_finite(row.get("changePct")) for row in rows]
+        changes = [float(value) for value in changes if value is not None]
+        if not changes:
+            continue
+        adv_ratio = float(sum(1 for value in changes if value > 0.0) / len(changes))
+        avg_change = float(sum(changes) / len(changes))
+        weak_ratio = float(sum(1 for value in changes if value <= _TRADE_UP_ENTRY_WEAK_CLOSE_FLOOR) / len(changes))
+        score = 0.0
+        reasons: list[str] = []
+        state = "neutral"
+        if len(changes) >= 4 and adv_ratio >= 0.60 and avg_change >= 0.004 and weak_ratio <= 0.35:
+            score = 1.0
+            state = "accel"
+            reasons.append("basket_accel")
+        elif len(changes) >= 4 and (adv_ratio <= 0.35 or avg_change <= -0.004 or weak_ratio >= 0.45):
+            score = -1.0
+            state = "fade"
+            reasons.append("basket_fade")
+        elif len(changes) >= 4 and (adv_ratio >= 0.52 or avg_change > 0.0):
+            score = 0.45
+            state = "watch_positive"
+            reasons.append("basket_watch_positive")
+        elif len(changes) >= 4 and (adv_ratio <= 0.45 or avg_change < 0.0):
+            score = -0.45
+            state = "watch_negative"
+            reasons.append("basket_watch_negative")
+        else:
+            reasons.append("basket_thin_or_neutral")
+        basket_stats[basket_id] = {
+            "themeId": basket_id,
+            "themeName": str(basket.get("name") or basket_id),
+            "themeBasketType": str(basket.get("basket_type") or "proxy_index"),
+            "themeLeadershipState": state,
+            "themeLeadershipScore": float(score),
+            "themeLeadershipDelta": float(score * _TRADE_THEME_LEADERSHIP_WEIGHT),
+            "themeLeadershipReasons": reasons,
+            "themeAdvancerRatio": adv_ratio,
+            "themeAvgChangePct": avg_change,
+            "themeWeakCloseRatio": weak_ratio,
+            "themeMemberCount": int(len(changes)),
+        }
+
+    by_code: dict[str, dict[str, Any]] = {}
+    for code, basket in code_to_basket.items():
+        basket_id = str(basket.get("theme_id") or "")
+        stats = basket_stats.get(basket_id)
+        if stats:
+            by_code[code] = stats
+    return by_code
+
+
+def _attach_trade_theme_leadership(item: dict[str, Any], stats: dict[str, Any] | None) -> float:
+    if not stats:
+        item["themeId"] = None
+        item["themeName"] = None
+        item["themeBasketType"] = None
+        item["themeLeadershipState"] = "unclassified"
+        item["themeLeadershipScore"] = 0.0
+        item["themeLeadershipDelta"] = 0.0
+        item["themeLeadershipReasons"] = []
+        return 0.0
+    item.update(stats)
+    return float(stats.get("themeLeadershipDelta") or 0.0)
+
+
 def _apply_trade_priority_scores(items: list[dict], *, direction: RankDir) -> None:
     hit_values: dict[str, float | None] = {}
     profit_values: dict[str, float | None] = {}
     quality_values: dict[str, float | None] = {}
     safety_values: dict[str, float | None] = {}
+    theme_leadership_by_code = _calc_trade_theme_leadership(items) if direction == "up" else {}
     market_code_map = _load_trade_market_code_map([str(item.get("code") or "").strip() for item in items])
     for item in items:
         code = str(item.get("code") or "")
@@ -5611,6 +5788,9 @@ def _apply_trade_priority_scores(items: list[dict], *, direction: RankDir) -> No
             item["momentumFollowThroughV1"] = momentum_follow_through_score >= 0.62
             trade_priority_score += 0.28 * (2.0 * momentum_follow_through_score - 1.0)
             trade_priority_score += _apply_monthly_drawdown_guarded_momentum_adjustment(item)
+            trade_priority_score += _attach_trade_theme_leadership(item, theme_leadership_by_code.get(code))
+        else:
+            _attach_trade_theme_leadership(item, None)
         market_code = str(market_code_map.get(code) or "").strip()
         if market_code == _ETF_MARKET_CODE:
             # Broad index-linked ETF/ETN setups are less actionable as 20-day long candidates.
@@ -5620,6 +5800,7 @@ def _apply_trade_priority_scores(items: list[dict], *, direction: RankDir) -> No
         item["tradePriorityProfitScore"] = float(profit_score)
         item["tradePriorityQualityScore"] = float(quality_score)
         item["tradePrioritySafetyScore"] = float(safety_score)
+        _annotate_trade_entry_fit(item, direction=direction)
 
 
 def _trade_priority_sort_key(item: dict[str, Any]) -> tuple[Any, ...]:
@@ -5729,7 +5910,7 @@ def _mark_provisional_items_by_snapshot(
 
 
 def _is_trade_buy_candidate(item: dict[str, Any]) -> bool:
-    return _is_strict_trade_rank_item(item, direction="up")
+    return _is_strict_trade_rank_item(item, direction="up") and _has_trade_entry_fit(item, direction="up")
 
 
 def _is_trade_short_candidate(item: dict[str, Any]) -> bool:
@@ -5737,6 +5918,9 @@ def _is_trade_short_candidate(item: dict[str, Any]) -> bool:
 
 
 def _is_trade_caution_candidate(item: dict[str, Any]) -> bool:
+    entry_block_reasons = item.get("tradeEntryBlockReasons")
+    if isinstance(entry_block_reasons, list) and entry_block_reasons:
+        return True
     setup_type = str(item.get("setupType") or "").strip().lower()
     if setup_type in {"watch", "reject"}:
         return True
@@ -5745,6 +5929,210 @@ def _is_trade_caution_candidate(item: dict[str, Any]) -> bool:
     if str(item.get("entryQualifiedFallbackStage") or "").strip():
         return True
     return item.get("entryQualified") is not True
+
+
+def _sma_from_values(values: list[float], end_idx: int, period: int) -> float | None:
+    if end_idx + 1 < period:
+        return None
+    window = values[end_idx - period + 1 : end_idx + 1]
+    return float(sum(window) / len(window)) if window else None
+
+
+def _failed_high_retest_short_signal_for_bars(bars: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if len(bars) < 120:
+        return None
+    idx = len(bars) - 1
+    anchor = bars[idx]
+    prior_start = max(0, idx - 252)
+    prior = bars[prior_start:idx]
+    if len(prior) < 40:
+        return None
+    prior_high_local_idx = max(range(len(prior)), key=lambda pos: float(prior[pos]["h"]))
+    prior_high_idx = prior_start + prior_high_local_idx
+    peak_age = idx - prior_high_idx
+    if peak_age < 20:
+        return None
+    prior_high = float(bars[prior_high_idx]["h"])
+    if prior_high <= 0.0 or float(anchor["h"]) <= 0.0:
+        return None
+    after_peak = bars[prior_high_idx + 1 : idx]
+    if len(after_peak) < 10:
+        return None
+    pullback_low = min(float(row["l"]) for row in after_peak)
+    pullback_depth = (prior_high - pullback_low) / prior_high
+    if pullback_depth < 0.12:
+        return None
+    pre_anchor = bars[max(prior_high_idx + 1, idx - 12) : idx]
+    if max((float(row["h"]) for row in pre_anchor), default=0.0) >= prior_high * 1.01:
+        return None
+
+    closes = [float(row["c"]) for row in bars]
+    ma7 = _sma_from_values(closes, idx, 7)
+    ma20 = _sma_from_values(closes, idx, 20)
+    ma20_prev_20 = _sma_from_values(closes, idx - 20, 20) if idx >= 20 else None
+    ma20_slope_20 = (
+        (ma20 / ma20_prev_20) - 1.0
+        if ma20 is not None and ma20_prev_20 is not None and ma20_prev_20 > 0
+        else None
+    )
+    if ma20_slope_20 is not None and ma20_slope_20 > 0.05:
+        return None
+
+    retest_ratio = float(anchor["h"]) / prior_high
+    if retest_ratio < 0.88 or retest_ratio >= 1.01:
+        return None
+    range_size = float(anchor["h"]) - float(anchor["l"])
+    if range_size <= 0.0 or float(anchor["o"]) <= 0.0:
+        return None
+    body = float(anchor["c"]) - float(anchor["o"])
+    anchor_drop_pct = (float(anchor["o"]) - float(anchor["c"])) / float(anchor["o"])
+    close_from_high = float(anchor["c"]) / float(anchor["h"])
+    close_pos = (float(anchor["c"]) - float(anchor["l"])) / range_size
+    bearish_body_ratio = (float(anchor["o"]) - float(anchor["c"])) / range_size
+
+    left_peak_window = bars[max(0, prior_high_idx - 20) : prior_high_idx]
+    right_peak_window = bars[prior_high_idx + 1 : min(idx, prior_high_idx + 21)]
+    prior_peak_local_prominence = 0.0
+    if len(left_peak_window) >= 5 and len(right_peak_window) >= 5:
+        left_high = max(float(row["h"]) for row in left_peak_window)
+        right_high = max(float(row["h"]) for row in right_peak_window)
+        prior_peak_local_prominence = min((prior_high - left_high) / prior_high, (prior_high - right_high) / prior_high)
+
+    near_retest = retest_ratio >= 0.92
+    anchor_below_ma7 = bool(ma7 is not None and float(anchor["c"]) < ma7)
+    bearish_rejection = bool(
+        body < 0
+        and bearish_body_ratio >= 0.35
+        and close_pos <= 0.45
+        and close_from_high <= 0.95
+    )
+    if not near_retest and not (retest_ratio >= 0.90 and bearish_rejection):
+        return None
+
+    stage = "forming"
+    stage_score = 0.58
+    if bearish_rejection and anchor_below_ma7 and near_retest:
+        stage = "confirmed"
+        stage_score = 0.78
+    if stage == "confirmed" and anchor_drop_pct >= 0.05:
+        stage = "extended_drop"
+        stage_score = 0.90
+    if stage == "forming" and float(anchor["c"]) < float(anchor["o"]):
+        stage_score += 0.06
+    if prior_peak_local_prominence >= 0.01:
+        stage_score += 0.04
+    proximity_score = _unit_score(retest_ratio, lower=0.90, upper=1.0)
+    volume = _first_finite(anchor.get("v"))
+    prev20 = bars[max(0, idx - 20) : idx]
+    avg_volume20 = _first_finite(sum(float(row.get("v") or 0.0) for row in prev20) / len(prev20)) if prev20 else None
+    volume_ratio20 = volume / avg_volume20 if volume is not None and avg_volume20 and avg_volume20 > 0 else None
+    volume_score = _unit_score(volume_ratio20, lower=1.2, upper=3.0, default=0.5)
+    score = float(max(0.0, min(1.0, stage_score + 0.10 * proximity_score + 0.06 * volume_score)))
+    return {
+        "failedHighRetestShort": True,
+        "failedHighRetestShortStage": stage,
+        "failedHighRetestShortScore": score,
+        "failedHighRetestRetestRatio": float(retest_ratio),
+        "failedHighRetestPriorHigh": float(prior_high),
+        "failedHighRetestAnchorDropPct": float(anchor_drop_pct),
+        "failedHighRetestMa20Slope20": float(ma20_slope_20) if ma20_slope_20 is not None else None,
+        "failedHighRetestPeakAge": int(peak_age),
+        "failedHighRetestPullbackDepth": float(pullback_depth),
+        "failedHighRetestPeakProminence": float(prior_peak_local_prominence),
+        "failedHighRetestVolumeRatio20": float(volume_ratio20) if volume_ratio20 is not None else None,
+    }
+
+
+def _load_failed_high_retest_short_candidates(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_code = {str(item.get("code") or "").strip(): dict(item) for item in items if str(item.get("code") or "").strip()}
+    if not by_code:
+        return []
+    codes = sorted(by_code)
+    market_code_map = _load_trade_market_code_map(codes)
+    try:
+        with get_conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT code, date, o, h, l, c, v
+                FROM daily_bars
+                WHERE COALESCE(source, 'pan') = 'pan'
+                  AND code IN (SELECT UNNEST(?))
+                ORDER BY code, date
+                """,
+                [codes],
+            ).fetchall()
+    except Exception as exc:
+        logger.debug("failed_high_retest_short_candidates skipped: %s", exc)
+        return []
+
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for code, date_value, open_, high, low, close, volume in rows:
+        code_text = str(code).strip()
+        grouped.setdefault(code_text, []).append(
+            {
+                "dt": date_value,
+                "o": float(open_),
+                "h": float(high),
+                "l": float(low),
+                "c": float(close),
+                "v": float(volume) if volume is not None else None,
+            }
+        )
+
+    candidates: list[dict[str, Any]] = []
+    for code, bars in grouped.items():
+        if str(market_code_map.get(code) or "").strip() == _ETF_MARKET_CODE:
+            continue
+        signal = _failed_high_retest_short_signal_for_bars(bars[-320:])
+        if not signal:
+            continue
+        item = dict(by_code.get(code) or {"code": code})
+        item.update(signal)
+        item["setupType"] = "failed_high_retest"
+        item["entryQualified"] = True
+        item["tradeEntryClass"] = "failed_high_retest_short"
+        item["shortPrecisionGate"] = True
+        item["shortPrecisionGateReason"] = "failed_high_retest"
+        item["tradePriorityScore"] = max(
+            float(item.get("tradePriorityScore") or 0.0),
+            float(signal["failedHighRetestShortScore"]),
+        )
+        item["tradePriorityHitScore"] = max(float(item.get("tradePriorityHitScore") or 0.0), float(signal["failedHighRetestShortScore"]))
+        item["tradePriorityProfitScore"] = max(float(item.get("tradePriorityProfitScore") or 0.0), float(signal["failedHighRetestShortScore"]))
+        item["tradePriorityQualityScore"] = max(float(item.get("tradePriorityQualityScore") or 0.0), float(signal["failedHighRetestShortScore"]))
+        item["tradePrioritySafetyScore"] = max(float(item.get("tradePrioritySafetyScore") or 0.0), 0.5)
+        candidates.append(item)
+    candidates.sort(key=_trade_priority_sort_key)
+    return candidates
+
+
+def _merge_failed_high_retest_short_candidates(
+    buckets: dict[str, list[dict[str, Any]]],
+    source_items: list[dict[str, Any]],
+) -> dict[str, list[dict[str, Any]]]:
+    additions = _load_failed_high_retest_short_candidates(source_items)
+    if not additions:
+        return buckets
+    merged = {key: [dict(item) for item in value] for key, value in buckets.items()}
+    short_items = merged.setdefault("actionable_short_candidates", [])
+    by_code = {str(item.get("code") or "").strip(): idx for idx, item in enumerate(short_items)}
+    for item in additions:
+        code = str(item.get("code") or "").strip()
+        if not code:
+            continue
+        existing_idx = by_code.get(code)
+        if existing_idx is None:
+            by_code[code] = len(short_items)
+            short_items.append(dict(item))
+            continue
+        existing = dict(short_items[existing_idx])
+        existing.update({key: value for key, value in item.items() if key.startswith("failedHighRetest")})
+        existing["setupType"] = "failed_high_retest"
+        existing["tradeEntryClass"] = "failed_high_retest_short"
+        existing["tradePriorityScore"] = max(float(existing.get("tradePriorityScore") or 0.0), float(item.get("tradePriorityScore") or 0.0))
+        short_items[existing_idx] = existing
+    short_items.sort(key=_trade_priority_sort_key)
+    return merged
 
 
 def _build_trade_candidate_buckets(items: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
@@ -7310,8 +7698,75 @@ def _build_rankings_response(
     trade_candidate_buckets: dict[str, list[dict[str, Any]]] | None = None
     if effective_mode == "trade":
         trade_candidate_buckets = _build_trade_candidate_buckets(out_items)
+        if direction == "down":
+            trade_candidate_buckets = _merge_failed_high_retest_short_candidates(trade_candidate_buckets, source_items)
+            out_items = [dict(item) for item in trade_candidate_buckets.get("actionable_short_candidates") or []]
+            out_items.sort(key=_trade_priority_sort_key)
+            out_items = out_items[:limit]
+            trade_priority_ms = round((time.perf_counter() - phase_started_at) * 1000.0, 3)
+            phase_timings["trade_priority_ms"] = trade_priority_ms
+            phase_started_at = time.perf_counter()
+            out_items = [_sanitize_rank_item_for_json(item) for item in out_items]
+            trade_candidate_buckets = {
+                "actionable_buy_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("actionable_buy_candidates") or []),
+                "actionable_short_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("actionable_short_candidates") or []),
+                "caution_watch_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("caution_watch_candidates") or []),
+            }
+            phase_timings["sanitize_ms"] = round((time.perf_counter() - phase_started_at) * 1000.0, 3)
+            total_ms = round((time.perf_counter() - build_started_at) * 1000.0, 3)
+            with _LOCK:
+                latest_daily_asof_int = _LAST_CACHE_DAILY_ASOF_INT
+            freshness_meta = _build_rankings_freshness_meta(latest_daily_asof_int=latest_daily_asof_int)
+            return {
+                "tf": tf,
+                "which": which,
+                "dir": direction,
+                "mode": effective_mode,
+                "risk_mode": risk_mode,
+                "legacy_analysis_disabled": legacy_analysis_disabled,
+                "candidate_source": candidate_source,
+                "pred_dt": pred_dt,
+                "model_version": model_version,
+                "cache_generation": cache_generation,
+                "last_updated": last_updated.isoformat() if last_updated else None,
+                **freshness_meta,
+                "items": out_items,
+                **trade_candidate_buckets,
+                "confirmed_snapshot_as_of": freshness_meta.get("snapshot_as_of") if not include_provisional else None,
+                "confirmed_actionable_buy_candidates": trade_candidate_buckets.get("actionable_buy_candidates") if not include_provisional else [],
+                "confirmed_actionable_short_candidates": trade_candidate_buckets.get("actionable_short_candidates") if not include_provisional else [],
+                "confirmed_caution_watch_candidates": trade_candidate_buckets.get("caution_watch_candidates") if not include_provisional else [],
+                "provisional_snapshot_as_of": None,
+                "provisional_source": None,
+                "provisional_freshness_state": "unavailable",
+                "is_provisional": False,
+                "provisional_fetched_at": None,
+                "provisional_requested_symbols": 0,
+                "provisional_covered_symbols": 0,
+                "provisional_complete_ohlcv_symbols": 0,
+                "provisional_same_day_symbols": 0,
+                "provisional_missing_symbols": 0,
+                "provisional_missing_reason_summary": {},
+                "provisional_coverage_ratio": 0.0,
+                "provisional_same_day_ratio": 0.0,
+                "provisional_min_coverage_ratio": _PROVISIONAL_MIN_COVERAGE_RATIO,
+                "provisional_min_same_day_ratio": _PROVISIONAL_MIN_SAME_DAY_RATIO,
+                "provisional_allow_partial": _PROVISIONAL_ALLOW_PARTIAL,
+                "provisional_render_mode": "strict" if not _PROVISIONAL_ALLOW_PARTIAL else "practical_partial",
+            }
         scored_items = _copy_rank_items(out_items)
         _apply_trade_priority_scores(scored_items, direction=direction)
+        if direction == "down":
+            failed_high_retest_codes = {
+                str(item.get("code") or "").strip()
+                for item in (trade_candidate_buckets.get("actionable_short_candidates") if trade_candidate_buckets else []) or []
+                if bool(item.get("failedHighRetestShort"))
+            }
+            by_code = {str(item.get("code") or "").strip(): item for item in scored_items}
+            for candidate in (trade_candidate_buckets.get("actionable_short_candidates") if trade_candidate_buckets else []) or []:
+                code = str(candidate.get("code") or "").strip()
+                if code in failed_high_retest_codes and code not in by_code:
+                    scored_items.append(dict(candidate))
         out_items = _filter_strict_trade_rank_items(scored_items, direction=direction)
         out_items.sort(
             key=lambda item: (

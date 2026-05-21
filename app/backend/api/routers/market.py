@@ -11,6 +11,7 @@ import duckdb
 from fastapi import APIRouter, HTTPException, Query, Response
 
 from app.backend.core.config import config
+from app.backend.services.market_baskets import get_market_basket_defs, market_basket_catalog
 from app.backend.services.watchlist import load_watchlist_codes, resolve_watchlist_path
 from app.db.session import try_get_conn_for_path
 
@@ -55,7 +56,7 @@ _SECTOR_FALLBACK = [
 
 _OFFSET_MAP = {"1d": 2, "1w": 6, "1m": 21}
 
-_THEME_DEFS: list[dict[str, Any]] = [
+_LEGACY_THEME_DEFS: list[dict[str, Any]] = [
     {
         "theme_id": "semiconductor",
         "name": "半導体",
@@ -260,6 +261,8 @@ _THEME_DEFS: list[dict[str, Any]] = [
         "keywords": ("HD", "ホールディングス", "テック", "システム", "ソリューション"),
     },
 ]
+
+_THEME_DEFS: list[dict[str, Any]] = get_market_basket_defs() + _LEGACY_THEME_DEFS
 
 
 def _normalize_ymd_int(value: Any) -> int | None:
@@ -1973,6 +1976,12 @@ def get_market_theme_candidates(
     if diagnostics is not None:
         diagnostics["computed_from"] = computed_from
     return {**payload, "diagnostics": diagnostics}
+
+
+@router.get("/baskets")
+def get_market_baskets() -> dict[str, Any]:
+    baskets = market_basket_catalog()
+    return {"baskets": baskets, "count": len(baskets), "status": "ok"}
 
 
 @router.get("/detail-check/{code}")

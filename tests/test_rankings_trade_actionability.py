@@ -142,6 +142,105 @@ def test_trade_priority_scores_penalize_etf_market_code(monkeypatch) -> None:
     assert items[0]["tradePriorityScore"] > items[1]["tradePriorityScore"]
 
 
+def test_trade_buy_candidates_require_entry_fit_without_becoming_gain_ranking(monkeypatch) -> None:
+    monkeypatch.setattr(
+        rankings_cache,
+        "_load_trade_market_code_map",
+        lambda codes: {str(code): "PRIME" for code in codes},
+    )
+
+    def item(code: str, *, change_pct: float, upper_wick: float = 0.12, overextended: bool = False) -> dict[str, object]:
+        return {
+            "code": code,
+            "setupType": "breakout",
+            "monthlyBoxState": "box_upper",
+            "entryQualified": True,
+            "probSideCalib": 0.80,
+            "entryScore": 0.72,
+            "hybridScore": 0.72,
+            "downsideRisk": 0.18,
+            "swingScore": 0.60,
+            "mlEv5Net": 0.12,
+            "mlEv10Net": 0.12,
+            "mlEv20Net": 0.12,
+            "changePct": change_pct,
+            "candleUpperWickRatio": upper_wick,
+            "buy_overextended": overextended,
+        }
+
+    buckets = rankings_cache._build_trade_candidate_buckets(  # type: ignore[attr-defined]
+        [
+            item("1001", change_pct=-0.003),
+            item("1002", change_pct=-0.018),
+            item("1003", change_pct=0.046, overextended=True),
+            item("1004", change_pct=0.006, upper_wick=0.52),
+        ]
+    )
+
+    buy_codes = {item["code"] for item in buckets["actionable_buy_candidates"]}
+    caution_by_code = {item["code"]: item for item in buckets["caution_watch_candidates"]}
+
+    assert "1001" in buy_codes
+    assert "1002" not in buy_codes
+    assert "1003" not in buy_codes
+    assert "1004" not in buy_codes
+    assert caution_by_code["1002"]["tradeEntryBlockReasons"] == ["current_weak_close"]
+    assert caution_by_code["1003"]["tradeEntryBlockReasons"] == ["overextended_chase_risk"]
+    assert caution_by_code["1004"]["tradeEntryBlockReasons"] == ["upper_wick_rejection"]
+
+
+def test_trade_theme_leadership_adjusts_priority_without_requalifying_weak_entry(monkeypatch) -> None:
+    monkeypatch.setattr(
+        rankings_cache,
+        "_load_trade_market_code_map",
+        lambda codes: {str(code): "PRIME" for code in codes},
+    )
+
+    def item(code: str, *, change_pct: float, ev: float = 0.10) -> dict[str, object]:
+        return {
+            "code": code,
+            "setupType": "breakout",
+            "monthlyBoxState": "box_upper",
+            "entryQualified": True,
+            "probSideCalib": 0.80,
+            "entryScore": 0.72,
+            "hybridScore": 0.72,
+            "downsideRisk": 0.18,
+            "swingScore": 0.60,
+            "mlEv5Net": ev,
+            "mlEv10Net": ev,
+            "mlEv20Net": ev,
+            "changePct": change_pct,
+            "candleUpperWickRatio": 0.12,
+            "buy_overextended": False,
+        }
+
+    items = [
+        item("2432", change_pct=0.018),
+        item("7974", change_pct=0.011),
+        item("7832", change_pct=0.010),
+        item("9684", change_pct=0.012),
+        item("8035", change_pct=-0.018),
+        item("6857", change_pct=-0.016),
+        item("6920", change_pct=-0.012),
+        item("4063", change_pct=-0.011),
+        item("6146", change_pct=-0.010),
+    ]
+
+    buckets = rankings_cache._build_trade_candidate_buckets(items)  # type: ignore[attr-defined]
+    actionable_by_code = {item["code"]: item for item in buckets["actionable_buy_candidates"]}
+    caution_by_code = {item["code"]: item for item in buckets["caution_watch_candidates"]}
+
+    assert actionable_by_code["2432"]["themeId"] == "game_content"
+    assert actionable_by_code["2432"]["themeLeadershipState"] == "accel"
+    assert actionable_by_code["2432"]["themeLeadershipDelta"] > 0
+    assert caution_by_code["8035"]["themeId"] == "semiconductor_core"
+    assert caution_by_code["8035"]["themeLeadershipState"] == "fade"
+    assert caution_by_code["8035"]["themeLeadershipDelta"] < 0
+    assert "current_weak_close" in caution_by_code["8035"]["tradeEntryBlockReasons"]
+    assert "8035" not in actionable_by_code
+
+
 def test_trade_priority_scores_promote_momentum_follow_through(monkeypatch) -> None:
     items = [
         {

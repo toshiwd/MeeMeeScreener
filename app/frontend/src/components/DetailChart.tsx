@@ -77,6 +77,7 @@ export type TimeZone = {
 export type PriceBand = {
   topPrice: number;
   bottomPrice: number;
+  color?: string;
   opacity: number;
   lineWidth?: number;
 };
@@ -96,6 +97,7 @@ export type HorizontalLine = {
   color?: string;
   opacity?: number;
   lineWidth?: number;
+  lineDash?: number[];
 };
 
 export type DrawTool = "timeZone" | "priceBand" | "drawBox" | "horizontalLine";
@@ -421,7 +423,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     chipLabel: string;
     legendLabel?: string;
     legendClose?: string;
-    legendValues: Array<{ key: string; label: string; value: string }>;
+    legendValues: Array<{ key: string; label: string; value: string; color?: string }>;
   }>({
     chipLabel: "--",
     legendValues: []
@@ -692,8 +694,9 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
         }
         return {
           key: line.key,
-          label: line.label ?? `MA${line.period ?? ""}`,
-          value: formatDetailChromePrice(value)
+          label: line.period ? `${line.period}MA` : (line.label ?? "MA"),
+          value: formatDetailChromePrice(value),
+          color: line.color
         };
       });
     return {
@@ -1437,7 +1440,8 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
           const lineWidth = Number.isFinite(band.lineWidth) ? band.lineWidth : 1;
           ctx.lineWidth = lineWidth;
           ctx.strokeStyle = PRICE_BAND_STROKE;
-          ctx.fillStyle = applyAlpha(PRICE_BAND_COLOR, opacity);
+          const baseColor = band.color ?? PRICE_BAND_COLOR;
+          ctx.fillStyle = applyAlpha(baseColor, opacity);
           ctx.fillRect(0, rectY, width, rectH);
           ctx.strokeRect(0, rectY, width, rectH);
         });
@@ -1598,6 +1602,9 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
         ctx.save();
         ctx.strokeStyle = applyAlpha(baseColor, opacity);
         ctx.lineWidth = lineWidth;
+        if (Array.isArray(line.lineDash) && line.lineDash.length > 0) {
+          ctx.setLineDash(line.lineDash);
+        }
         ctx.beginPath();
         ctx.moveTo(0, y);
         ctx.lineTo(width, y);
@@ -3128,10 +3135,10 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
           <span className="chart-info-label">終値</span>
           <span className="chart-info-value">{detailChromeSnapshot.legendClose ?? "--"}</span>
           {detailChromeSnapshot.legendValues.flatMap((entry) => [
-            <span className="chart-info-label" key={`${entry.key}-label`}>
+            <span className="chart-info-label chart-info-ma" key={`${entry.key}-label`} style={{ color: entry.color }}>
               {entry.label}
             </span>,
-            <span className="chart-info-value" key={`${entry.key}-value`}>
+            <span className="chart-info-value chart-info-ma" key={`${entry.key}-value`} style={{ color: entry.color }}>
               {entry.value}
             </span>
           ])}

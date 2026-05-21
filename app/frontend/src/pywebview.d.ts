@@ -4,7 +4,13 @@ declare global {
     interface Window {
         pywebview?: {
             api: {
-                save_screenshot: (base64: string, filename: string) => Promise<{ success: boolean; savedDir?: string; error?: string }>;
+                save_screenshot: (base64: string, filename: string) => Promise<{
+                    success: boolean;
+                    savedPath?: string;
+                    savedDir?: string;
+                    fileName?: string;
+                    error?: string;
+                }>;
                 open_path: (path: string) => Promise<void>;
                 export_perf_diagnostics?: (payload?: unknown) => Promise<{
                     success: boolean;

@@ -28,8 +28,22 @@ def test_rankings_refresh_endpoint_rebuilds_cache_and_returns_snapshot(monkeypat
             "current_candidate_available": True,
         }
 
+    def _fake_get_rankings_session_bundle(tf, which, dir, limit, mode="trade", risk_mode="balanced"):
+        calls.append(f"session:{tf}:{which}:{dir}:{limit}:{mode}:{risk_mode}")
+        return {
+            "confirmed_snapshot_as_of": "2026-05-15",
+            "provisional_snapshot_as_of": None,
+            "provisional_freshness_state": "unavailable",
+            "is_provisional": False,
+        }
+
     monkeypatch.setattr(rankings_router.rankings_cache, "refresh_cache", _fake_refresh_cache)
     monkeypatch.setattr(rankings_router.rankings_cache, "get_rankings", _fake_get_rankings)
+    monkeypatch.setattr(
+        rankings_router.rankings_cache,
+        "get_rankings_session_bundle",
+        _fake_get_rankings_session_bundle,
+    )
 
     response = _client().post("/api/rankings/refresh")
 
@@ -39,8 +53,49 @@ def test_rankings_refresh_endpoint_rebuilds_cache_and_returns_snapshot(monkeypat
     assert payload["snapshot_as_of"] == "2026-05-15"
     assert payload["freshness_state"] == "fresh"
     assert payload["current_candidate_available"] is True
+    assert payload["effective_snapshot_as_of"] == "2026-05-15"
+    assert payload["effective_freshness_state"] == "fresh"
+    assert payload["effective_current_candidate_available"] is True
     assert payload["duration_ms"] >= 0
-    assert calls == ["refresh", "D:latest:up:1:trade:balanced"]
+    assert calls == ["refresh", "D:latest:up:1:trade:balanced", "session:D:latest:up:50:trade:balanced"]
+
+
+def test_rankings_refresh_endpoint_reports_provisional_effective_snapshot(monkeypatch) -> None:
+    monkeypatch.setattr(rankings_router.rankings_cache, "refresh_cache", lambda: None)
+    monkeypatch.setattr(
+        rankings_router.rankings_cache,
+        "get_rankings",
+        lambda tf, which, dir, limit, mode="trade", risk_mode="balanced": {
+            "items": [{"code": "7203"}],
+            "freshness_state": "stale",
+            "freshness_days": 5,
+            "snapshot_as_of": "2026-05-14",
+            "current_candidate_available": False,
+        },
+    )
+    monkeypatch.setattr(
+        rankings_router.rankings_cache,
+        "get_rankings_session_bundle",
+        lambda tf, which, dir, limit, mode="trade", risk_mode="balanced": {
+            "confirmed_snapshot_as_of": "2026-05-14",
+            "provisional_snapshot_as_of": "2026-05-18",
+            "provisional_freshness_state": "partial",
+            "is_provisional": True,
+        },
+    )
+
+    response = _client().post("/api/rankings/refresh")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["snapshot_as_of"] == "2026-05-14"
+    assert payload["freshness_state"] == "stale"
+    assert payload["effective_snapshot_as_of"] == "2026-05-18"
+    assert payload["effective_freshness_state"] == "fresh"
+    assert payload["effective_current_candidate_available"] is True
+    assert payload["confirmed_snapshot_as_of"] == "2026-05-14"
+    assert payload["provisional_snapshot_as_of"] == "2026-05-18"
+    assert payload["provisional_freshness_state"] == "partial"
 
 
 def test_rankings_multi_attaches_read_only_data_freshness_contract(monkeypatch) -> None:

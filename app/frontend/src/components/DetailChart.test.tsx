@@ -308,7 +308,7 @@ describe("DetailChart MeeMee chrome", () => {
     expect(legend).not.toBeNull();
     expect(legend?.textContent).toContain("日付");
     expect(legend?.textContent).toContain("終値");
-    expect(legend?.textContent).toContain("MA5");
+    expect(legend?.textContent).toContain("5MA");
 
     render.cleanup();
   });

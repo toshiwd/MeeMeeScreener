@@ -43,10 +43,32 @@ def refresh_rankings(
             mode=mode,
             risk_mode=risk_mode,
         )
+        session_payload = (
+            rankings_cache.get_rankings_session_bundle(
+                tf,
+                which,
+                dir,
+                50,
+                mode=mode,
+                risk_mode=risk_mode,
+            )
+            if mode == "trade"
+            else {}
+        )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     payload = payload if isinstance(payload, dict) else {}
+    session_payload = session_payload if isinstance(session_payload, dict) else {}
+    provisional_snapshot_as_of = session_payload.get("provisional_snapshot_as_of")
+    provisional_state = session_payload.get("provisional_freshness_state")
+    provisional_available = bool(
+        session_payload.get("is_provisional")
+        and provisional_snapshot_as_of
+        and provisional_state in {"fresh", "partial"}
+    )
+    effective_snapshot_as_of = provisional_snapshot_as_of if provisional_available else payload.get("snapshot_as_of")
+    effective_freshness_state = "fresh" if provisional_available else payload.get("freshness_state")
     return {
         "ok": True,
         "tf": tf,
@@ -60,6 +82,15 @@ def refresh_rankings(
         "freshness_state": payload.get("freshness_state"),
         "freshness_days": payload.get("freshness_days"),
         "current_candidate_available": payload.get("current_candidate_available"),
+        "effective_snapshot_as_of": effective_snapshot_as_of,
+        "effective_freshness_state": effective_freshness_state,
+        "effective_current_candidate_available": bool(
+            provisional_available or payload.get("current_candidate_available")
+        ),
+        "confirmed_snapshot_as_of": session_payload.get("confirmed_snapshot_as_of") or payload.get("snapshot_as_of"),
+        "provisional_snapshot_as_of": provisional_snapshot_as_of,
+        "provisional_freshness_state": provisional_state,
+        "is_provisional": bool(session_payload.get("is_provisional")),
     }
 
 

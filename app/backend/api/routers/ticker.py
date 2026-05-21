@@ -49,6 +49,11 @@ from app.backend.services.data.yahoo_provisional import (
     merge_daily_rows_with_provisional,
     normalize_date_key,
 )
+from app.backend.services.chart_shape_service import (
+    classify_daily_chart_shape,
+    classify_daily_chart_shapes_by_window,
+    get_chart_shape_pattern_catalog,
+)
 from app.db.session import get_conn
 from app.core.config import config as app_config
 from app.services.box_detector import detect_boxes
@@ -818,6 +823,59 @@ def get_daily_bars(
         provisional_applied=provisional_applied,
     )
     return {"data": _normalize_rows(rows, fill_volume=True), "errors": [], "meta": meta}
+
+
+@router.get("/daily/shape", response_model=None)
+def get_daily_chart_shape(
+    code: str,
+    window: int = Query(10, ge=3, le=120),
+    windows: str | None = Query(None),
+    asof: str | int | None = None,
+    repo: StockRepository = Depends(get_stock_repo),
+) -> Dict[str, Any]:
+    if not code:
+        raise HTTPException(status_code=400, detail="code is required")
+    asof_dt = _parse_dt(asof)
+    requested_windows: list[int] = []
+    if windows:
+        for part in str(windows).split(","):
+            part = part.strip()
+            if not part:
+                continue
+            try:
+                requested_windows.append(max(3, min(120, int(part))))
+            except ValueError:
+                continue
+    if not requested_windows:
+        requested_windows = [int(window)]
+    max_window = max(requested_windows)
+    # Pull one extra bar so gap detection can compare the first in-window bar with its previous close.
+    rows = repo.get_daily_bars(code, max_window + 1, asof_dt)
+    rows = apply_split_gap_adjustment(rows)
+    shape = classify_daily_chart_shape(rows, requested_window=int(window))
+    multi_window = classify_daily_chart_shapes_by_window(rows, requested_windows=requested_windows)
+    return {
+        "code": str(code),
+        "timeframe": "D",
+        "asof": asof,
+        "shape": shape,
+        "multi_window": multi_window,
+        "item": {"shape": shape, "multi_window": multi_window},
+    }
+
+
+@router.get("/daily/shape/patterns", response_model=None)
+def get_daily_chart_shape_patterns() -> Dict[str, Any]:
+    return {
+        "timeframe": "D",
+        "patterns": get_chart_shape_pattern_catalog(),
+        "contract": {
+            "scope": "display_confirmation_only",
+            "ranking_changed": False,
+            "tradex_research_changed": False,
+            "expectancy_validated": False,
+        },
+    }
 
 
 @router.get("/monthly", response_model=None)

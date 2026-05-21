@@ -168,4 +168,60 @@ describe("DetailJudgementPanel", () => {
     expect(markup).toContain("買い・売り候補なし");
     expect(markup).not.toContain("暫定");
   });
+  it("shows daily chart shape as display-only context", () => {
+    const markup = renderToStaticMarkup(
+      <DetailJudgementPanel
+        {...baseProps}
+        dailyChartShape={{
+          confirmed: true,
+          shape_label: "gap_up_stall_fade",
+          shape_family: "gap_failure",
+          bias: "caution",
+          actionability: "avoid_chase",
+          description: "large gap up, then fade",
+          confidence: 0.82,
+          window: 10,
+          reasons: ["large_gap_up", "failed_to_extend_after_gap"],
+          metrics: {
+            gap_pct: 15.2,
+            post_gap_return_pct: -8.1,
+          },
+          multi_window: {
+            event_shape: {
+              shape_label: "gap_up_stall_fade",
+              shape_family: "gap_failure",
+              bias: "caution",
+              actionability: "avoid_chase",
+              window: 10,
+            },
+            context_shape: {
+              shape_label: "sideways_range",
+              shape_family: "range",
+              bias: "neutral",
+              actionability: "wait",
+              window: 20,
+            },
+            trend_shape: {
+              shape_label: "steady_uptrend",
+              shape_family: "trend",
+              bias: "bullish_watch",
+              actionability: "watch",
+              window: 60,
+            },
+            conflict_flags: ["short_term_caution_but_context_bullish"],
+          },
+        }}
+      />
+    );
+
+    expect(markup).toContain("GU後に失速");
+    expect(markup).toContain("短期 10本");
+    expect(markup).toContain("中期 20本");
+    expect(markup).toContain("流れ 60本");
+    expect(markup).toContain("横ばいレンジ");
+    expect(markup).toContain("安定上昇");
+    expect(markup).toContain("追いかけない");
+    expect(markup).toContain("表示用の日足形状");
+    expect(markup).toContain("TRADEX研究結果は変更しません");
+  });
 });

@@ -211,6 +211,8 @@ vi.mock("../components/DetailChart", async () => {
         return React.createElement("div", {
           "data-testid": "detail-chart",
           "data-candles": candles,
+          "data-price-bands": Array.isArray(props.priceBands) ? props.priceBands.length : 0,
+          "data-horizontal-lines": Array.isArray(props.horizontalLines) ? props.horizontalLines.length : 0,
           "data-visible-from": visibleRange?.from ?? "",
           "data-visible-to": visibleRange?.to ?? "",
           "data-last-time": lastCandleTime ?? "",
@@ -813,6 +815,48 @@ describe("DetailView", () => {
 
     const batchBarsCallsAfterNavigate = mocks.apiPost.mock.calls.filter(([url]) => url === "/batch_bars_v3");
     expect(batchBarsCallsAfterNavigate).toHaveLength(2);
+
+    render.cleanup();
+  });
+
+  it("uses a smaller initial daily request in compare mode without cutting at compareAsOf", async () => {
+    mocks.backendReadyRef.value = true;
+    mocks.storeState.tickers = [
+      { code: "9111", name: "Alpha Corp", close: 1000, chg1D: 0.01 },
+      { code: "9112", name: "Beta Corp", close: 1100, chg1D: -0.01 },
+    ];
+    mocks.apiPost.mockImplementation((url: string, payload?: Record<string, unknown>) => {
+      if (url !== "/batch_bars_v3") {
+        return Promise.resolve({ data: {} });
+      }
+      const code = Array.isArray(payload?.codes) ? String(payload.codes[0]) : "";
+      return Promise.resolve(createBarsResponse(code || "9101", code === "9102" ? 2000 : 1000));
+    });
+
+    const render = await renderDetailView("/detail/9101?compare=9102&compareAsOf=2026-05-31");
+
+    await act(async () => {
+      await flushMicrotasks();
+      await flushMicrotasks();
+      await flushMicrotasks();
+      await flushMicrotasks();
+    });
+
+    const compareCall = mocks.apiPost.mock.calls.find(
+      ([url, payload]) =>
+        url === "/batch_bars_v3" &&
+        Array.isArray((payload as { codes?: unknown[] } | undefined)?.codes) &&
+        (payload as { codes?: unknown[] }).codes?.[0] === "9102"
+    );
+    expect(compareCall?.[1]).toMatchObject({
+      codes: ["9102"],
+      timeframes: ["daily", "monthly"],
+      timeframeLimits: {
+        daily: 420,
+        monthly: 240,
+      },
+    });
+    expect((compareCall?.[1] as { asof?: unknown } | undefined)?.asof).toBeUndefined();
 
     render.cleanup();
   });

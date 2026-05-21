@@ -38,14 +38,15 @@ from pydantic import BaseModel
 
 LONG_TERM_WINDOW = 60
 SHORT_TERM_WINDOW = 24
-DAILY_SHAPE_WINDOW = 60
+RECENT_DAILY_SHAPE_WINDOW = 126
+RECENT_DAILY_FEATURE_COUNT = 10
 SEARCH_CACHE_TTL_SEC = max(1.0, float(os.getenv("MEEMEE_SIMILAR_SEARCH_CACHE_TTL_SEC", "15")))
 SEARCH_CACHE_MAX_ENTRIES = max(16, int(os.getenv("MEEMEE_SIMILAR_SEARCH_CACHE_MAX_ENTRIES", "128")))
 SHAPE_SCORE_WEIGHT = 0.85
 MA_PROFILE_SCORE_WEIGHT = 0.10
 SLOPE_PROFILE_SCORE_WEIGHT = 0.05
-MONTHLY_TOTAL_SCORE_WEIGHT = 0.85
-DAILY_SHAPE_TOTAL_SCORE_WEIGHT = 0.15
+MONTHLY_TOTAL_SCORE_WEIGHT = 0.55
+DAILY_SHAPE_TOTAL_SCORE_WEIGHT = 0.45
 
 class SearchResult(BaseModel):
     ticker: str
@@ -69,7 +70,7 @@ class SimilarityService:
         self.df_monthly_path = os.path.join(self.data_dir, "monthly_bars.parquet")
         self.df_vec60_path = os.path.join(self.data_dir, "vec60.parquet")
         self.df_vec24_path = os.path.join(self.data_dir, "vec24.parquet")
-        self.df_daily_vec_path = os.path.join(self.data_dir, "daily_vec60.parquet")
+        self.df_daily_vec_path = os.path.join(self.data_dir, "daily_vec126_ohlc_ma.parquet")
         self.df_env_path = os.path.join(self.data_dir, "monthly_env.parquet")
         self.tag_index_path = os.path.join(self.data_dir, "tag_index.pkl")
 
@@ -84,9 +85,11 @@ class SimilarityService:
         self.loaded = False
         self._state_lock = RLock()
         self._search_cache: Dict[tuple[str, Optional[str], int, float, bool], tuple[float, List[dict[str, Any]]]] = {}
+        self._daily_shape_live_cache: Dict[str, tuple[float, list[dict[str, Any]], "np.ndarray"]] = {}
 
     def _clear_search_cache(self) -> None:
         self._search_cache.clear()
+        self._daily_shape_live_cache.clear()
 
     def _rebuild_tag_lookup_indexes(self) -> None:
         prefix_index: Dict[str, List[int]] = {}
@@ -231,18 +234,20 @@ class SimilarityService:
         if codes:
             placeholders = ",".join(["?"] * len(codes))
             query = f"""
-                SELECT code, date, c
-                FROM daily_bars
-                WHERE code IN ({placeholders})
-                ORDER BY code, date
+                SELECT b.code, b.date, b.o, b.h, b.l, b.c, m.ma7, m.ma20, m.ma60
+                FROM daily_bars b
+                LEFT JOIN daily_ma m ON m.code = b.code AND m.date = b.date
+                WHERE b.code IN ({placeholders})
+                ORDER BY b.code, b.date
             """
             df_daily = conn.execute(query, codes).df()
         else:
             df_daily = conn.execute(
                 """
-                SELECT code, date, c
-                FROM daily_bars
-                ORDER BY code, date
+                SELECT b.code, b.date, b.o, b.h, b.l, b.c, m.ma7, m.ma20, m.ma60
+                FROM daily_bars b
+                LEFT JOIN daily_ma m ON m.code = b.code AND m.date = b.date
+                ORDER BY b.code, b.date
                 """
             ).df()
 
@@ -356,7 +361,8 @@ class SimilarityService:
             raise RuntimeError("numpy_missing")
 
         env = df_env[["code", "asof"]].reset_index(drop=True).copy()
-        zero_vec = np.zeros(DAILY_SHAPE_WINDOW, dtype=np.float32)
+        vector_width = RECENT_DAILY_SHAPE_WINDOW * RECENT_DAILY_FEATURE_COUNT
+        zero_vec = np.zeros(vector_width, dtype=np.float32)
         vectors: list[np.ndarray] = [zero_vec.copy() for _ in range(len(env))]
         daily_asofs: list[pd.Timestamp | Any] = [pd.NaT for _ in range(len(env))]
         available = [False for _ in range(len(env))]
@@ -368,7 +374,7 @@ class SimilarityService:
             result["vec_daily"] = vectors
             return result
 
-        daily = df_daily[["code", "asof", "c"]].dropna(subset=["c"]).sort_values(["code", "asof"])
+        daily = df_daily[["code", "asof", "o", "h", "l", "c", "ma7", "ma20", "ma60"]].dropna(subset=["o", "h", "l", "c"]).sort_values(["code", "asof"])
         daily_by_code = {str(code): group for code, group in daily.groupby("code", sort=False)}
 
         for code, env_group in env.groupby("code", sort=False):
@@ -376,29 +382,17 @@ class SimilarityService:
             if daily_group is None or daily_group.empty:
                 continue
 
-            daily_dates = daily_group["asof"].to_numpy(dtype="datetime64[ns]")
-            closes = daily_group["c"].to_numpy(dtype=np.float32)
-            if closes.shape[0] <= DAILY_SHAPE_WINDOW:
-                continue
-
-            returns = np.empty_like(closes, dtype=np.float32)
-            returns[0] = np.nan
-            returns[1:] = (closes[1:] / (closes[:-1] + 1e-9)) - 1.0
-
             env_dates = env_group["asof"].to_numpy(dtype="datetime64[ns]")
+            daily_dates = daily_group["asof"].to_numpy(dtype="datetime64[ns]")
             positions = np.searchsorted(daily_dates, env_dates, side="right") - 1
 
             for output_idx, daily_pos in zip(env_group.index.to_numpy(), positions):
-                if daily_pos < DAILY_SHAPE_WINDOW:
+                built = self._build_recent_daily_shape_vector(daily_group, daily_pos=int(daily_pos))
+                if built is None:
                     continue
-                start = int(daily_pos) - DAILY_SHAPE_WINDOW + 1
-                window = returns[start:int(daily_pos) + 1]
-                if window.shape[0] != DAILY_SHAPE_WINDOW or not np.isfinite(window).all():
-                    continue
-                # Match monthly vector orientation: most recent return first.
-                vector = self._normalize_shape_vector(window[::-1].reshape(1, -1))[0].astype(np.float32)
+                vector, daily_asof = built
                 vectors[int(output_idx)] = vector
-                daily_asofs[int(output_idx)] = pd.Timestamp(daily_dates[int(daily_pos)]).normalize()
+                daily_asofs[int(output_idx)] = daily_asof
                 available[int(output_idx)] = True
 
         result = env.copy()
@@ -406,6 +400,63 @@ class SimilarityService:
         result["daily_shape_available"] = available
         result["vec_daily"] = vectors
         return result
+
+    def _build_recent_daily_shape_vector(
+        self,
+        daily_group: "pd.DataFrame",
+        *,
+        daily_pos: int,
+    ) -> tuple["np.ndarray", "pd.Timestamp"] | None:
+        if np is None:
+            raise RuntimeError("numpy_missing")
+        if daily_pos < RECENT_DAILY_SHAPE_WINDOW:
+            return None
+        ordered = daily_group.sort_values("asof")
+        daily_dates = ordered["asof"].to_numpy(dtype="datetime64[ns]")
+        opens = ordered["o"].to_numpy(dtype=np.float32)
+        highs = ordered["h"].to_numpy(dtype=np.float32)
+        lows = ordered["l"].to_numpy(dtype=np.float32)
+        closes = ordered["c"].to_numpy(dtype=np.float32)
+        ma7 = ordered["ma7"].to_numpy(dtype=np.float32)
+        ma20 = ordered["ma20"].to_numpy(dtype=np.float32)
+        ma60 = ordered["ma60"].to_numpy(dtype=np.float32)
+        if closes.shape[0] <= RECENT_DAILY_SHAPE_WINDOW:
+            return None
+
+        returns = np.empty_like(closes, dtype=np.float32)
+        returns[0] = np.nan
+        returns[1:] = (closes[1:] / (closes[:-1] + 1e-9)) - 1.0
+        close_base = np.where(np.abs(closes) > 1e-9, np.abs(closes), np.nan)
+        candle_body = (closes - opens) / close_base
+        upper_wick = (highs - np.maximum(opens, closes)) / close_base
+        lower_wick = (np.minimum(opens, closes) - lows) / close_base
+        ma7_gap = np.where(np.isfinite(ma7), (ma7 / close_base) - 1.0, 0.0).astype(np.float32)
+        ma20_gap = np.where(np.isfinite(ma20), (ma20 / close_base) - 1.0, 0.0).astype(np.float32)
+        ma60_gap = np.where(np.isfinite(ma60), (ma60 / close_base) - 1.0, 0.0).astype(np.float32)
+        ma7_slope = np.nan_to_num(np.diff(ma7, prepend=np.nan) / (np.abs(ma7) + 1e-9), nan=0.0, posinf=0.0, neginf=0.0).astype(np.float32)
+        ma20_slope = np.nan_to_num(np.diff(ma20, prepend=np.nan) / (np.abs(ma20) + 1e-9), nan=0.0, posinf=0.0, neginf=0.0).astype(np.float32)
+        ma60_slope = np.nan_to_num(np.diff(ma60, prepend=np.nan) / (np.abs(ma60) + 1e-9), nan=0.0, posinf=0.0, neginf=0.0).astype(np.float32)
+
+        start = int(daily_pos) - RECENT_DAILY_SHAPE_WINDOW + 1
+        slices = [
+            returns[start:int(daily_pos) + 1],
+            candle_body[start:int(daily_pos) + 1],
+            upper_wick[start:int(daily_pos) + 1],
+            lower_wick[start:int(daily_pos) + 1],
+            ma7_gap[start:int(daily_pos) + 1],
+            ma20_gap[start:int(daily_pos) + 1],
+            ma60_gap[start:int(daily_pos) + 1],
+            ma7_slope[start:int(daily_pos) + 1],
+            ma20_slope[start:int(daily_pos) + 1],
+            ma60_slope[start:int(daily_pos) + 1],
+        ]
+        if any(item.shape[0] != RECENT_DAILY_SHAPE_WINDOW for item in slices):
+            return None
+        feature_matrix = np.vstack([item[::-1] for item in slices]).astype(np.float32)
+        if not np.isfinite(feature_matrix).all():
+            return None
+        vector = self._normalize_shape_vector(feature_matrix.reshape(1, -1))[0].astype(np.float32)
+        return vector, pd.Timestamp(daily_dates[int(daily_pos)]).normalize()
 
     def _persist_artifacts(self) -> None:
         if pd is None:
@@ -697,37 +748,36 @@ class SimilarityService:
         # Find Query Row
         query_mask = (df_env["code"] == ticker)
         df_ticker = df_env[query_mask].copy()
+
+        if alpha <= 0.05:
+            results = self._search_recent_daily_shape_only(
+                ticker=ticker,
+                target_date=target_date,
+                k=k,
+                df_env=df_env,
+                df_daily_vec=df_daily_vec,
+            )
+            with self._state_lock:
+                self._store_cached_search(cache_key, results)
+            return results
         
         if df_ticker.empty:
-            # Ticker not in index (likely < 120 months data)
-            raise ValueError(f"Ticker {ticker} not indexed (insufficient history)")
+            results = self._search_recent_daily_shape_only(
+                ticker=ticker,
+                target_date=target_date,
+                k=k,
+                df_env=df_env,
+                df_daily_vec=df_daily_vec,
+            )
+            with self._state_lock:
+                self._store_cached_search(cache_key, results)
+            return results
             
         if target_date:
-            # Fuzzy match: Match Year-Month
-            target_period = target_date.to_period("M")
-            df_ticker["period"] = df_ticker["asof"].dt.to_period("M")
-            
-            # 1. Exact Month Match
-            match = df_ticker[df_ticker["period"] == target_period]
-            
-            if match.empty:
-                # 2. Try closest within +/- 1 month? Or just fallback to latest?
-                # User suggestion: "Round to latest" or similar. 
-                # Let's try to find the closest date if exact month fails.
-                # Actually, if user asks for specific date and we don't have it, generally that's an error.
-                # But for robustness, let's pick the closest date available.
-                # Ensure target_date is datetime (it matches df_ticker['asof'] type)
-                # target_date was created with pd.to_datetime(asof) so it is Timestamp.
-                # df_ticker["asof"] is datetime64[ns]
-                df_ticker["diff"] = (df_ticker["asof"] - target_date).abs()
-                closest_idx = df_ticker["diff"].idxmin()
-                
-                query_idx = closest_idx
-                # Log warning?
-                closest_asof = df_env.loc[query_idx, 'asof']
-                print(f"Warning: Exact asof {asof} not found for {ticker}. Using closest: {closest_asof}")
-            else:
-                query_idx = match.index[0]
+            historical_match = df_ticker[df_ticker["asof"] <= target_date]
+            if historical_match.empty:
+                raise ValueError(f"Ticker {ticker} has no indexed history on or before {asof}")
+            query_idx = historical_match.index[-1]
         else:
             # Latest
             # Assumes sorted by time
@@ -744,10 +794,18 @@ class SimilarityService:
                 "Run refresh_data() after daily_bars import."
             )
         query_vec_daily = np.array(query_daily_row["vec_daily"], dtype=np.float32)
+        query_asof = target_date if target_date is not None else query_row["asof"]
+
+        def filter_to_query_asof(indices: List[int]) -> List[int]:
+            if not indices:
+                return []
+            candidate_asofs = df_env.loc[indices]["asof"]
+            allowed = candidate_asofs <= query_asof
+            return [int(idx) for idx, keep in zip(indices, allowed.to_list()) if bool(keep)]
         
         # Fallback Levels
         # 0: Exact Tag
-        candidates_indices = tag_index.get(query_tag, [])
+        candidates_indices = filter_to_query_asof(tag_index.get(query_tag, []))
         tag_focus_info = ""
         if match_tag:
             tag_focus_info = " (Tag Focus)" if candidates_indices else " (Tag Focus: none)"
@@ -763,14 +821,14 @@ class SimilarityService:
             # Level 1: Ignore Range
             # Pattern: MA20_MA60_DIR_*
             prefix = "_".join(parts[:3])
-            candidates_indices = self._find_indices_prefix(prefix)
+            candidates_indices = filter_to_query_asof(self._find_indices_prefix(prefix))
             level_desc = "Level 1 (Ignore Range)"
             
         if len(candidates_indices) < k:
             # Level 2: Ignore Dir
             # Pattern: MA20_MA60_*
             prefix = "_".join(parts[:2])
-            candidates_indices = self._find_indices_prefix(prefix)
+            candidates_indices = filter_to_query_asof(self._find_indices_prefix(prefix))
             level_desc = "Level 2 (Ignore Dir)"
             
         if len(candidates_indices) < k:
@@ -780,12 +838,12 @@ class SimilarityService:
             # Tag: MA20_MA60_DIR_RANGE.
             # So we match the 2nd part.
             target_ma60 = parts[1]
-            candidates_indices = self._find_indices_ma60(target_ma60)
+            candidates_indices = filter_to_query_asof(self._find_indices_ma60(target_ma60))
             level_desc = "Level 3 (MA60 Only)"
             
         if len(candidates_indices) < k:
              # Level 4: All
-             candidates_indices = list(df_env.index)
+             candidates_indices = filter_to_query_asof(list(df_env.index))
              level_desc = "Level 4 (All)"
              
         # Limit candidates to prevents MEMORY EXPLOSION?
@@ -810,7 +868,7 @@ class SimilarityService:
         cand_vec60 = np.vstack(df_vec60.loc[candidates_indices]["vec60"].values) # (N, 60)
         cand_vec24 = np.vstack(df_vec24.loc[candidates_indices]["vec24"].values) # (N, 24)
         cand_daily_rows = df_daily_vec.loc[candidates_indices]
-        cand_vec_daily = np.vstack(cand_daily_rows["vec_daily"].values) # (N, 60 daily bars)
+        cand_vec_daily = np.vstack(cand_daily_rows["vec_daily"].values)
 
         # Dot Product base
         s60 = np.dot(cand_vec60, query_vec60)
@@ -922,6 +980,8 @@ class SimilarityService:
                     "range": str(row_meta["tag_range"]),
                     "fallback": str(level_desc),
                     "daily_shape": "available" if bool(df_daily_vec.iloc[idx]["daily_shape_available"]) else "missing",
+                    "daily_shape_window_days": RECENT_DAILY_SHAPE_WINDOW,
+                    "daily_shape_features": "close_return,candle_body,upper_wick,lower_wick,ma7_gap,ma20_gap,ma60_gap,ma7_slope,ma20_slope,ma60_slope",
                     "daily_asof": (
                         df_daily_vec.iloc[idx]["daily_asof"].strftime("%Y-%m-%d")
                         if pd.notna(df_daily_vec.iloc[idx]["daily_asof"])
@@ -935,6 +995,198 @@ class SimilarityService:
         with self._state_lock:
             self._store_cached_search(cache_key, final_results)
         return final_results
+
+    def _search_recent_daily_shape_only(
+        self,
+        *,
+        ticker: str,
+        target_date: Optional["pd.Timestamp"],
+        k: int,
+        df_env: "pd.DataFrame",
+        df_daily_vec: "pd.DataFrame",
+    ) -> List[SearchResult]:
+        if pd is None:
+            raise RuntimeError("pandas_missing")
+        if np is None:
+            raise RuntimeError("numpy_missing")
+        with get_conn_for_path(self.db_path, timeout_sec=2.5, read_only=True) as conn:
+            df_daily_query = self._load_daily_bars(conn, [ticker])
+            df_daily_all = self._load_daily_bars(conn, None)
+        if df_daily_query.empty:
+            raise ValueError(f"Ticker {ticker} has no daily history for recent shape search")
+        daily_query = df_daily_query[["code", "asof", "o", "h", "l", "c", "ma7", "ma20", "ma60"]].dropna(subset=["o", "h", "l", "c"]).sort_values(["code", "asof"])
+        if daily_query.empty:
+            raise ValueError(f"Ticker {ticker} has no valid daily OHLC history for recent shape search")
+        query_date = target_date if target_date is not None else daily_query["asof"].max()
+        allowed_daily = daily_query[daily_query["asof"] <= query_date]
+        if allowed_daily.empty:
+            asof_text = query_date.strftime("%Y-%m-%d") if hasattr(query_date, "strftime") else str(query_date)
+            raise ValueError(f"Ticker {ticker} has no daily history on or before {asof_text}")
+        daily_pos = int(len(allowed_daily) - 1)
+        built = self._build_recent_daily_shape_vector(allowed_daily, daily_pos=daily_pos)
+        if built is None:
+            raise ValueError(
+                f"Ticker {ticker} needs at least {RECENT_DAILY_SHAPE_WINDOW + 1} daily bars for recent shape search"
+            )
+        query_vec_daily, query_daily_asof = built
+
+        candidate_rows, cand_vec_daily = self._get_live_daily_shape_candidates(
+            query_daily_asof=query_daily_asof,
+            df_env=df_env,
+            df_daily_all=df_daily_all,
+        )
+        if not candidate_rows or cand_vec_daily.size == 0:
+            return []
+
+        s_daily = np.dot(cand_vec_daily, query_vec_daily)
+        scores = np.minimum(s_daily, 1.0)
+        df_res = pd.DataFrame({
+            "idx": list(range(len(candidate_rows))),
+            "score": scores,
+            "score_daily": s_daily,
+        }).sort_values("score", ascending=False)
+
+        final_results: List[SearchResult] = []
+        seen_codes: Dict[str, list[Any]] = {}
+        for _, r in df_res.iterrows():
+            if len(final_results) >= k:
+                break
+            idx = int(r["idx"])
+            candidate = candidate_rows[idx]
+            row_meta = candidate["row_meta"]
+            code = str(candidate["code"])
+            if code == ticker:
+                continue
+            daily_asof = candidate["daily_asof"]
+            r_asof = daily_asof.normalize() if hasattr(daily_asof, "normalize") else pd.Timestamp(daily_asof).normalize()
+            if code in seen_codes:
+                if len(seen_codes[code]) >= 3:
+                    continue
+                if any(abs((r_asof - existing_ts).days) < 60 for existing_ts in seen_codes[code]):
+                    continue
+            seen_codes.setdefault(code, []).append(r_asof)
+            final_results.append(SearchResult(
+                ticker=code,
+                asof=r_asof.strftime("%Y-%m-%d"),
+                score_total=float(r["score"]),
+                score_monthly=None,
+                score_daily=float(r["score_daily"]),
+                score60=0.0,
+                score24=0.0,
+                tag_id=str(row_meta["tag_id"]),
+                tags={
+                    "ma20": str(row_meta["tag_ma20"]),
+                    "ma60": str(row_meta["tag_ma60"]),
+                    "dir": str(row_meta["tag_dir60"]),
+                    "range": str(row_meta["tag_range"]),
+                    "fallback": "recent_daily_shape_only",
+                    "query_daily_asof": query_daily_asof.strftime("%Y-%m-%d"),
+                    "daily_shape": "available",
+                    "daily_shape_window_days": RECENT_DAILY_SHAPE_WINDOW,
+                    "daily_shape_features": "close_return,candle_body,upper_wick,lower_wick,ma7_gap,ma20_gap,ma60_gap,ma7_slope,ma20_slope,ma60_slope",
+                    "daily_asof": r_asof.strftime("%Y-%m-%d"),
+                },
+                vec60=None,
+                vec24=None,
+            ))
+        return final_results
+
+    def prewarm_recent_daily_shape_cache(self, asof: Optional[str] = None) -> dict[str, Any]:
+        if pd is None:
+            raise RuntimeError("pandas_missing")
+        if np is None:
+            raise RuntimeError("numpy_missing")
+        with self._state_lock:
+            if not self.loaded:
+                self.load_artifacts()
+            if not self.loaded or self.df_env is None:
+                raise RuntimeError("Similarity artifacts are not loaded. Run refresh_data() first.")
+            df_env = self.df_env
+        target_date = pd.to_datetime(asof) if asof else None
+        with get_conn_for_path(self.db_path, timeout_sec=2.5, read_only=True) as conn:
+            df_daily_all = self._load_daily_bars(conn, None)
+        daily_all = df_daily_all[["code", "asof", "o", "h", "l", "c", "ma7", "ma20", "ma60"]].dropna(subset=["o", "h", "l", "c"]).sort_values(["code", "asof"])
+        if daily_all.empty:
+            raise ValueError("No valid daily OHLC history for recent shape cache prewarm")
+        query_daily_asof = target_date if target_date is not None else daily_all["asof"].max()
+        available = daily_all[daily_all["asof"] <= query_daily_asof]
+        if available.empty:
+            asof_text = query_daily_asof.strftime("%Y-%m-%d") if hasattr(query_daily_asof, "strftime") else str(query_daily_asof)
+            raise ValueError(f"No daily history on or before {asof_text}")
+        query_daily_asof = available["asof"].max().normalize()
+        candidate_rows, cand_vec_daily = self._get_live_daily_shape_candidates(
+            query_daily_asof=query_daily_asof,
+            df_env=df_env,
+            df_daily_all=df_daily_all,
+        )
+        return {
+            "ok": True,
+            "asof": query_daily_asof.strftime("%Y-%m-%d"),
+            "candidate_count": len(candidate_rows),
+            "vector_shape": list(cand_vec_daily.shape),
+            "cache_ttl_sec": SEARCH_CACHE_TTL_SEC,
+        }
+
+    def _get_live_daily_shape_candidates(
+        self,
+        *,
+        query_daily_asof: "pd.Timestamp",
+        df_env: "pd.DataFrame",
+        df_daily_all: "pd.DataFrame",
+    ) -> tuple[list[dict[str, Any]], "np.ndarray"]:
+        if pd is None:
+            raise RuntimeError("pandas_missing")
+        if np is None:
+            raise RuntimeError("numpy_missing")
+        cache_key = query_daily_asof.strftime("%Y-%m-%d")
+        cached = self._daily_shape_live_cache.get(cache_key)
+        if cached is not None:
+            expires_at, candidate_rows, cand_vec_daily = cached
+            if expires_at > time.monotonic():
+                return candidate_rows, cand_vec_daily
+            self._daily_shape_live_cache.pop(cache_key, None)
+
+        daily_all = df_daily_all[["code", "asof", "o", "h", "l", "c", "ma7", "ma20", "ma60"]].dropna(subset=["o", "h", "l", "c"]).sort_values(["code", "asof"])
+        if daily_all.empty:
+            empty = np.empty((0, RECENT_DAILY_SHAPE_WINDOW * RECENT_DAILY_FEATURE_COUNT), dtype=np.float32)
+            return [], empty
+        env_by_code: Dict[str, "pd.DataFrame"] = {
+            str(code): group.sort_values("asof")
+            for code, group in df_env.groupby("code", sort=False)
+        }
+        candidate_rows: list[dict[str, Any]] = []
+        candidate_vectors: list["np.ndarray"] = []
+        for code_value, daily_group in daily_all.groupby("code", sort=False):
+            code = str(code_value)
+            allowed_candidate = daily_group[daily_group["asof"] <= query_daily_asof]
+            if allowed_candidate.empty:
+                continue
+            built_candidate = self._build_recent_daily_shape_vector(
+                allowed_candidate,
+                daily_pos=int(len(allowed_candidate) - 1),
+            )
+            if built_candidate is None:
+                continue
+            vector, daily_asof = built_candidate
+            env_group = env_by_code.get(code)
+            if env_group is None or env_group.empty:
+                continue
+            env_match = env_group[env_group["asof"] <= daily_asof]
+            row_meta = env_match.iloc[-1] if not env_match.empty else env_group.iloc[-1]
+            candidate_rows.append({"code": code, "daily_asof": daily_asof, "row_meta": row_meta})
+            candidate_vectors.append(vector)
+        if not candidate_vectors:
+            empty = np.empty((0, RECENT_DAILY_SHAPE_WINDOW * RECENT_DAILY_FEATURE_COUNT), dtype=np.float32)
+            return [], empty
+        cand_vec_daily = np.vstack(candidate_vectors)
+        if len(self._daily_shape_live_cache) >= SEARCH_CACHE_MAX_ENTRIES:
+            self._daily_shape_live_cache.clear()
+        self._daily_shape_live_cache[cache_key] = (
+            time.monotonic() + SEARCH_CACHE_TTL_SEC,
+            candidate_rows,
+            cand_vec_daily,
+        )
+        return candidate_rows, cand_vec_daily
 
     def _find_indices_prefix(self, prefix, tag_index: Optional[Dict[str, List[int]]] = None):
         if tag_index is None:

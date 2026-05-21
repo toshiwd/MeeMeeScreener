@@ -1,27 +1,58 @@
 from app.backend.api.routers.market import (
     _build_visual_frame,
-    _render_svg_candles,
     _candidate_candlestick_state,
     _detail_visual_decision,
+    _render_svg_candles,
     _score_theme_candidate,
     _theme_for_row,
     _theme_status,
+    get_market_baskets,
 )
+from app.backend.services.market_baskets import market_basket_catalog
 
 
-def test_theme_for_row_uses_assigned_theme_before_sector_fallback():
-    assert _theme_for_row("9041", "近鉄G HD", "5050", "陸運業") == (
-        "inbound_transport",
-        "インバウンド/交通",
+def test_market_basket_catalog_contains_index_like_baskets():
+    catalog = {item["themeId"]: item for item in market_basket_catalog()}
+
+    assert catalog["nikkei_entertainment_content"]["basketType"] == "official_index"
+    assert "2432" in catalog["nikkei_entertainment_content"]["codes"]
+    assert "2432" in catalog["game_content"]["codes"]
+    assert "4816" in catalog["anime_film_content"]["codes"]
+    assert "7867" in catalog["leisure_live_entertainment"]["codes"]
+    assert "8035" in catalog["semiconductor_core"]["codes"]
+    assert "8306" in catalog["bank_rate_sensitive"]["codes"]
+    assert "7011" in catalog["defense_heavy_industry"]["codes"]
+
+
+def test_market_baskets_endpoint_returns_catalog():
+    payload = get_market_baskets()
+
+    assert payload["status"] == "ok"
+    assert payload["count"] >= 13
+    assert any(item["themeId"] == "nikkei_entertainment_content" for item in payload["baskets"])
+
+
+def test_theme_for_row_uses_market_baskets_before_legacy_theme_fallback():
+    assert _theme_for_row("2432", "DeNA", "5250", "Information") == (
+        "game_content",
+        "Game Content",
     )
-    assert _theme_for_row("8035", "東京エレクトロン", "3650", "電気機器") == (
-        "semiconductor",
-        "半導体",
+    assert _theme_for_row("4816", "Toei Animation", "5250", "Information") == (
+        "anime_film_content",
+        "Anime Film Content",
+    )
+    assert _theme_for_row("8035", "Tokyo Electron", "3650", "Electric") == (
+        "semiconductor_core",
+        "Semiconductor Core",
+    )
+    assert _theme_for_row("9041", "Kintetsu G HD", "5050", "Land Transport") == (
+        "inbound_transport_leisure",
+        "Inbound Transport Leisure",
     )
 
 
 def test_theme_for_row_falls_back_to_sector_name_when_no_theme_matches():
-    assert _theme_for_row("0000", "無名銘柄", "9999", "その他") == ("sector:9999", "その他")
+    assert _theme_for_row("0000", "Unknown", "9999", "Other") == ("sector:9999", "Other")
 
 
 def test_theme_status_marks_new_acceleration_and_fade():
