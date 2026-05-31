@@ -420,6 +420,33 @@ const createBarsResponse = (code: string, seed = 1000) => ({
   },
 });
 
+const createDatedBarsResponse = (code: string, seed = 1000) => {
+  const dailyBars = Array.from({ length: 15 }, (_, index) => {
+    const time = Date.UTC(2025, 5 + index, 14) / 1000;
+    const base = seed + index;
+    return [time, base, base + 2, base - 2, base + 1, base * 10];
+  });
+  const monthlyBars = Array.from({ length: 15 }, (_, index) => {
+    const time = Date.UTC(2025, 5 + index, 1) / 1000;
+    const base = seed + 100 + index;
+    return [time, base, base + 2, base - 2, base + 1, base * 10];
+  });
+  return {
+    data: {
+      items: {
+        [code]: {
+          daily: { bars: dailyBars },
+          weekly: createBarsFrame(Date.UTC(2026, 4, 11) / 1000, seed + 10),
+          monthly: {
+            bars: monthlyBars,
+            boxes: [],
+          },
+        },
+      },
+    },
+  };
+};
+
 const createAsOfMismatchBarsResponse = (code: string) => {
   const marchDay = Date.UTC(2026, 2, 31) / 1000;
   const aprilDay = Date.UTC(2026, 3, 1) / 1000;
@@ -819,7 +846,7 @@ describe("DetailView", () => {
     render.cleanup();
   });
 
-  it("uses a smaller initial daily request in compare mode without cutting at compareAsOf", async () => {
+  it("uses compareAsOf for the compare chart request so the displayed period matches the similar date", async () => {
     mocks.backendReadyRef.value = true;
     mocks.storeState.tickers = [
       { code: "9111", name: "Alpha Corp", close: 1000, chg1D: 0.01 },
@@ -830,7 +857,7 @@ describe("DetailView", () => {
         return Promise.resolve({ data: {} });
       }
       const code = Array.isArray(payload?.codes) ? String(payload.codes[0]) : "";
-      return Promise.resolve(createBarsResponse(code || "9101", code === "9102" ? 2000 : 1000));
+      return Promise.resolve(createDatedBarsResponse(code || "9101", code === "9102" ? 2000 : 1000));
     });
 
     const render = await renderDetailView("/detail/9101?compare=9102&compareAsOf=2026-05-31");
@@ -851,12 +878,86 @@ describe("DetailView", () => {
     expect(compareCall?.[1]).toMatchObject({
       codes: ["9102"],
       timeframes: ["daily", "monthly"],
+      asof: "2026-05-31",
+      forwardBars: {
+        daily: 60,
+        monthly: 2,
+      },
       timeframeLimits: {
         daily: 420,
         monthly: 240,
       },
     });
-    expect((compareCall?.[1] as { asof?: unknown } | undefined)?.asof).toBeUndefined();
+    const charts = Array.from(render.container.querySelectorAll('[data-testid="detail-chart"]'));
+    const compareDailyChart = charts[3];
+    expect(compareDailyChart?.getAttribute("data-visible-from")).toBe(String(Date.UTC(2025, 6, 31) / 1000));
+    expect(compareDailyChart?.getAttribute("data-visible-to")).toBe(String(Date.UTC(2026, 6, 31) / 1000));
+
+    render.cleanup();
+  });
+
+  it("moves to the next similar comparison using the stored compare index", async () => {
+    mocks.backendReadyRef.value = true;
+    mocks.storeState.tickers = [
+      { code: "9101", name: "Alpha Corp", close: 1000, chg1D: 0.01 },
+      { code: "9102", name: "Beta Corp", close: 1100, chg1D: -0.01 },
+      { code: "9103", name: "Gamma Corp", close: 1200, chg1D: 0.02 },
+    ];
+    window.sessionStorage.setItem(
+      "similarCompareList",
+      JSON.stringify({
+        queryTicker: "9101",
+        mainAsOf: "2026-05-31",
+        items: [
+          { ticker: "9102", asof: "2020-01-31" },
+          { ticker: "9103", asof: "2021-01-31" },
+        ],
+      })
+    );
+    mocks.apiPost.mockImplementation((url: string, payload?: Record<string, unknown>) => {
+      if (url !== "/batch_bars_v3") {
+        return Promise.resolve({ data: {} });
+      }
+      const code = Array.isArray(payload?.codes) ? String(payload.codes[0]) : "";
+      return Promise.resolve(createBarsResponse(code || "9101", code === "9103" ? 3000 : 1000));
+    });
+
+    const render = await renderDetailView(
+      "/detail/9101?mainAsOf=2026-05-31&compare=9102&compareAsOf=2020-01-31&compareIndex=0"
+    );
+    const { container } = render;
+
+    await act(async () => {
+      await flushMicrotasks();
+      await flushMicrotasks();
+      await flushMicrotasks();
+    });
+
+    const compareNextButton = container.querySelector(".detail-compare-actions button") as HTMLButtonElement | null;
+    expect(compareNextButton).not.toBeNull();
+    expect(compareNextButton?.disabled).toBe(false);
+
+    await act(async () => {
+      compareNextButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await flushMicrotasks();
+      await flushMicrotasks();
+      await flushMicrotasks();
+    });
+
+    const compareCalls = mocks.apiPost.mock.calls.filter(
+      ([url, payload]) =>
+        url === "/batch_bars_v3" &&
+        Array.isArray((payload as { codes?: unknown[] } | undefined)?.codes) &&
+        (payload as { codes?: unknown[] }).codes?.[0] === "9103"
+    );
+    expect(compareCalls.at(-1)?.[1]).toMatchObject({
+      codes: ["9103"],
+      asof: "2021-01-31",
+      forwardBars: {
+        daily: 60,
+        monthly: 2,
+      },
+    });
 
     render.cleanup();
   });

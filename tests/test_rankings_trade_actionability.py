@@ -189,6 +189,276 @@ def test_trade_buy_candidates_require_entry_fit_without_becoming_gain_ranking(mo
     assert caution_by_code["1004"]["tradeEntryBlockReasons"] == ["upper_wick_rejection"]
 
 
+def test_trade_candidates_block_late_chase_entries(monkeypatch) -> None:
+    monkeypatch.setattr(
+        rankings_cache,
+        "_load_trade_market_code_map",
+        lambda codes: {str(code): "PRIME" for code in codes},
+    )
+
+    def buy_item(code: str, **overrides: object) -> dict[str, object]:
+        item: dict[str, object] = {
+            "code": code,
+            "setupType": "breakout",
+            "monthlyBoxState": "box_upper",
+            "entryQualified": True,
+            "probSideCalib": 0.80,
+            "entryScore": 0.72,
+            "hybridScore": 0.72,
+            "downsideRisk": 0.18,
+            "swingScore": 0.60,
+            "mlEv5Net": 0.12,
+            "mlEv10Net": 0.12,
+            "mlEv20Net": 0.12,
+            "changePct": 0.006,
+            "candleUpperWickRatio": 0.12,
+            "buy_overextended": False,
+            "breakout20_up": -0.012,
+            "distMa20Signed": 0.035,
+            "diff20_pct": 0.04,
+        }
+        item.update(overrides)
+        return item
+
+    def short_item(code: str, **overrides: object) -> dict[str, object]:
+        item: dict[str, object] = {
+            "code": code,
+            "setupType": "pressure",
+            "tradeEntryClass": "upper_rejection_primary",
+            "monthlyBoxState": "box_mid",
+            "entryQualified": True,
+            "probSideCalib": 0.80,
+            "entryScore": 0.72,
+            "hybridScore": 0.72,
+            "downsideRisk": 0.18,
+            "swingScore": 0.60,
+            "mlEv5Net": -0.12,
+            "mlEv10Net": -0.12,
+            "mlEv20Net": -0.12,
+            "changePct": -0.010,
+            "candleUpperWickRatio": 0.52,
+            "candleLowerWickRatio": 0.12,
+            "distMa20Signed": -0.035,
+        }
+        item.update(overrides)
+        return item
+
+    buckets = rankings_cache._build_trade_candidate_buckets(  # type: ignore[attr-defined]
+        [
+            buy_item("1001"),
+            buy_item("1002", breakout20_up=0.082),
+            buy_item("1003", distMa20Signed=0.14),
+            buy_item("1004", diff20_pct=0.26),
+            buy_item("1005", changePct=0.031, candleUpperWickRatio=0.34, distMa20Signed=0.045),
+            buy_item("1006", changePct=0.010, distMa20Signed=0.082),
+            buy_item(
+                "1007",
+                changePct=0.004,
+                monthlyBoxState="box_upper",
+                monthlyBoxPos=1.0,
+                cnt_7_above=5,
+                momentumFollowThroughScore=0.62,
+            ),
+            buy_item(
+                "1008",
+                changePct=0.004,
+                monthlyBoxState="box_upper",
+                monthlyBoxPos=1.0,
+                cnt_7_above=7,
+                momentumFollowThroughScore=0.96,
+            ),
+            short_item("2001"),
+            short_item("2002", changePct=-0.052),
+            short_item("2003", candleLowerWickRatio=0.58),
+            short_item("2004", distMa20Signed=-0.13),
+        ]
+    )
+
+    buy_codes = {item["code"] for item in buckets["actionable_buy_candidates"]}
+    short_codes = {item["code"] for item in buckets["actionable_short_candidates"]}
+    caution_by_code = {item["code"]: item for item in buckets["caution_watch_candidates"]}
+
+    assert "1001" in buy_codes
+    assert "1002" not in buy_codes
+    assert "1003" not in buy_codes
+    assert "1004" not in buy_codes
+    assert "1005" not in buy_codes
+    assert "1006" not in buy_codes
+    assert "1007" not in buy_codes
+    assert "1008" in buy_codes
+    assert "2001" in short_codes
+    assert "2002" not in short_codes
+    assert "2003" not in short_codes
+    assert "2004" not in short_codes
+    assert caution_by_code["1002"]["tradeEntryBlockReasons"] == ["breakout_chase_risk"]
+    assert caution_by_code["1003"]["tradeEntryBlockReasons"] == ["extended_above_ma20"]
+    assert caution_by_code["1004"]["tradeEntryBlockReasons"] == ["already_large_20d_run"]
+    assert caution_by_code["1005"]["tradeEntryBlockReasons"] == ["late_buy_chase_risk"]
+    assert caution_by_code["1006"]["tradeEntryBlockReasons"] == ["high_zone_extension_risk"]
+    assert caution_by_code["1007"]["tradeEntryBlockReasons"] == ["box_top_no_pullback_chase_risk"]
+    assert caution_by_code["2002"]["tradeEntryBlockReasons"] == ["late_breakdown_chase_risk"]
+    assert caution_by_code["2003"]["tradeEntryBlockReasons"] == ["lower_wick_rebound_risk"]
+    assert caution_by_code["2004"]["tradeEntryBlockReasons"] == ["extended_below_ma20"]
+
+
+def test_trade_short_candidates_require_failed_rebound_entry_setup(monkeypatch) -> None:
+    monkeypatch.setattr(
+        rankings_cache,
+        "_load_trade_market_code_map",
+        lambda codes: {str(code): "PRIME" for code in codes},
+    )
+
+    def short_item(code: str, **overrides: object) -> dict[str, object]:
+        item: dict[str, object] = {
+            "code": code,
+            "setupType": "failed_high_retest",
+            "tradeEntryClass": "failed_high_retest_short",
+            "monthlyBoxState": "box_upper",
+            "entryQualified": True,
+            "probSideCalib": 0.80,
+            "entryScore": 0.72,
+            "hybridScore": 0.72,
+            "downsideRisk": 0.18,
+            "swingScore": 0.60,
+            "mlEv5Net": -0.12,
+            "mlEv10Net": -0.12,
+            "mlEv20Net": -0.12,
+            "changePct": -0.010,
+            "candleUpperWickRatio": 0.52,
+            "candleLowerWickRatio": 0.12,
+            "distMa20Signed": -0.035,
+            "failedHighRetestShort": True,
+            "failedHighRetestRetestRatio": 0.98,
+            "failedHighRetestAnchorDropPct": 0.006,
+        }
+        item.update(overrides)
+        return item
+
+    buckets = rankings_cache._build_trade_candidate_buckets(  # type: ignore[attr-defined]
+        [
+            short_item("3001"),
+            short_item("3002", failedHighRetestRetestRatio=0.92),
+            short_item("3003", changePct=0.006, candleUpperWickRatio=0.12, failedHighRetestAnchorDropPct=0.001),
+            short_item("3005", failedHighRetestRetestRatio=0.945, candleUpperWickRatio=0.62),
+            {
+                "code": "3004",
+                "setupType": "breakdown",
+                "tradeEntryClass": "strict_breakdown_secondary",
+                "monthlyBoxState": "box_lower",
+                "entryQualified": True,
+                "probSideCalib": 0.80,
+                "entryScore": 0.72,
+                "hybridScore": 0.72,
+                "downsideRisk": 0.18,
+                "swingScore": 0.60,
+                "mlEv5Net": -0.12,
+                "mlEv10Net": -0.12,
+                "mlEv20Net": -0.12,
+                "changePct": -0.010,
+                "candleLowerWickRatio": 0.12,
+                "distMa20Signed": -0.035,
+            },
+        ]
+    )
+
+    short_codes = {item["code"] for item in buckets["actionable_short_candidates"]}
+    caution_by_code = {item["code"]: item for item in buckets["caution_watch_candidates"]}
+
+    assert "3001" in short_codes
+    assert "3005" in short_codes
+    assert "3002" not in short_codes
+    assert "3003" not in short_codes
+    assert "3004" not in short_codes
+    assert caution_by_code["3002"]["tradeEntryBlockReasons"] == ["not_near_retest_or_resistance"]
+    assert caution_by_code["3003"]["tradeEntryBlockReasons"] == ["no_failed_rebound_short_setup"]
+    assert caution_by_code["3004"]["tradeEntryBlockReasons"] == ["momentum_down_but_not_actionable_entry"]
+
+
+def test_trade_short_entry_actionability_lifts_better_failed_retest(monkeypatch) -> None:
+    monkeypatch.setattr(
+        rankings_cache,
+        "_load_trade_market_code_map",
+        lambda codes: {str(code): "PRIME" for code in codes},
+    )
+
+    def item(code: str, *, retest_ratio: float, upper_wick: float, lower_wick: float) -> dict[str, object]:
+        return {
+            "code": code,
+            "setupType": "failed_high_retest",
+            "tradeEntryClass": "failed_high_retest_short",
+            "monthlyBoxState": "box_mid",
+            "entryQualified": True,
+            "probSideCalib": 0.80,
+            "entryScore": 0.72,
+            "hybridScore": 0.72,
+            "downsideRisk": 0.18,
+            "swingScore": 0.60,
+            "mlEv5Net": -0.12,
+            "mlEv10Net": -0.12,
+            "mlEv20Net": -0.12,
+            "changePct": 0.002,
+            "candleUpperWickRatio": upper_wick,
+            "candleLowerWickRatio": lower_wick,
+            "failedHighRetestShort": True,
+            "failedHighRetestRetestRatio": retest_ratio,
+            "failedHighRetestAnchorDropPct": 0.006,
+        }
+
+    items = [
+        item("3101", retest_ratio=0.985, upper_wick=0.62, lower_wick=0.10),
+        item("3102", retest_ratio=0.945, upper_wick=0.36, lower_wick=0.40),
+    ]
+
+    rankings_cache._apply_trade_priority_scores(items, direction="down")  # type: ignore[attr-defined]
+    items.sort(key=rankings_cache._trade_priority_sort_key)  # type: ignore[attr-defined]
+
+    assert items[0]["code"] == "3101"
+    assert items[0]["shortEntryActionabilityScore"] > items[1]["shortEntryActionabilityScore"]
+    assert items[0]["tradePriorityScore"] > items[1]["tradePriorityScore"]
+
+
+def test_failed_high_retest_merge_preserves_short_entry_actionability(monkeypatch) -> None:
+    monkeypatch.setattr(
+        rankings_cache,
+        "_load_failed_high_retest_short_candidates",
+        lambda source_items: [
+            {
+                "code": "3201",
+                "setupType": "failed_high_retest",
+                "tradeEntryClass": "failed_high_retest_short",
+                "monthlyBoxState": "box_mid",
+                "entryQualified": True,
+                "probSideCalib": 0.80,
+                "entryScore": 0.72,
+                "hybridScore": 0.72,
+                "downsideRisk": 0.18,
+                "swingScore": 0.60,
+                "mlEv5Net": -0.12,
+                "mlEv10Net": -0.12,
+                "mlEv20Net": -0.12,
+                "changePct": -0.004,
+                "candleUpperWickRatio": 0.66,
+                "candleLowerWickRatio": 0.08,
+                "failedHighRetestShort": True,
+                "failedHighRetestShortScore": 0.70,
+                "failedHighRetestRetestRatio": 0.965,
+                "failedHighRetestAnchorDropPct": 0.010,
+                "tradePriorityScore": 0.70,
+            }
+        ],
+    )
+
+    merged = rankings_cache._merge_failed_high_retest_short_candidates(  # type: ignore[attr-defined]
+        {"actionable_buy_candidates": [], "actionable_short_candidates": [], "caution_watch_candidates": []},
+        [{"code": "3201"}],
+    )
+    candidate = merged["actionable_short_candidates"][0]
+
+    assert candidate["code"] == "3201"
+    assert candidate["shortEntryActionabilityScore"] > 0.5
+    assert candidate["tradePriorityScore"] >= candidate["shortEntryActionabilityScore"]
+
+
 def test_trade_theme_leadership_adjusts_priority_without_requalifying_weak_entry(monkeypatch) -> None:
     monkeypatch.setattr(
         rankings_cache,

@@ -30,6 +30,7 @@ export type PersistentChartCacheKeyParts = {
   limit: number;
   asof?: string | null;
   includeBoxes?: boolean;
+  cacheVariant?: string | null;
   dataVersion?: string | null;
 };
 
@@ -65,8 +66,9 @@ export const buildPersistentChartCacheBaseKey = ({
   limit,
   asof,
   includeBoxes,
+  cacheVariant,
 }: Omit<PersistentChartCacheKeyParts, "dataVersion">) =>
-  `${normalizeCode(code)}|${timeframe}|${Math.max(1, Math.floor(limit))}|${normalizeAsof(asof)}|boxes:${normalizeIncludeBoxes(includeBoxes) ? 1 : 0}`;
+  `${normalizeCode(code)}|${timeframe}|${Math.max(1, Math.floor(limit))}|${normalizeAsof(asof)}|boxes:${normalizeIncludeBoxes(includeBoxes) ? 1 : 0}|variant:${typeof cacheVariant === "string" ? cacheVariant.trim() : ""}`;
 
 export const buildPersistentChartCacheKey = ({
   dataVersion,

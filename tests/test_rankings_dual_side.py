@@ -50,7 +50,8 @@ def _prepare_ranking_db(path: Path) -> None:
                 h DOUBLE,
                 l DOUBLE,
                 c DOUBLE,
-                v BIGINT
+                v BIGINT,
+                source TEXT
             )
             """
         )
@@ -84,12 +85,12 @@ def _prepare_ranking_db(path: Path) -> None:
         )
 
         bar_rows = [
-            ("A", 20240201, 100.0, 102.0, 99.0, 101.0, 100000),
-            ("A", 20240202, 101.0, 103.0, 100.0, 102.0, 101000),
-            ("B", 20240201, 200.0, 201.0, 198.0, 199.0, 120000),
-            ("B", 20240202, 199.0, 200.0, 197.0, 198.0, 121000),
-            ("C", 20240201, 300.0, 303.0, 299.0, 302.0, 130000),
-            ("C", 20240202, 302.0, 305.0, 301.0, 304.0, 131000),
+            ("A", 20240201, 100.0, 102.0, 99.0, 101.0, 100000, "pan"),
+            ("A", 20240202, 101.0, 103.0, 100.0, 102.0, 101000, "pan"),
+            ("B", 20240201, 200.0, 201.0, 198.0, 199.0, 120000, "pan"),
+            ("B", 20240202, 199.0, 200.0, 197.0, 198.0, 121000, "pan"),
+            ("C", 20240201, 300.0, 303.0, 299.0, 302.0, 130000, "pan"),
+            ("C", 20240202, 302.0, 305.0, 301.0, 304.0, 131000, "pan"),
         ]
         ma_rows = [
             ("A", 20240201, 100.0, 99.0),
@@ -100,7 +101,7 @@ def _prepare_ranking_db(path: Path) -> None:
             ("C", 20240202, 301.5, 300.5),
         ]
         conn.executemany(
-            "INSERT INTO daily_bars (code, date, o, h, l, c, v) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO daily_bars (code, date, o, h, l, c, v, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             bar_rows,
         )
         conn.executemany(
@@ -114,6 +115,17 @@ def test_apply_ml_mode_uses_dual_rank_by_direction(monkeypatch, tmp_path) -> Non
     _prepare_ranking_db(db_path)
 
     monkeypatch.setenv("STOCKS_DB_PATH", str(db_path))
+
+    class _ReadOnlyConnContext:
+        def __enter__(self):
+            self._conn = duckdb.connect(str(db_path), read_only=True)
+            return self._conn
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            self._conn.close()
+            return False
+
+    monkeypatch.setattr(rankings_cache, "get_conn", lambda: _ReadOnlyConnContext())
     monkeypatch.setattr(
         rankings_cache,
         "load_ml_config",

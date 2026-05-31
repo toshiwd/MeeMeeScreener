@@ -447,7 +447,7 @@ def _resolve_effective_rank_mode(mode: RankMode) -> RankMode:
 
 
 _TRADE_UP_SETUP_TYPES = {"breakout20", "breakout", "accumulation", "rebound", "continuation"}
-_TRADE_DOWN_SETUP_TYPES = {"breakout20", "breakout", "breakdown", "pressure", "continuation"}
+_TRADE_DOWN_SETUP_TYPES = {"breakout20", "breakout", "breakdown", "pressure", "continuation", "failed_high_retest"}
 _STRICT_TRADE_UP_BOX_STATES = {"box_lower", "box_mid", "box_upper", "breakout_up"}
 _STRICT_TRADE_DOWN_BOX_STATES = {"below_box", "box_lower", "box_mid", "box_upper", "breakout_up"}
 _STRICT_RULE_TRADE_UP_BOX_STATES = {"box_upper", "breakout_up"}
@@ -460,10 +460,30 @@ _STRICT_RULE_TRADE_UP_MIN_MONTHLY = 0.64
 _STRICT_RULE_TRADE_DOWN_MIN_MONTHLY = 0.58
 _STRICT_RULE_TRADE_UP_MIN_PROB = 0.60
 _STRICT_RULE_TRADE_DOWN_MIN_PROB = 0.58
-_STRICT_TRADE_DOWN_ENTRY_CLASSES = {"upper_rejection_primary", "strict_breakdown_secondary"}
+_STRICT_TRADE_DOWN_ENTRY_CLASSES = {"upper_rejection_primary", "strict_breakdown_secondary", "failed_high_retest_short"}
 _TRADE_UP_ENTRY_WEAK_CLOSE_FLOOR = -0.0075
 _TRADE_UP_ENTRY_UPPER_WICK_MAX = 0.45
 _TRADE_UP_ENTRY_OVEREXTENDED_CHANGE = 0.035
+_TRADE_UP_ENTRY_LATE_CHASE_CHANGE = 0.025
+_TRADE_UP_ENTRY_LATE_CHASE_UPPER_WICK_MIN = 0.30
+_TRADE_UP_ENTRY_LATE_CHASE_DIST_MA20_MIN = 0.040
+_TRADE_UP_ENTRY_BOX_TOP_POS_MIN = 0.95
+_TRADE_UP_ENTRY_BOX_TOP_CNT7_MIN = 5
+_TRADE_UP_ENTRY_BOX_TOP_MOMENTUM_MAX = 0.70
+_TRADE_UP_ENTRY_BREAKOUT_CHASE_MAX = 0.065
+_TRADE_UP_ENTRY_DIST_MA20_MAX = 0.11
+_TRADE_UP_ENTRY_HIGH_ZONE_DIST_MA20_MIN = 0.075
+_TRADE_UP_ENTRY_DIFF20_MAX = 0.22
+_TRADE_DOWN_ENTRY_BREAKDOWN_CHASE = -0.035
+_TRADE_DOWN_ENTRY_LOWER_WICK_MAX = 0.45
+_TRADE_DOWN_ENTRY_DIST_MA20_MIN = -0.10
+_TRADE_DOWN_ENTRY_RETEST_RATIO_MIN = 0.96
+_TRADE_DOWN_ENTRY_RETEST_RATIO_SECONDARY_MIN = 0.94
+_TRADE_DOWN_ENTRY_UPPER_REJECTION_MIN = 0.35
+_TRADE_DOWN_ENTRY_STRONG_UPPER_REJECTION_MIN = 0.55
+_TRADE_DOWN_ENTRY_BEARISH_CLOSE_MAX = -0.0075
+_TRADE_DOWN_ENTRY_RETEST_DROP_MIN = 0.004
+_TRADE_DOWN_ENTRY_STRONG_RETEST_DROP_MIN = 0.012
 _TRADE_THEME_LEADERSHIP_WEIGHT = 0.035
 
 
@@ -511,15 +531,113 @@ def _trade_up_entry_block_reasons(item: dict[str, Any]) -> list[str]:
         reasons.append("upper_wick_rejection")
     if bool(item.get("buy_overextended")) and change_pct is not None and change_pct >= _TRADE_UP_ENTRY_OVEREXTENDED_CHANGE:
         reasons.append("overextended_chase_risk")
+    dist_ma20 = _first_finite(item.get("distMa20Signed"), item.get("dist_ma20_signed"))
+    momentum_follow = _first_finite(item.get("momentumFollowThroughScore"))
+    if (
+        change_pct is not None
+        and change_pct >= _TRADE_UP_ENTRY_LATE_CHASE_CHANGE
+        and (
+            (upper_wick is not None and upper_wick >= _TRADE_UP_ENTRY_LATE_CHASE_UPPER_WICK_MIN)
+            or (dist_ma20 is not None and dist_ma20 >= _TRADE_UP_ENTRY_LATE_CHASE_DIST_MA20_MIN)
+            or (momentum_follow is not None and momentum_follow >= 0.95)
+        )
+    ):
+        reasons.append("late_buy_chase_risk")
+    monthly_box_pos = _first_finite(item.get("monthlyBoxPos"))
+    monthly_box_state = str(item.get("monthlyBoxState") or "").strip()
+    cnt_7_above = _first_finite(item.get("cnt_7_above"))
+    if (
+        monthly_box_state in {"box_upper", "breakout_up"}
+        and monthly_box_pos is not None
+        and monthly_box_pos >= _TRADE_UP_ENTRY_BOX_TOP_POS_MIN
+        and cnt_7_above is not None
+        and cnt_7_above >= _TRADE_UP_ENTRY_BOX_TOP_CNT7_MIN
+        and momentum_follow is not None
+        and momentum_follow < _TRADE_UP_ENTRY_BOX_TOP_MOMENTUM_MAX
+        and change_pct is not None
+        and change_pct >= 0.0
+    ):
+        reasons.append("box_top_no_pullback_chase_risk")
+    breakout20_up = _first_finite(item.get("breakout20_up"), item.get("breakout20Up"), item.get("high20_dist"))
+    if breakout20_up is not None and breakout20_up >= _TRADE_UP_ENTRY_BREAKOUT_CHASE_MAX:
+        reasons.append("breakout_chase_risk")
+    if dist_ma20 is not None and dist_ma20 >= _TRADE_UP_ENTRY_DIST_MA20_MAX:
+        reasons.append("extended_above_ma20")
+    elif dist_ma20 is not None and dist_ma20 >= _TRADE_UP_ENTRY_HIGH_ZONE_DIST_MA20_MIN:
+        reasons.append("high_zone_extension_risk")
+    diff20_pct = _first_finite(item.get("diff20_pct"), item.get("diff20Pct"))
+    if diff20_pct is not None and diff20_pct >= _TRADE_UP_ENTRY_DIFF20_MAX:
+        reasons.append("already_large_20d_run")
     return reasons
 
 
+def _trade_down_entry_block_reasons(item: dict[str, Any]) -> list[str]:
+    reasons: list[str] = []
+    change_pct = _first_finite(item.get("changePct"))
+    if change_pct is not None and change_pct <= _TRADE_DOWN_ENTRY_BREAKDOWN_CHASE:
+        reasons.append("late_breakdown_chase_risk")
+    lower_wick = _first_finite(item.get("candleLowerWickRatio"))
+    if lower_wick is not None and lower_wick >= _TRADE_DOWN_ENTRY_LOWER_WICK_MAX:
+        reasons.append("lower_wick_rebound_risk")
+    dist_ma20 = _first_finite(item.get("distMa20Signed"), item.get("dist_ma20_signed"))
+    if dist_ma20 is not None and dist_ma20 <= _TRADE_DOWN_ENTRY_DIST_MA20_MIN:
+        reasons.append("extended_below_ma20")
+    reasons.extend(_trade_down_positive_entry_block_reasons(item))
+    return reasons
+
+
+def _trade_down_positive_entry_block_reasons(item: dict[str, Any]) -> list[str]:
+    setup_type = str(item.get("setupType") or "").strip().lower()
+    entry_class = str(item.get("tradeEntryClass") or "").strip()
+    change_pct = _first_finite(item.get("changePct"))
+    upper_wick = _first_finite(item.get("candleUpperWickRatio"))
+    failed_retest = bool(item.get("failedHighRetestShort")) or entry_class == "failed_high_retest_short" or setup_type == "failed_high_retest"
+
+    if failed_retest:
+        retest_ratio = _first_finite(item.get("failedHighRetestRetestRatio"))
+        anchor_drop_pct = _first_finite(item.get("failedHighRetestAnchorDropPct"))
+        strong_rejection = bool(
+            (upper_wick is not None and upper_wick >= _TRADE_DOWN_ENTRY_STRONG_UPPER_REJECTION_MIN)
+            or (anchor_drop_pct is not None and anchor_drop_pct >= _TRADE_DOWN_ENTRY_STRONG_RETEST_DROP_MIN)
+        )
+        near_retest = bool(
+            retest_ratio is not None
+            and (
+                retest_ratio >= _TRADE_DOWN_ENTRY_RETEST_RATIO_MIN
+                or (
+                    retest_ratio >= _TRADE_DOWN_ENTRY_RETEST_RATIO_SECONDARY_MIN
+                    and strong_rejection
+                )
+            )
+        )
+        rejection = bool(
+            (upper_wick is not None and upper_wick >= _TRADE_DOWN_ENTRY_UPPER_REJECTION_MIN)
+            or (anchor_drop_pct is not None and anchor_drop_pct >= _TRADE_DOWN_ENTRY_RETEST_DROP_MIN)
+            or (change_pct is not None and change_pct <= _TRADE_DOWN_ENTRY_BEARISH_CLOSE_MAX)
+        )
+        if not near_retest:
+            return ["not_near_retest_or_resistance"]
+        if not rejection:
+            return ["no_failed_rebound_short_setup"]
+        return []
+
+    if entry_class == "upper_rejection_primary":
+        rejection = bool(
+            (upper_wick is not None and upper_wick >= _TRADE_DOWN_ENTRY_UPPER_REJECTION_MIN)
+            or (change_pct is not None and change_pct <= _TRADE_DOWN_ENTRY_BEARISH_CLOSE_MAX)
+        )
+        if not rejection:
+            return ["no_failed_rebound_short_setup"]
+        return []
+
+    if entry_class == "strict_breakdown_secondary" or setup_type == "breakdown":
+        return ["momentum_down_but_not_actionable_entry"]
+
+    return ["no_failed_rebound_short_setup"]
+
+
 def _annotate_trade_entry_fit(item: dict[str, Any], *, direction: RankDir) -> None:
-    if direction != "up":
-        item["tradeEntryFitState"] = "not_applicable"
-        item["tradeEntryBlockReasons"] = []
-        return
-    reasons = _trade_up_entry_block_reasons(item)
+    reasons = _trade_up_entry_block_reasons(item) if direction == "up" else _trade_down_entry_block_reasons(item)
     item["tradeEntryFitState"] = "blocked" if reasons else "entry_fit"
     item["tradeEntryBlockReasons"] = reasons
     if reasons:
@@ -532,11 +650,10 @@ def _annotate_trade_entry_fit(item: dict[str, Any], *, direction: RankDir) -> No
 
 
 def _has_trade_entry_fit(item: dict[str, Any], *, direction: RankDir) -> bool:
-    if direction != "up":
-        return True
     if item.get("tradeEntryFitState") == "blocked":
         return False
-    return not _trade_up_entry_block_reasons(item)
+    reasons = _trade_up_entry_block_reasons(item) if direction == "up" else _trade_down_entry_block_reasons(item)
+    return not reasons
 
 
 def _filter_strict_trade_rank_items(items: list[dict[str, Any]], *, direction: RankDir) -> list[dict[str, Any]]:
@@ -5707,6 +5824,71 @@ def _attach_trade_theme_leadership(item: dict[str, Any], stats: dict[str, Any] |
     return float(stats.get("themeLeadershipDelta") or 0.0)
 
 
+def _calc_trade_short_entry_actionability_score(item: dict[str, Any]) -> float:
+    entry_class = str(item.get("tradeEntryClass") or "").strip()
+    setup_type = str(item.get("setupType") or "").strip().lower()
+    failed_retest = bool(item.get("failedHighRetestShort")) or entry_class == "failed_high_retest_short" or setup_type == "failed_high_retest"
+    upper_wick = _first_finite(item.get("candleUpperWickRatio"))
+    lower_wick = _first_finite(item.get("candleLowerWickRatio"))
+    change_pct = _first_finite(item.get("changePct"))
+    retest_ratio = _first_finite(item.get("failedHighRetestRetestRatio"))
+    anchor_drop_pct = _first_finite(item.get("failedHighRetestAnchorDropPct"))
+
+    if failed_retest:
+        proximity = _unit_score(
+            retest_ratio,
+            lower=_TRADE_DOWN_ENTRY_RETEST_RATIO_SECONDARY_MIN,
+            upper=0.99,
+        )
+        rejection = max(
+            _unit_score(
+                upper_wick,
+                lower=_TRADE_DOWN_ENTRY_UPPER_REJECTION_MIN,
+                upper=0.75,
+            ),
+            _unit_score(
+                anchor_drop_pct,
+                lower=_TRADE_DOWN_ENTRY_RETEST_DROP_MIN,
+                upper=0.018,
+            ),
+            _unit_score(
+                -(change_pct or 0.0) if change_pct is not None else None,
+                lower=0.0,
+                upper=0.018,
+            ),
+        )
+        lower_wick_penalty = _unit_score(
+            lower_wick,
+            lower=0.20,
+            upper=_TRADE_DOWN_ENTRY_LOWER_WICK_MAX,
+            default=0.0,
+        )
+        return float(max(0.0, min(1.0, 0.52 * proximity + 0.48 * rejection - 0.22 * lower_wick_penalty)))
+
+    if entry_class == "upper_rejection_primary":
+        rejection = max(
+            _unit_score(
+                upper_wick,
+                lower=_TRADE_DOWN_ENTRY_UPPER_REJECTION_MIN,
+                upper=0.75,
+            ),
+            _unit_score(
+                -(change_pct or 0.0) if change_pct is not None else None,
+                lower=0.0,
+                upper=0.018,
+            ),
+        )
+        lower_wick_penalty = _unit_score(
+            lower_wick,
+            lower=0.20,
+            upper=_TRADE_DOWN_ENTRY_LOWER_WICK_MAX,
+            default=0.0,
+        )
+        return float(max(0.0, min(1.0, rejection - 0.20 * lower_wick_penalty)))
+
+    return 0.35
+
+
 def _apply_trade_priority_scores(items: list[dict], *, direction: RankDir) -> None:
     hit_values: dict[str, float | None] = {}
     profit_values: dict[str, float | None] = {}
@@ -5765,12 +5947,15 @@ def _apply_trade_priority_scores(items: list[dict], *, direction: RankDir) -> No
         quality_score = quality_rank.get(code, 0.5)
         safety_score = safety_rank.get(code, 0.5)
         if direction == "down":
+            short_entry_actionability_score = _calc_trade_short_entry_actionability_score(item)
+            item["shortEntryActionabilityScore"] = float(short_entry_actionability_score)
             trade_priority_score = (
                 0.30 * hit_score
                 + 0.50 * profit_score
                 + 0.10 * quality_score
                 + 0.10 * safety_score
             )
+            trade_priority_score += 0.18 * (2.0 * short_entry_actionability_score - 1.0)
         else:
             trade_priority_score = (
                 0.45 * hit_score
@@ -5807,6 +5992,7 @@ def _trade_priority_sort_key(item: dict[str, Any]) -> tuple[Any, ...]:
     return (
         item.get("tradePriorityScore") is None,
         -(item.get("tradePriorityScore") or 0.0),
+        -(item.get("shortEntryActionabilityScore") or 0.0),
         -(item.get("momentumFollowThroughScore") or 0.0),
         -(item.get("tradePriorityProfitScore") or 0.0),
         -(item.get("tradePriorityHitScore") or 0.0),
@@ -5914,7 +6100,7 @@ def _is_trade_buy_candidate(item: dict[str, Any]) -> bool:
 
 
 def _is_trade_short_candidate(item: dict[str, Any]) -> bool:
-    return _is_strict_trade_rank_item(item, direction="down")
+    return _is_strict_trade_rank_item(item, direction="down") and _has_trade_entry_fit(item, direction="down")
 
 
 def _is_trade_caution_candidate(item: dict[str, Any]) -> bool:
@@ -6093,14 +6279,17 @@ def _load_failed_high_retest_short_candidates(items: list[dict[str, Any]]) -> li
         item["tradeEntryClass"] = "failed_high_retest_short"
         item["shortPrecisionGate"] = True
         item["shortPrecisionGateReason"] = "failed_high_retest"
+        short_entry_actionability_score = _calc_trade_short_entry_actionability_score(item)
+        item["shortEntryActionabilityScore"] = float(short_entry_actionability_score)
         item["tradePriorityScore"] = max(
             float(item.get("tradePriorityScore") or 0.0),
-            float(signal["failedHighRetestShortScore"]),
+            float(signal["failedHighRetestShortScore"]) + 0.18 * (2.0 * short_entry_actionability_score - 1.0),
         )
         item["tradePriorityHitScore"] = max(float(item.get("tradePriorityHitScore") or 0.0), float(signal["failedHighRetestShortScore"]))
         item["tradePriorityProfitScore"] = max(float(item.get("tradePriorityProfitScore") or 0.0), float(signal["failedHighRetestShortScore"]))
         item["tradePriorityQualityScore"] = max(float(item.get("tradePriorityQualityScore") or 0.0), float(signal["failedHighRetestShortScore"]))
         item["tradePrioritySafetyScore"] = max(float(item.get("tradePrioritySafetyScore") or 0.0), 0.5)
+        _annotate_trade_entry_fit(item, direction="down")
         candidates.append(item)
     candidates.sort(key=_trade_priority_sort_key)
     return candidates
@@ -6115,23 +6304,48 @@ def _merge_failed_high_retest_short_candidates(
         return buckets
     merged = {key: [dict(item) for item in value] for key, value in buckets.items()}
     short_items = merged.setdefault("actionable_short_candidates", [])
+    caution_items = merged.setdefault("caution_watch_candidates", [])
     by_code = {str(item.get("code") or "").strip(): idx for idx, item in enumerate(short_items)}
     for item in additions:
+        item = dict(item)
         code = str(item.get("code") or "").strip()
         if not code:
+            continue
+        if not isinstance(item.get("shortEntryActionabilityScore"), (int, float)):
+            item["shortEntryActionabilityScore"] = float(_calc_trade_short_entry_actionability_score(item))
+        item["tradePriorityScore"] = max(
+            float(item.get("tradePriorityScore") or 0.0),
+            float(item.get("shortEntryActionabilityScore") or 0.0),
+        )
+        if not _is_trade_short_candidate(item):
+            if not any(str(existing.get("code") or "").strip() == code for existing in caution_items):
+                caution_items.append(item)
             continue
         existing_idx = by_code.get(code)
         if existing_idx is None:
             by_code[code] = len(short_items)
-            short_items.append(dict(item))
+            short_items.append(item)
             continue
         existing = dict(short_items[existing_idx])
         existing.update({key: value for key, value in item.items() if key.startswith("failedHighRetest")})
         existing["setupType"] = "failed_high_retest"
         existing["tradeEntryClass"] = "failed_high_retest_short"
-        existing["tradePriorityScore"] = max(float(existing.get("tradePriorityScore") or 0.0), float(item.get("tradePriorityScore") or 0.0))
-        short_items[existing_idx] = existing
+        existing["shortEntryActionabilityScore"] = float(_calc_trade_short_entry_actionability_score(existing))
+        existing["tradePriorityScore"] = max(
+            float(existing.get("tradePriorityScore") or 0.0),
+            float(item.get("tradePriorityScore") or 0.0),
+            float(existing["shortEntryActionabilityScore"]),
+        )
+        _annotate_trade_entry_fit(existing, direction="down")
+        if _is_trade_short_candidate(existing):
+            short_items[existing_idx] = existing
+        else:
+            short_items.pop(existing_idx)
+            by_code = {str(candidate.get("code") or "").strip(): idx for idx, candidate in enumerate(short_items)}
+            if not any(str(existing_caution.get("code") or "").strip() == code for existing_caution in caution_items):
+                caution_items.append(existing)
     short_items.sort(key=_trade_priority_sort_key)
+    caution_items.sort(key=_trade_priority_sort_key)
     return merged
 
 
@@ -6146,13 +6360,27 @@ def _build_trade_candidate_buckets(items: list[dict[str, Any]]) -> dict[str, lis
     actionable_short_candidates = [dict(item) for item in short_scored if _is_trade_short_candidate(item)]
     buy_codes = {str(item.get("code") or "").strip() for item in actionable_buy_candidates}
     short_codes = {str(item.get("code") or "").strip() for item in actionable_short_candidates}
-    caution_watch_candidates = [
-        dict(item)
-        for item in buy_scored
-        if _is_trade_caution_candidate(item)
-        and str(item.get("code") or "").strip() not in buy_codes
-        and str(item.get("code") or "").strip() not in short_codes
-    ]
+    short_scored_by_code = {str(item.get("code") or "").strip(): item for item in short_scored if str(item.get("code") or "").strip()}
+    caution_watch_candidates: list[dict[str, Any]] = []
+    for item in buy_scored:
+        code = str(item.get("code") or "").strip()
+        if not code or code in buy_codes or code in short_codes:
+            continue
+        short_item = short_scored_by_code.get(code) or {}
+        if not (_is_trade_caution_candidate(item) or _is_trade_caution_candidate(short_item)):
+            continue
+        buy_reasons = item.get("tradeEntryBlockReasons")
+        short_reasons = short_item.get("tradeEntryBlockReasons") if isinstance(short_item, dict) else None
+        setup_type = str(item.get("setupType") or "").strip().lower()
+        prefer_short_context = setup_type in {"breakdown", "pressure", "failed_high_retest"}
+        if prefer_short_context and isinstance(short_reasons, list) and short_reasons:
+            caution_watch_candidates.append(dict(short_item))
+        elif isinstance(buy_reasons, list) and buy_reasons:
+            caution_watch_candidates.append(dict(item))
+        elif isinstance(short_reasons, list) and short_reasons:
+            caution_watch_candidates.append(dict(short_item))
+        else:
+            caution_watch_candidates.append(dict(item))
 
     actionable_buy_candidates.sort(key=_trade_priority_sort_key)
     actionable_short_candidates.sort(key=_trade_priority_sort_key)
@@ -7754,31 +7982,25 @@ def _build_rankings_response(
                 "provisional_allow_partial": _PROVISIONAL_ALLOW_PARTIAL,
                 "provisional_render_mode": "strict" if not _PROVISIONAL_ALLOW_PARTIAL else "practical_partial",
             }
-        scored_items = _copy_rank_items(out_items)
-        _apply_trade_priority_scores(scored_items, direction=direction)
-        if direction == "down":
-            failed_high_retest_codes = {
-                str(item.get("code") or "").strip()
-                for item in (trade_candidate_buckets.get("actionable_short_candidates") if trade_candidate_buckets else []) or []
-                if bool(item.get("failedHighRetestShort"))
-            }
-            by_code = {str(item.get("code") or "").strip(): item for item in scored_items}
-            for candidate in (trade_candidate_buckets.get("actionable_short_candidates") if trade_candidate_buckets else []) or []:
-                code = str(candidate.get("code") or "").strip()
-                if code in failed_high_retest_codes and code not in by_code:
-                    scored_items.append(dict(candidate))
-        out_items = _filter_strict_trade_rank_items(scored_items, direction=direction)
-        out_items.sort(
-            key=lambda item: (
-                item.get("tradePriorityScore") is None,
-                -(item.get("tradePriorityScore") or 0.0),
-                -(item.get("tradePriorityProfitScore") or 0.0),
-                -(item.get("tradePriorityHitScore") or 0.0),
-                -(item.get("entryScore") or 0.0),
-                -(item.get("probSide") or 0.0),
-                item.get("code", ""),
+        if direction == "up":
+            out_items = [dict(item) for item in trade_candidate_buckets.get("actionable_buy_candidates") or []]
+            out_items.sort(key=_trade_priority_sort_key)
+            out_items = out_items[:limit]
+        else:
+            scored_items = _copy_rank_items(out_items)
+            _apply_trade_priority_scores(scored_items, direction=direction)
+            out_items = _filter_strict_trade_rank_items(scored_items, direction=direction)
+            out_items.sort(
+                key=lambda item: (
+                    item.get("tradePriorityScore") is None,
+                    -(item.get("tradePriorityScore") or 0.0),
+                    -(item.get("tradePriorityProfitScore") or 0.0),
+                    -(item.get("tradePriorityHitScore") or 0.0),
+                    -(item.get("entryScore") or 0.0),
+                    -(item.get("probSide") or 0.0),
+                    item.get("code", ""),
+                )
             )
-        )
     trade_priority_ms = round((time.perf_counter() - phase_started_at) * 1000.0, 3)
     phase_timings["trade_priority_ms"] = trade_priority_ms
     phase_started_at = time.perf_counter()
@@ -8227,19 +8449,6 @@ def get_rankings_asof(
         out_items,
         direction=direction,
     )
-    if effective_mode == "trade":
-        _apply_trade_priority_scores(out_items, direction=direction)
-        out_items.sort(
-            key=lambda item: (
-                item.get("tradePriorityScore") is None,
-                -(item.get("tradePriorityScore") or 0.0),
-                -(item.get("tradePriorityProfitScore") or 0.0),
-                -(item.get("tradePriorityHitScore") or 0.0),
-                -(item.get("entryScore") or 0.0),
-                -(item.get("probSide") or 0.0),
-                item.get("code", ""),
-            )
-        )
 
     if pred_dt is not None:
         pred_key = pred_dt
@@ -8270,20 +8479,14 @@ def get_rankings_asof(
                 direction=direction,
             )
     if effective_mode == "trade":
-        scored_items = _copy_rank_items(out_items)
-        _apply_trade_priority_scores(scored_items, direction=direction)
-        out_items = _filter_strict_trade_rank_items(scored_items, direction=direction)
-        out_items.sort(
-            key=lambda item: (
-                item.get("tradePriorityScore") is None,
-                -(item.get("tradePriorityScore") or 0.0),
-                -(item.get("tradePriorityProfitScore") or 0.0),
-                -(item.get("tradePriorityHitScore") or 0.0),
-                -(item.get("entryScore") or 0.0),
-                -(item.get("probSide") or 0.0),
-                item.get("code", ""),
-            )
-        )
+        trade_candidate_buckets = _build_trade_candidate_buckets(out_items)
+        if direction == "down":
+            trade_candidate_buckets = _merge_failed_high_retest_short_candidates(trade_candidate_buckets, source_items)
+            out_items = [dict(item) for item in trade_candidate_buckets.get("actionable_short_candidates") or []]
+        else:
+            out_items = [dict(item) for item in trade_candidate_buckets.get("actionable_buy_candidates") or []]
+        out_items.sort(key=_trade_priority_sort_key)
+        out_items = out_items[:limit]
 
     filtered: list[dict] = []
     for item in out_items:

@@ -1,7 +1,6 @@
-
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { IconX, IconChartArrows } from "@tabler/icons-react";
+import { IconChartArrows, IconX } from "@tabler/icons-react";
 import { api } from "../api";
 import { DEFAULT_LIMITS } from "../routes/detail/detailHelpers";
 import { prefetchDetailChartFrames } from "../routes/detail/detailChartPrefetch";
@@ -10,7 +9,7 @@ type SimilarSearchPanelProps = {
     isOpen: boolean;
     onClose: () => void;
     queryTicker: string | null;
-    queryAsOf?: string | null; // YYYY-MM-DD
+    queryAsOf?: string | null;
 };
 
 type SearchResult = {
@@ -42,55 +41,50 @@ type RefreshStatus = {
 };
 
 const SEARCH_DEBOUNCE_MS = 250;
+const SIMILAR_SEARCH_TIMEOUT_MS = 60000;
 const COMPARE_PREFETCH_DAILY_LIMIT = 420;
+const COMPARE_PREFETCH_FORWARD_DAILY_BARS = 60;
+const COMPARE_PREFETCH_FORWARD_MONTHLY_BARS = 2;
 const COMPARE_PREFETCH_TOP_N = 5;
 const COMPARE_NAVIGATION_PREFETCH_WAIT_MS = 250;
+const DEFAULT_SIMILAR_SEARCH_ALPHA = 0;
+
+const getTodayInputValue = () => {
+    const today = new Date();
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, "0");
+    const dd = String(today.getDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+};
+
+const shouldFullRefresh = (statusError?: string | null, lastError?: string | null) => {
+    const combined = `${statusError ?? ""} ${lastError ?? ""}`;
+    return combined.includes("Similarity artifacts not found") || combined.includes("artifacts not found");
+};
 
 export default function SimilarSearchPanel({
     isOpen,
     onClose,
     queryTicker,
-    queryAsOf
+    queryAsOf,
 }: SimilarSearchPanelProps) {
     const navigate = useNavigate();
     const [results, setResults] = useState<SearchResult[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [alpha, setAlpha] = useState(0.7);
+    const [alpha, setAlpha] = useState(DEFAULT_SIMILAR_SEARCH_ALPHA);
     const [refreshStatus, setRefreshStatus] = useState<RefreshStatus | null>(null);
     const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
     const [refreshBusy, setRefreshBusy] = useState(false);
-    const shouldFullRefresh = (statusError?: string | null, lastError?: string | null) => {
-        const combined = `${statusError ?? ""} ${lastError ?? ""}`;
-        return combined.includes("Similarity artifacts not found") || combined.includes("artifacts not found");
-    };
-    const getTodayInputValue = () => {
-        const today = new Date();
-        const yyyy = today.getFullYear();
-        const mm = String(today.getMonth() + 1).padStart(2, "0");
-        const dd = String(today.getDate()).padStart(2, "0");
-        return `${yyyy}-${mm}-${dd}`;
-    };
-
-    const [targetDate, setTargetDate] = useState<string>(() => {
-        if (queryAsOf) return queryAsOf;
-        return getTodayInputValue();
-    });
-    const [debouncedTargetDate, setDebouncedTargetDate] = useState<string>(() => {
-        if (queryAsOf) return queryAsOf;
-        return getTodayInputValue();
-    });
+    const [targetDate, setTargetDate] = useState<string>(() => queryAsOf || getTodayInputValue());
+    const [debouncedTargetDate, setDebouncedTargetDate] = useState<string>(() => queryAsOf || getTodayInputValue());
     const [debouncedAlpha, setDebouncedAlpha] = useState(alpha);
     const lastResolvedSearchKeyRef = useRef<string | null>(null);
     const lastFinishedAtRef = useRef<string | null>(null);
     const [refreshNonce, setRefreshNonce] = useState(0);
 
     useEffect(() => {
-        if (queryAsOf) {
-            setTargetDate(queryAsOf);
-            return;
-        }
-        setTargetDate(getTodayInputValue());
+        setTargetDate(queryAsOf || getTodayInputValue());
     }, [queryAsOf]);
 
     useEffect(() => {
@@ -150,7 +144,7 @@ export default function SimilarSearchPanel({
         const searchKey = JSON.stringify({
             ticker: queryTicker,
             asof: debouncedTargetDate || null,
-            alpha: debouncedAlpha
+            alpha: debouncedAlpha,
         });
         if (lastResolvedSearchKeyRef.current === searchKey) return;
         const controller = new AbortController();
@@ -159,18 +153,22 @@ export default function SimilarSearchPanel({
         setLoading(true);
         setError(null);
 
-        const params: any = {
+        const params: Record<string, string | number | boolean> = {
             ticker: queryTicker,
             alpha: debouncedAlpha,
             k: 30,
-            include_vectors: true
+            include_vectors: true,
         };
         if (debouncedTargetDate) {
             params.asof = debouncedTargetDate;
         }
 
         api
-            .get("/search/similar", { params, signal: controller.signal })
+            .get("/search/similar", {
+                params,
+                signal: controller.signal,
+                timeout: SIMILAR_SEARCH_TIMEOUT_MS,
+            })
             .then((res) => {
                 if (!active) return;
                 lastResolvedSearchKeyRef.current = searchKey;
@@ -180,10 +178,11 @@ export default function SimilarSearchPanel({
                 if (!active || err?.code === "ERR_CANCELED") return;
                 const detail = err.response?.data?.detail as string | undefined;
                 if (err.response && err.response.status === 404) {
-                    // Custom message for not indexed
-                    setError(detail || "検索対象外の銘柄です");
+                    setError(detail || "この銘柄は類似チャート検索の対象外です。");
+                } else if (err?.code === "ECONNABORTED") {
+                    setError("検索に時間がかかっています。少し待ってから更新してください。");
                 } else {
-                    setError(detail || err.message || "Search failed");
+                    setError(detail || err.message || "検索に失敗しました。");
                 }
             })
             .finally(() => {
@@ -213,6 +212,12 @@ export default function SimilarSearchPanel({
                     weeklyLimit: DEFAULT_LIMITS.weekly,
                     monthlyLimit: DEFAULT_LIMITS.monthly,
                     asof: item.asof || null,
+                    forwardBars: item.asof
+                        ? {
+                              daily: COMPARE_PREFETCH_FORWARD_DAILY_BARS,
+                              monthly: COMPARE_PREFETCH_FORWARD_MONTHLY_BARS,
+                          }
+                        : undefined,
                 },
                 { timeframes: ["daily", "monthly"] }
             ).catch(() => undefined);
@@ -228,7 +233,7 @@ export default function SimilarSearchPanel({
         navigate(params.size > 0 ? `/detail/${item.ticker}?${params.toString()}` : `/detail/${item.ticker}`);
     };
 
-    const handleCompare = async (item: SearchResult) => {
+    const handleCompare = async (item: SearchResult, index: number) => {
         if (!queryTicker) return;
         const comparePrefetch = prefetchDetailChartFrames(
             {
@@ -237,6 +242,12 @@ export default function SimilarSearchPanel({
                 weeklyLimit: DEFAULT_LIMITS.weekly,
                 monthlyLimit: DEFAULT_LIMITS.monthly,
                 asof: item.asof || null,
+                forwardBars: item.asof
+                    ? {
+                          daily: COMPARE_PREFETCH_FORWARD_DAILY_BARS,
+                          monthly: COMPARE_PREFETCH_FORWARD_MONTHLY_BARS,
+                      }
+                    : undefined,
             },
             { timeframes: ["daily", "monthly"] }
         ).catch(() => undefined);
@@ -247,15 +258,12 @@ export default function SimilarSearchPanel({
                     mainAsOf: targetDate || null,
                     items: results.map((result) => ({
                         ticker: result.ticker,
-                        asof: result.asof ?? null
-                    }))
+                        asof: result.asof ?? null,
+                    })),
                 };
-                window.sessionStorage.setItem(
-                    "similarCompareList",
-                    JSON.stringify(payload)
-                );
+                window.sessionStorage.setItem("similarCompareList", JSON.stringify(payload));
             } catch {
-                // ignore storage errors
+                // sessionStorage may be unavailable in restricted browser contexts.
             }
         }
         const params = new URLSearchParams();
@@ -266,6 +274,7 @@ export default function SimilarSearchPanel({
         if (item.asof) {
             params.set("compareAsOf", item.asof);
         }
+        params.set("compareIndex", String(index));
         await Promise.race([
             comparePrefetch,
             new Promise((resolve) => window.setTimeout(resolve, COMPARE_NAVIGATION_PREFETCH_WAIT_MS)),
@@ -274,13 +283,34 @@ export default function SimilarSearchPanel({
         navigate(`/detail/${queryTicker}?${params.toString()}`);
     };
 
+    const handleRefresh = () => {
+        setRefreshBusy(true);
+        setRefreshMessage(null);
+        const mode = shouldFullRefresh(refreshStatus?.error, error) ? "full" : "incremental";
+        api
+            .post("/search/similar/refresh", null, { params: { mode } })
+            .then(() => {
+                setRefreshMessage("類似チャート検索データの更新を開始しました。");
+                fetchRefreshStatus();
+            })
+            .catch((err) => {
+                if (err.response?.status === 409) {
+                    setRefreshMessage("更新処理はすでに実行中です。");
+                } else {
+                    setRefreshMessage(err.response?.data?.detail || "更新の開始に失敗しました。");
+                }
+            })
+            .finally(() => {
+                setRefreshBusy(false);
+            });
+    };
+
     if (!isOpen) return null;
 
     return (
         <div className="tech-filter-shell is-visible">
             <div className="tech-filter-backdrop" onClick={onClose} />
             <div className="tech-filter-drawer is-open" style={{ width: "600px" }}>
-                {/* Header */}
                 <div className="tech-filter-header">
                     <div className="tech-filter-header-top">
                         <div className="tech-filter-header-title">
@@ -289,72 +319,51 @@ export default function SimilarSearchPanel({
                             </span>
                             類似チャート検索
                         </div>
-                        <button className="tech-filter-header-close" onClick={onClose}>
+                        <button className="tech-filter-header-close" onClick={onClose} aria-label="閉じる">
                             <IconX size={20} />
                         </button>
                     </div>
                     <div className="tech-filter-header-meta">
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                             <span>対象: {queryTicker}</span>
                             <input
                                 type="date"
                                 value={targetDate}
-                                onChange={(e) => setTargetDate(e.target.value)}
+                                onChange={(event) => setTargetDate(event.target.value)}
                                 style={{
-                                    background: 'var(--theme-bg-tertiary)',
-                                    border: '1px solid var(--theme-border)',
-                                    color: 'var(--theme-text-primary)',
-                                    borderRadius: '4px',
-                                    padding: '2px 6px',
-                                    fontSize: '12px'
+                                    background: "var(--theme-bg-tertiary)",
+                                    border: "1px solid var(--theme-border)",
+                                    color: "var(--theme-text-primary)",
+                                    borderRadius: "4px",
+                                    padding: "2px 6px",
+                                    fontSize: "12px",
                                 }}
                             />
-                            <span style={{ fontSize: '11px', color: 'var(--theme-text-secondary)' }}>
+                            <span style={{ fontSize: "11px", color: "var(--theme-text-secondary)" }}>
                                 {targetDate ? "" : "(未指定: 直近)"}
                             </span>
                         </div>
                     </div>
 
-                    {/* Controls */}
-                    <div className="tech-filter-row" style={{ marginTop: '8px' }}>
+                    <div className="tech-filter-row" style={{ marginTop: "8px" }}>
                         <div className="tech-filter-row-header">
                             <span className="tech-filter-hint">
                                 重視: 長期(60ヶ月) {Math.round(alpha * 100)}% / 短期(12ヶ月) {Math.round((1 - alpha) * 100)}%
                             </span>
                             <input
                                 type="range"
-                                min="0" max="1" step="0.1"
+                                min="0"
+                                max="1"
+                                step="0.1"
                                 value={alpha}
-                                onChange={(e) => setAlpha(parseFloat(e.target.value))}
-                                style={{ width: '150px' }}
+                                onChange={(event) => setAlpha(parseFloat(event.target.value))}
+                                style={{ width: "150px" }}
                             />
                             <button
                                 type="button"
                                 className="tech-filter-row-remove"
                                 disabled={refreshBusy || refreshStatus?.running}
-                                onClick={() => {
-                                    setRefreshBusy(true);
-                                    setRefreshMessage(null);
-                                    const mode = shouldFullRefresh(refreshStatus?.error, error)
-                                        ? "full"
-                                        : "incremental";
-                                    api
-                                        .post("/search/similar/refresh", null, { params: { mode } })
-                                        .then(() => {
-                                            setRefreshMessage("類似検索データを更新開始しました");
-                                            fetchRefreshStatus();
-                                        })
-                                        .catch((err) => {
-                                            if (err.response?.status === 409) {
-                                                setRefreshMessage("更新処理は既に実行中です");
-                                            } else {
-                                                setRefreshMessage(err.response?.data?.detail || "更新の開始に失敗しました");
-                                            }
-                                        })
-                                        .finally(() => {
-                                            setRefreshBusy(false);
-                                        });
-                                }}
+                                onClick={handleRefresh}
                             >
                                 更新
                             </button>
@@ -381,22 +390,21 @@ export default function SimilarSearchPanel({
                     </div>
                 </div>
 
-                {/* Body */}
-                <div className="tech-filter-body" style={{ display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
+                <div className="tech-filter-body" style={{ display: "flex", flexDirection: "column", overflowY: "auto" }}>
                     {loading && (
-                        <div style={{ padding: '20px', textAlign: 'center', color: 'var(--theme-text-secondary)' }}>
+                        <div style={{ padding: "20px", textAlign: "center", color: "var(--theme-text-secondary)" }}>
                             検索中...
                         </div>
                     )}
 
                     {error && (
-                        <div style={{ padding: '20px', color: '#ef4444' }}>
+                        <div style={{ padding: "20px", color: "#ef4444" }}>
                             エラー: {error}
                         </div>
                     )}
 
                     {!loading && !error && results.length === 0 && (
-                        <div style={{ padding: '20px', textAlign: 'center', color: 'var(--theme-text-muted)' }}>
+                        <div style={{ padding: "20px", textAlign: "center", color: "var(--theme-text-muted)" }}>
                             類似したチャートは見つかりませんでした。
                         </div>
                     )}
@@ -406,8 +414,8 @@ export default function SimilarSearchPanel({
                             key={`${item.ticker}-${item.asof}`}
                             item={item}
                             rank={idx + 1}
-                    onJump={() => handleJump(item)}
-                    onCompare={() => handleCompare(item)}
+                            onJump={() => handleJump(item)}
+                            onCompare={() => handleCompare(item, idx)}
                         />
                     ))}
                 </div>
@@ -420,14 +428,13 @@ function ResultItem({
     item,
     rank,
     onJump,
-    onCompare
+    onCompare,
 }: {
     item: SearchResult;
     rank: number;
     onJump: () => void;
     onCompare: () => void;
 }) {
-    // Sparkline
     const sparkline = useMemo(() => {
         if (!item.vec60 || item.vec60.length === 0) return null;
         const values = item.vec60;
@@ -436,21 +443,15 @@ function ResultItem({
         const min = Math.min(...values);
         const max = Math.max(...values);
         const range = max - min || 1;
-
-        const points = values.map((v, i) => {
-            const x = (i / (values.length - 1)) * width;
-            const y = height - ((v - min) / range) * height; // Invert Y
+        const points = values.map((value, index) => {
+            const x = (index / (values.length - 1)) * width;
+            const y = height - ((value - min) / range) * height;
             return `${x},${y}`;
         }).join(" ");
 
         return (
-            <svg width={width} height={height} style={{ overflow: 'visible' }}>
-                <polyline
-                    points={points}
-                    fill="none"
-                    stroke="var(--theme-accent)"
-                    strokeWidth="1.5"
-                />
+            <svg width={width} height={height} style={{ overflow: "visible" }}>
+                <polyline points={points} fill="none" stroke="var(--theme-accent)" strokeWidth="1.5" />
             </svg>
         );
     }, [item.vec60]);
@@ -463,41 +464,41 @@ function ResultItem({
         <div
             className="tech-filter-row"
             style={{
-                margin: '8px 16px',
-                display: 'grid',
-                gridTemplateColumns: '40px 100px 1fr 120px',
-                alignItems: 'center',
-                gap: '12px',
-                cursor: 'pointer'
+                margin: "8px 16px",
+                display: "grid",
+                gridTemplateColumns: "40px 100px 1fr 120px",
+                alignItems: "center",
+                gap: "12px",
+                cursor: "pointer",
             }}
             onClick={onJump}
         >
-            <div style={{ fontSize: '14px', fontWeight: 'bold', color: 'var(--theme-text-secondary)' }}>
+            <div style={{ fontSize: "14px", fontWeight: "bold", color: "var(--theme-text-secondary)" }}>
                 #{rank}
             </div>
             <div>
-                <div style={{ fontWeight: 'bold' }}>{item.ticker}</div>
-                <div style={{ fontSize: '11px', color: 'var(--theme-text-muted)' }}>{item.asof}</div>
+                <div style={{ fontWeight: "bold" }}>{item.ticker}</div>
+                <div style={{ fontSize: "11px", color: "var(--theme-text-muted)" }}>{item.asof}</div>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
                 {sparkline}
             </div>
 
-            <div style={{ textAlign: 'right' }}>
-                <div style={{ fontWeight: 'bold', color: 'var(--theme-accent)' }}>
+            <div style={{ textAlign: "right" }}>
+                <div style={{ fontWeight: "bold", color: "var(--theme-accent)" }}>
                     {(item.score_total * 100).toFixed(1)}%
                 </div>
-                <div style={{ fontSize: '10px', color: 'var(--theme-text-muted)' }}>
+                <div style={{ fontSize: "10px", color: "var(--theme-text-muted)" }}>
                     {getFallbackText(item.tags.fallback)}
                 </div>
-                <div style={{ fontSize: '10px', color: 'var(--theme-text-muted)' }}>
-                    月 {monthlyScoreLabel} / 日 {dailyScoreLabel}
+                <div style={{ fontSize: "10px", color: "var(--theme-text-muted)" }}>
+                    月足 {monthlyScoreLabel} / 日足 {dailyScoreLabel}
                 </div>
                 <button
                     type="button"
                     className="tech-filter-row-remove"
-                    style={{ marginTop: '6px' }}
+                    style={{ marginTop: "6px" }}
                     onClick={(event) => {
                         event.stopPropagation();
                         onCompare();
@@ -512,9 +513,10 @@ function ResultItem({
 
 function getFallbackText(text: string) {
     if (text === "Level 0 (Exact)") return "タグ一致";
-    if (text === "Level 1 (Ignore Range)") return "⚠️ レベル1 (レンジ無視)";
-    if (text === "Level 2 (Ignore Dir)") return "⚠️ レベル2 (方向無視)";
-    if (text === "Level 3 (MA60 Only)") return "⚠️ レベル3 (MA60のみ)";
-    if (text === "Level 4 (All)") return "⚠️ レベル4 (全探索)";
+    if (text === "Level 1 (Ignore Range)") return "類似レベル1 (レンジ無視)";
+    if (text === "Level 2 (Ignore Dir)") return "類似レベル2 (方向無視)";
+    if (text === "Level 3 (MA60 Only)") return "類似レベル3 (MA60のみ)";
+    if (text === "Level 4 (All)") return "類似レベル4 (全探索)";
+    if (text === "recent_daily_shape_only") return "日足形状のみ";
     return text;
 }

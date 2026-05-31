@@ -313,6 +313,31 @@ describe("DetailChart MeeMee chrome", () => {
     render.cleanup();
   });
 
+  it("shows MA slope in the MeeMee detail chrome legend", async () => {
+    const render = await renderClient(
+      <DetailChart
+        candles={baseCandles}
+        volume={baseVolume}
+        maLines={baseMaLines}
+        showVolume={false}
+        boxes={[]}
+        showBoxes={false}
+        meeMeeDetailChrome={{ timeframe: "weekly" }}
+      />
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const legend = render.container.querySelector("[data-testid='detail-chart-legend']");
+    expect(legend?.textContent).toContain("5MA");
+    expect(legend?.textContent).toContain("+2.8%/2");
+
+    render.cleanup();
+  });
+
   it("draws ranking buy markers near the candle", async () => {
     const signalCandles = [
       { time: 120, open: 100, high: 112, low: 96, close: 108 },
@@ -379,21 +404,15 @@ describe("DetailChart MeeMee chrome", () => {
   });
 
   it("suppresses the compact legend when positionOverlay is active", async () => {
-    const monthlyChipTime = Date.UTC(2026, 3, 1) / 1000;
     const render = await renderClient(
       <DetailChart
-        candles={[
-          { time: monthlyChipTime, open: 100, high: 110, low: 95, close: 108 }
-        ]}
-        volume={[{ time: monthlyChipTime, value: 1000 }]}
+        candles={baseCandles}
+        volume={baseVolume}
         maLines={baseMaLines}
         showVolume={false}
         boxes={[]}
         showBoxes={false}
         meeMeeDetailChrome={{ timeframe: "monthly" }}
-        meeMeeDetailChromeTerminalDates={{
-          [monthlyChipTime]: Date.UTC(2026, 3, 18) / 1000
-        }}
         positionOverlay={{
           dailyPositions: [],
           tradeMarkers: [],
@@ -413,6 +432,7 @@ describe("DetailChart MeeMee chrome", () => {
     const legend = render.container.querySelector("[data-testid='detail-chart-legend']");
     expect(chip).toBeNull();
     expect(legend).toBeNull();
+    expect(render.container.textContent).toContain("+2.8%/2");
 
     render.cleanup();
   });

@@ -221,6 +221,7 @@ from app.backend.api.routers import (
     analysis_bridge,
     ai_explain,
     bars,
+    chart_reading,
     grid,
     system,
     ticker,
@@ -580,6 +581,7 @@ def create_app() -> FastAPI:
 
     # Routes
     app.include_router(bars.router)
+    app.include_router(chart_reading.router)
     app.include_router(analysis_bridge.router)
     app.include_router(ticker.router)
     app.include_router(grid.router)

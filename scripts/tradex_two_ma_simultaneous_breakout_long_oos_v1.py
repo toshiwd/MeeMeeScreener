@@ -1,0 +1,358 @@
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from collections import defaultdict
+from datetime import datetime, timezone
+from pathlib import Path
+from statistics import mean
+from typing import Any
+
+import duckdb
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from scripts.tradex_market_scene_signal_probe_v1 import _load_daily
+from scripts.tradex_short_scene_visual_additive_a_phase_slope_floor_oos_v1 import (
+    IN_SAMPLE_END_DT,
+    IN_SAMPLE_START_DT,
+    _month_rows,
+    _oos_decision,
+    _subset_groups,
+    _subset_selected,
+)
+from scripts.tradex_short_scene_visual_additive_candidate_v1 import TOP_K_VALUES, _topk_compare
+from scripts.tradex_short_scene_visual_candidate_gap_v1 import _write_json
+from scripts.tradex_visual_ai_entry_benchmark_v1 import _load_signal_rows as _load_side_signal_rows
+from shared.runtime_stock_db_contract import inspect_runtime_stock_db, resolve_runtime_stock_db_path
+
+
+DEFAULT_OUTPUT_ROOT = Path("G:/Tradex/two_ma_simultaneous_breakout_long_oos_v1")
+PATTERN_LABEL = "two_ma_simultaneous_breakout"
+MAX_MA5_SLOPE_5_ABS = 0.035
+MAX_MA20_SLOPE_5_ABS = 0.025
+MAX_PRIOR_20_RANGE_PCT = 0.18
+MAX_WICK_TO_BODY = 1.2
+MAX_WICK_RATIO = 0.35
+
+
+def _now_tag() -> str:
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def _round(value: float | None, digits: int = 6) -> float | None:
+    return None if value is None else round(value, digits)
+
+
+def _slope(current: float, previous: float) -> float | None:
+    if previous <= 0:
+        return None
+    return current / previous - 1.0
+
+
+def _two_ma_features(window: list[dict[str, Any]]) -> dict[str, Any]:
+    if len(window) < 26:
+        return {"confirmed": False, "reason": "insufficient_history"}
+    closes = [float(row["c"]) for row in window]
+    highs = [float(row["h"]) for row in window]
+    lows = [float(row["l"]) for row in window]
+    bar = window[-1]
+    open_ = float(bar["o"])
+    high = float(bar["h"])
+    low = float(bar["l"])
+    close = float(bar["c"])
+    if min(open_, high, low, close) <= 0 or high <= low:
+        return {"confirmed": False, "reason": "invalid_ohlc"}
+
+    prior_close = closes[-2]
+    prior_ma5 = mean(closes[-6:-1])
+    prior_ma20 = mean(closes[-21:-1])
+    current_ma5 = mean(closes[-5:])
+    current_ma20 = mean(closes[-20:])
+    ma5_5ago = mean(closes[-10:-5])
+    ma20_5ago = mean(closes[-25:-5])
+    ma5_slope_5 = _slope(prior_ma5, ma5_5ago)
+    ma20_slope_5 = _slope(prior_ma20, ma20_5ago)
+    prior_high_20 = max(highs[-21:-1])
+    prior_low_20 = min(lows[-21:-1])
+    prior_20_range_pct = prior_high_20 / prior_low_20 - 1.0 if prior_low_20 > 0 else None
+
+    body = abs(close - open_)
+    upper_wick = high - max(open_, close)
+    lower_wick = min(open_, close) - low
+    span = high - low
+    upper_wick_ratio = upper_wick / span
+    lower_wick_ratio = lower_wick / span
+    upper_wick_to_body = upper_wick / body if body > 0 else 99.0
+    lower_wick_to_body = lower_wick / body if body > 0 else 99.0
+
+    prior_low_state = prior_close < prior_ma5 < prior_ma20
+    opens_below_5ma = open_ < prior_ma5
+    closes_above_20ma = close > prior_ma20 and close > current_ma20
+    flat_ma = (
+        ma5_slope_5 is not None
+        and ma20_slope_5 is not None
+        and abs(ma5_slope_5) <= MAX_MA5_SLOPE_5_ABS
+        and abs(ma20_slope_5) <= MAX_MA20_SLOPE_5_ABS
+    )
+    stagnant = prior_20_range_pct is not None and prior_20_range_pct <= MAX_PRIOR_20_RANGE_PCT
+    bullish_body = close > open_
+    wick_ok = (
+        upper_wick_to_body <= MAX_WICK_TO_BODY
+        and lower_wick_to_body <= MAX_WICK_TO_BODY
+        and upper_wick_ratio <= MAX_WICK_RATIO
+        and lower_wick_ratio <= MAX_WICK_RATIO
+    )
+    matched = bool(prior_low_state and opens_below_5ma and closes_above_20ma and flat_ma and stagnant and bullish_body and wick_ok)
+    return {
+        "confirmed": True,
+        "matched": matched,
+        "prior_low_state": prior_low_state,
+        "opens_below_5ma": opens_below_5ma,
+        "closes_above_20ma": closes_above_20ma,
+        "flat_ma": flat_ma,
+        "stagnant": stagnant,
+        "bullish_body": bullish_body,
+        "wick_ok": wick_ok,
+        "prior_close": _round(prior_close),
+        "open": _round(open_),
+        "close": _round(close),
+        "prior_ma5": _round(prior_ma5),
+        "prior_ma20": _round(prior_ma20),
+        "current_ma5": _round(current_ma5),
+        "current_ma20": _round(current_ma20),
+        "ma5_slope_5": _round(ma5_slope_5),
+        "ma20_slope_5": _round(ma20_slope_5),
+        "prior_20_range_pct": _round(prior_20_range_pct),
+        "upper_wick_ratio": _round(upper_wick_ratio),
+        "lower_wick_ratio": _round(lower_wick_ratio),
+        "upper_wick_to_body": _round(upper_wick_to_body),
+        "lower_wick_to_body": _round(lower_wick_to_body),
+        "body_return": _round(close / open_ - 1.0 if open_ > 0 else None),
+    }
+
+
+def _select_one_per_date(events: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
+    selected: dict[int, dict[str, Any]] = {}
+    for event in events:
+        dt = int(event["dt"])
+        current = selected.get(dt)
+        event_rank = (
+            -float(event.get("body_return") or 0.0),
+            abs(float(event.get("ma20_slope_5") or 0.0)),
+            abs(float(event.get("ma5_slope_5") or 0.0)),
+            float(event.get("upper_wick_ratio") or 9.0) + float(event.get("lower_wick_ratio") or 9.0),
+            str(event["code"]),
+        )
+        if current is None:
+            selected[dt] = event
+            continue
+        current_rank = (
+            -float(current.get("body_return") or 0.0),
+            abs(float(current.get("ma20_slope_5") or 0.0)),
+            abs(float(current.get("ma5_slope_5") or 0.0)),
+            float(current.get("upper_wick_ratio") or 9.0) + float(current.get("lower_wick_ratio") or 9.0),
+            str(current["code"]),
+        )
+        if event_rank < current_rank:
+            selected[dt] = event
+    return selected
+
+
+def _build_two_ma_candidates(
+    by_code: dict[str, list[dict[str, Any]]],
+    *,
+    buy_codes_by_date: dict[int, set[str]],
+    start_dt: int,
+    end_dt: int,
+) -> list[dict[str, Any]]:
+    buy_dates = set(buy_codes_by_date)
+    events: list[dict[str, Any]] = []
+    for code, bars in by_code.items():
+        for index, bar in enumerate(bars):
+            if index < 40 or index >= len(bars) - 20:
+                continue
+            ymd = int(bar["ymd"])
+            if ymd < start_dt or ymd > end_dt or ymd not in buy_dates or code in buy_codes_by_date[ymd]:
+                continue
+            close = float(bar["c"])
+            if close <= 0:
+                continue
+            window = bars[index - 40 : index + 1]
+            features = _two_ma_features(window)
+            if not features.get("matched"):
+                continue
+            events.append(
+                {
+                    "dt": ymd,
+                    "code": code,
+                    "name": code,
+                    "side": "buy",
+                    "entry_qualified": True,
+                    "setup_type": "two_ma_simultaneous_breakout_long_oos_v1",
+                    "forward_return_20": float(bars[index + 20]["c"]) / close - 1.0,
+                    "scene_visual_key": PATTERN_LABEL,
+                    "market_scene": "low_stagnation_reversal",
+                    "trade_side": "long",
+                    "action_bias": "buy_two_ma_simultaneous_breakout",
+                    "shape_intent": PATTERN_LABEL,
+                    "entry_timing": "close_break_above_ma5_and_ma20",
+                    "in_existing_buy_pool": False,
+                    **{key: value for key, value in features.items() if key not in {"confirmed", "matched"}},
+                }
+            )
+    return events
+
+
+def run_probe(*, db_path: Path, output_root: Path, start_dt: int, end_dt: int, max_codes: int | None = None) -> dict[str, Any]:
+    output_dir = output_root / f"{_now_tag()}-two_ma_simultaneous_breakout_long_oos_v1"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    con = duckdb.connect(str(db_path), read_only=True)
+    try:
+        buy_rows = _load_side_signal_rows(con, start_dt=start_dt, end_dt=end_dt, side="buy")
+        by_code = _load_daily(con, start_dt=start_dt, end_dt=end_dt, history=45, forward=20)
+    finally:
+        con.close()
+    if max_codes is not None:
+        by_code = dict(list(sorted(by_code.items()))[:max_codes])
+
+    groups: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    buy_codes_by_date: dict[int, set[str]] = defaultdict(set)
+    for row in buy_rows:
+        groups[int(row["dt"])].append({**row, "additive_candidate": False})
+        buy_codes_by_date[int(row["dt"])].add(str(row["code"]))
+
+    candidates = _build_two_ma_candidates(by_code, buy_codes_by_date=buy_codes_by_date, start_dt=start_dt, end_dt=end_dt)
+    selected_by_date = _select_one_per_date(candidates)
+    oos_start_dt = start_dt
+    oos_end_dt = min(end_dt, IN_SAMPLE_START_DT - 1)
+    oos_groups = _subset_groups(groups, oos_start_dt, oos_end_dt)
+    oos_selected = _subset_selected(selected_by_date, oos_start_dt, oos_end_dt)
+    in_sample_groups = _subset_groups(groups, IN_SAMPLE_START_DT, min(end_dt, IN_SAMPLE_END_DT))
+    in_sample_selected = _subset_selected(selected_by_date, IN_SAMPLE_START_DT, min(end_dt, IN_SAMPLE_END_DT))
+    oos_compare = {f"top{topk}": _topk_compare(oos_groups, oos_selected, topk=topk) for topk in TOP_K_VALUES}
+    in_sample_compare = {f"top{topk}": _topk_compare(in_sample_groups, in_sample_selected, topk=topk) for topk in TOP_K_VALUES}
+    monthly = _month_rows(groups, selected_by_date)
+    oos_monthly = [row for row in monthly if row["month"] < "202603"]
+    active_oos_months = [row for row in oos_monthly if (row.get("changed_top5_members_count") or 0) > 0]
+    positive_oos_months = [row for row in active_oos_months if (row.get("top5_delta_mean") or 0.0) > 0.0]
+    coverage = {
+        "buy_candidate_rows": len(buy_rows),
+        "buy_candidate_date_count": len(groups),
+        "outside_additive_candidate_count": len(candidates),
+        "outside_additive_candidate_date_count": len({int(row["dt"]) for row in candidates}),
+        "selected_additive_candidate_count": len(selected_by_date),
+        "selected_additive_date_count": len(selected_by_date),
+        "oos_buy_candidate_rows": sum(len(rows) for rows in oos_groups.values()),
+        "oos_buy_candidate_date_count": len(oos_groups),
+        "oos_selected_additive_date_count": len(oos_selected),
+        "oos_active_month_count": len(active_oos_months),
+        "oos_positive_active_month_count": len(positive_oos_months),
+        "oos_positive_active_month_rate": round(len(positive_oos_months) / len(active_oos_months), 6) if active_oos_months else None,
+        "in_sample_selected_additive_date_count": len(in_sample_selected),
+        "pattern_label": PATTERN_LABEL,
+    }
+    decision = _oos_decision(oos_compare, monthly, coverage)
+    result = {
+        "schema_version": "tradex_two_ma_simultaneous_breakout_long_oos_v1",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "authoritative_result": True,
+        "research_phase": "effectiveness_judgment",
+        "fixed_evaluation_conditions": {
+            "source_table": "signal_decision_daily + daily_bars outside-gap scan",
+            "start_dt": start_dt,
+            "end_dt": end_dt,
+            "oos_start_dt": oos_start_dt,
+            "oos_end_dt": oos_end_dt,
+            "in_sample_probe_period": [IN_SAMPLE_START_DT, IN_SAMPLE_END_DT],
+            "side": "buy",
+            "entry_qualified_only": True,
+            "same_dates_as_buy_candidate_pool": True,
+            "same_top_k": list(TOP_K_VALUES),
+            "same_cost_slippage": "flat_zero_cost",
+            "changed_axis": PATTERN_LABEL,
+            "selection_rule": "prior close < prior MA5 < prior MA20, open < prior MA5, close > prior/current MA20, flat MA5/MA20, prior 20-bar range not wide, bullish body, and no long upper/lower wick; at most one outside-gap candidate per buy-candidate date",
+            "additive_score_policy": "selected candidate receives date max tradePriorityScore + 0.0001 for fixed branching stress-test",
+            "reference_images": [
+                "C:/Users/enish/Downloads/chart_7999_MUTOHホールディングス_weekly_2012-01-27.png",
+                "C:/Users/enish/Downloads/chart_8308_りそなホールディングス_weekly_2005-09-30.png",
+            ],
+            "note": "reference charts are weekly images; this validation uses daily MA5/MA20 because the textual rule says 5-day and 20-day moving averages",
+        },
+        "scope": {
+            "tradex_only": True,
+            "meemee_ranking_changed": False,
+            "meemee_ui_changed": False,
+            "runtime_db_written": False,
+            "silent_fallback_used": False,
+            "research_fallback_used": False,
+        },
+        "runtime_stock_db_status": inspect_runtime_stock_db(runtime_db_path=db_path),
+        "coverage": coverage,
+        "compare": {"oos": oos_compare, "in_sample_reference": in_sample_compare},
+        "monthly_stability": {
+            "rows": monthly,
+            "oos_active_month_count": len(active_oos_months),
+            "oos_positive_active_month_count": len(positive_oos_months),
+            "oos_positive_active_month_rate": coverage["oos_positive_active_month_rate"],
+        },
+        "observed_branching": {
+            "changed_top5_members_count": oos_compare["top5"]["changed_member_count_total"],
+            "changed_top10_members_count": oos_compare["top10"]["changed_member_count_total"],
+            "changed_rank_count": oos_compare["top5"]["changed_member_count_total"],
+            "selection_divergence_reason": "historical_oos_outside_gap_two_ma_simultaneous_breakout_candidate_added_to_buy_pool",
+        },
+        "authoritative_rollup_decision": decision["judgment"],
+        "reason_type": decision["reason_type"],
+        "candidate_generation_challenger_created": len(oos_selected) > 0,
+        "meemee_reflectable": False,
+        "remaining_risks": [
+            "reference examples are weekly screenshots but validation is daily MA5/MA20",
+            "historical OOS is pre-selection holdout, not forward live paper replay",
+            "additive candidates do not have champion-native score or rank",
+            "pattern thresholds are first strict translation of trader text",
+        ],
+    }
+    compare_path = output_dir / "compare.json"
+    decision_path = output_dir / "decision.json"
+    monthly_path = output_dir / "monthly.json"
+    ledger_path = output_dir / "ledger.jsonl"
+    result["artifacts"] = {
+        "output_dir": str(output_dir),
+        "compare_json": str(compare_path),
+        "decision_json": str(decision_path),
+        "monthly_json": str(monthly_path),
+        "ledger_jsonl": str(ledger_path),
+        "artifact_complete": str(output_dir / "_ARTIFACT_COMPLETE.json"),
+    }
+    _write_json(compare_path, result)
+    _write_json(decision_path, {k: result[k] for k in ("schema_version", "authoritative_rollup_decision", "reason_type", "candidate_generation_challenger_created", "meemee_reflectable", "remaining_risks", "artifacts")})
+    _write_json(monthly_path, result["monthly_stability"])
+    selected_codes = {(dt, str(row["code"])) for dt, row in selected_by_date.items()}
+    with ledger_path.open("w", encoding="utf-8") as fh:
+        for event in candidates:
+            key = (int(event["dt"]), str(event["code"]))
+            fh.write(json.dumps({**event, "selected_additive_candidate": key in selected_codes}, ensure_ascii=False, default=str) + "\n")
+    _write_json(output_dir / "_ARTIFACT_COMPLETE.json", {"complete": True, **result["artifacts"]})
+    return result
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--db-path", type=Path, default=resolve_runtime_stock_db_path())
+    parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
+    parser.add_argument("--start-dt", type=int, default=20250101)
+    parser.add_argument("--end-dt", type=int, default=20260331)
+    parser.add_argument("--max-codes", type=int, default=None)
+    args = parser.parse_args()
+    result = run_probe(db_path=args.db_path, output_root=args.output_root, start_dt=args.start_dt, end_dt=args.end_dt, max_codes=args.max_codes)
+    print(json.dumps(result["artifacts"], ensure_ascii=False, indent=2))
+    print(json.dumps(result["coverage"], ensure_ascii=False, indent=2))
+    print(json.dumps({"decision": result["authoritative_rollup_decision"], "reason_type": result["reason_type"], "observed_branching": result["observed_branching"], "oos_top5": result["compare"]["oos"]["top5"], "oos_top10": result["compare"]["oos"]["top10"], "monthly_stability": {k: v for k, v in result["monthly_stability"].items() if k != "rows"}}, ensure_ascii=False, indent=2))
+
+
+if __name__ == "__main__":
+    main()

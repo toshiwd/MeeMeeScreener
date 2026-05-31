@@ -51,7 +51,7 @@ describe("DailyMemoPanel", () => {
     );
 
     expect(markup).toContain("日足情報");
-    expect(markup).toContain("日付メモ (100字以内)");
+    expect(markup).toContain("日付メモ (100文字以内)");
     expect(markup).toContain("相談用にコピー");
     expect(markup).toContain("前日比");
     expect(markup).toContain("出来高");
@@ -78,7 +78,7 @@ describe("DailyMemoPanel", () => {
       />
     );
 
-    expect(markup).toContain("カーソルをONにすると日足情報を表示します");
+    expect(markup).toContain("日付選択をONにすると日足情報を表示します");
     expect(markup).not.toContain("前日比");
     expect(markup).not.toContain("出来高");
   });

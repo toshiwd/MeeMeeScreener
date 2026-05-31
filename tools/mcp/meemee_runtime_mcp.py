@@ -24,6 +24,7 @@ from app.core.config import config as app_config
 from app.backend.infra.files.config_repo import ConfigRepository
 from app.backend.services import codex_bridge_service
 from app.backend.services import rankings_cache
+from app.backend.services.chart_reading_bundle import get_chart_reading_bundle
 from app.backend.services.meemee_artifact_boundary import (
     BLOCKED_HOLD_ARTIFACT_FILENAMES,
     MEEMEE_SAFE_ARTIFACT_FILENAMES,
@@ -478,6 +479,15 @@ def _call_screening_review_bundle(arguments: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def _call_chart_reading_bundle(arguments: dict[str, Any]) -> dict[str, Any]:
+    args = _strict_arguments(arguments, allowed={"code", "as_of_date"}, required={"code", "as_of_date"})
+    conn = duckdb.connect(str(app_config.DB_PATH), read_only=True)
+    try:
+        return get_chart_reading_bundle(conn, code=args["code"], as_of_date=args["as_of_date"])
+    finally:
+        conn.close()
+
+
 TOOLS: dict[str, ToolDefinition] = {
     "get_runtime_stock_db_status": ToolDefinition(
         name="get_runtime_stock_db_status",
@@ -536,6 +546,18 @@ TOOLS: dict[str, ToolDefinition] = {
                 "include_near_boundary": {"type": "boolean"},
             },
             required=["asof"],
+        ),
+    ),
+    "get_chart_reading_bundle": ToolDefinition(
+        name="get_chart_reading_bundle",
+        description="Return a read-only chart reading bundle with chart context, chart notes, annotations, tags, and position state for a symbol/date.",
+        handler=_wrap_argument_tool_handler(_call_chart_reading_bundle),
+        input_schema=_tool_schema_with_properties(
+            properties={
+                "code": {"type": "string"},
+                "as_of_date": {"type": "string", "description": "YYYY-MM-DD or YYYYMMDD"},
+            },
+            required=["code", "as_of_date"],
         ),
     ),
 }

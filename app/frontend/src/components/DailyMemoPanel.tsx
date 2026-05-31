@@ -46,7 +46,13 @@ interface DailyMemoPanelProps {
 }
 
 interface MemoData {
+  schema_version?: "chart_note_v1";
   memo: string;
+  note_text?: string;
+  tags?: unknown[];
+  linked_objects?: unknown[];
+  no_lookahead?: boolean;
+  created_at?: string | null;
   updated_at: string | null;
 }
 
@@ -238,7 +244,7 @@ export default function DailyMemoPanel({
       </div>
 
       {!cursorMode ? (
-        <div className="memo-panel-empty">カーソルをONにすると日足情報を表示します</div>
+        <div className="memo-panel-empty">日付選択をONにすると日足情報を表示します</div>
       ) : (
         <div className="memo-panel-info">
           <div className="info-header">
@@ -313,7 +319,7 @@ export default function DailyMemoPanel({
 
       <div className="memo-section">
         <div className="memo-section-header">
-          <span>日付メモ (100字以内)</span>
+          <span>日付メモ (100文字以内)</span>
           {lastSavedAt && <span className="memo-saved-at">更新 {formatDateTimeLabel(lastSavedAt)}</span>}
         </div>
         <textarea

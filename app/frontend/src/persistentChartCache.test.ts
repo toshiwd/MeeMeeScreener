@@ -27,7 +27,7 @@ describe("persistentChartCache", () => {
         asof: "2026-04-04",
         includeBoxes: true,
       })
-    ).toBe("7203|daily|2000|2026-04-04|boxes:1");
+    ).toBe("7203|daily|2000|2026-04-04|boxes:1|variant:");
   });
 
   it("invalidates old-version entries after dataVersion changes", async () => {

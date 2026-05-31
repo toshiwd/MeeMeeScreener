@@ -118,6 +118,33 @@ const findClosestValue = (data: { time: number; value: number }[], time: number 
   return Math.abs(time - lower.time) <= Math.abs(upper.time - time) ? lower.value : upper.value;
 };
 
+const findClosestDataIndex = (data: { time: number; value: number }[], time: number | null) => {
+  if (!data.length || time == null) return null;
+  let bestIndex = 0;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  data.forEach((point, index) => {
+    if (!Number.isFinite(point.time)) return;
+    const distance = Math.abs(point.time - time);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestIndex = index;
+    }
+  });
+  return bestIndex;
+};
+
+const formatMaSlope = (data: { time: number; value: number }[], time: number | null) => {
+  const index = findClosestDataIndex(data, time);
+  if (index == null || index < 1) return "--";
+  const lookback = Math.min(5, index);
+  const current = data[index]?.value;
+  const previous = data[index - lookback]?.value;
+  if (!Number.isFinite(current) || !Number.isFinite(previous) || Math.abs(previous) < 1e-9) return "--";
+  const pct = ((current - previous) / Math.abs(previous)) * 100;
+  const prefix = pct > 0 ? "+" : "";
+  return `${prefix}${pct.toFixed(1)}%/${lookback}`;
+};
+
 const findClosestIndex = (bars: PositionOverlayProps["bars"], time: number | null) => {
   if (!bars.length || time == null) return null;
   let left = 0;
@@ -379,6 +406,7 @@ export default function PositionOverlay({
           key: line.key,
           label,
           value,
+          slope: formatMaSlope(line.data, activeBar.time),
           color: line.color
         };
       });
@@ -701,6 +729,7 @@ export default function PositionOverlay({
                 </span>
                 <span className="position-overlay-value">
                   {entry.value == null ? "--" : formatNumber(entry.value)}
+                  <span className="position-overlay-ma-slope"> {entry.slope}</span>
                 </span>
               </div>
             ))}

@@ -2715,12 +2715,12 @@ body {
 }
 
 .list-shell.is-single .rank-tile {
-  height: var(--list-card-height);
+  height: 100%;
 }
 
 .list-view .rank-tile .tile-chart {
-  height: var(--list-chart-height);
-  flex: 1 1 var(--list-chart-height);
+  height: auto;
+  flex: 1 1 auto;
   min-height: 48px;
   min-width: 0;
 }
@@ -12222,4 +12222,125 @@ body {
 .perf-diagnostics-button:hover {
   border-color: rgba(59, 130, 246, 0.35);
   color: #1d4ed8;
+}
+
+.annotation-toolbar,
+.annotation-tool-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.annotation-filter {
+  height: 30px;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.9);
+  color: #0f172a;
+  font-size: 12px;
+  padding: 0 8px;
+}
+
+.detail-annotation-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.annotation-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.annotation-panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.annotation-panel-title {
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.annotation-panel-subtitle {
+  color: #334155;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.annotation-panel-meta,
+.annotation-panel-empty {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.annotation-panel label {
+  display: grid;
+  gap: 4px;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.annotation-panel input,
+.annotation-panel textarea {
+  width: 100%;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  border-radius: 6px;
+  background: #fff;
+  color: #0f172a;
+  font: inherit;
+  font-weight: 400;
+  padding: 7px 8px;
+}
+
+.annotation-panel textarea {
+  min-height: 84px;
+  resize: vertical;
+}
+
+.chart-reading-selected-target {
+  display: grid;
+  gap: 5px;
+}
+
+.chart-reading-target-card {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px 8px;
+  border: 1px solid rgba(37, 99, 235, 0.24);
+  border-radius: 6px;
+  background: rgba(37, 99, 235, 0.07);
+  color: #0f172a;
+  font-size: 12px;
+  padding: 7px 8px;
+}
+
+.chart-reading-target-card strong {
+  grid-column: 1 / -1;
+  color: #1d4ed8;
+}
+
+.chart-note-link-chip {
+  display: inline-flex;
+  align-items: center;
+  margin: 2px 4px 2px 0;
+  padding: 2px 6px;
+  border: 1px solid rgba(37, 99, 235, 0.24);
+  border-radius: 6px;
+  background: rgba(37, 99, 235, 0.08);
+  color: #1d4ed8;
+  font-size: 11px;
+}
+
+.annotation-delete {
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: 6px;
+  background: rgba(254, 242, 242, 0.9);
+  color: #b91c1c;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 5px 8px;
 }

@@ -12,6 +12,7 @@ import {
   IconHeart,
   IconHeartFilled,
   IconInfoCircle,
+  IconNotes,
   IconSparkles,
   IconPointer,
   IconPointerOff,
@@ -80,6 +81,29 @@ import DetailReplayPanel from "./detail/DetailReplayPanel";
 import DetailPositionLedgerSheet from "./detail/components/DetailPositionLedgerSheet";
 import { useDetailDrawings } from "./detail/hooks/useDetailDrawings";
 import { buildPositionRiskOverlayDrawings } from "./detail/positionRiskOverlay";
+import AnnotationToolbar from "./detail/AnnotationToolbar";
+import ChartReadingPanel, {
+  type ReadingCommentType,
+  type ReadingTargetType,
+  type ReadingTimeframe,
+} from "./detail/ChartReadingPanel";
+import ChartNotePanel, {
+  type ChartNoteLinkedObject,
+  type ChartNoteParagraph,
+  type ChartNoteTimeframe,
+} from "./detail/ChartNotePanel";
+import {
+  annotationToDrawBox,
+  annotationToCallout,
+  annotationToEventMarker,
+  annotationToHorizontalLine,
+  emptyAnnotationPayload,
+  parseTagsInput,
+  type AnnotationFilter,
+  type AnnotationTool,
+  type ChartAnnotation,
+  type ChartAnnotationType,
+} from "./detail/annotations";
 
 const loadSimilarSearchPanel = () => import("../components/SimilarSearchPanel");
 const loadDetailJudgementPanel = () =>
@@ -203,6 +227,54 @@ const COMPARE_INITIAL_DAILY_LIMIT = 420;
 const DETAIL_CHROME_DAILY = { timeframe: "daily" as const };
 const DETAIL_CHROME_WEEKLY = { timeframe: "weekly" as const };
 const DETAIL_CHROME_MONTHLY = { timeframe: "monthly" as const };
+const ANNOTATION_API_RETRY_DELAYS_MS = [350, 900, 1600];
+
+const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
+
+const isRetryableAnnotationApiError = (error: unknown) => {
+  const response = (error as { response?: { status?: number } })?.response;
+  return response?.status === 503;
+};
+
+const withAnnotationApiRetry = async <T,>(operation: () => Promise<T>): Promise<T> => {
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt <= ANNOTATION_API_RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (!isRetryableAnnotationApiError(error) || attempt >= ANNOTATION_API_RETRY_DELAYS_MS.length) {
+        throw error;
+      }
+      await sleep(ANNOTATION_API_RETRY_DELAYS_MS[attempt]);
+    }
+  }
+  throw lastError;
+};
+
+const toAnnotationDate = (time: number | null | undefined) => {
+  if (time == null) return null;
+  const raw = String(toDateKey(time));
+  return raw.length === 8 ? `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}` : raw;
+};
+
+const addUtcMonths = (time: number, months: number) => {
+  const date = new Date(time * 1000);
+  date.setUTCMonth(date.getUTCMonth() + months);
+  return Math.floor(date.getTime() / 1000);
+};
+
+const buildCompareAroundAsOfRange = (candles: { time: number }[], asOfTime: number | null) => {
+  if (!candles.length || !asOfTime) return null;
+  const first = candles[0].time;
+  const last = candles[candles.length - 1].time;
+  const from = Math.max(first, addUtcMonths(asOfTime, -COMPARE_LOOKBACK_MONTHS));
+  const to = Math.min(last, addUtcMonths(asOfTime, COMPARE_LOOKAHEAD_MONTHS));
+  return {
+    from,
+    to: Math.max(from, to),
+  };
+};
 
 type DetailFrameOverwriteObservability = {
   cacheSource: "memory" | "indexeddb" | null;
@@ -355,7 +427,10 @@ const tradesCache = new Map<
     fetchedAt: number;
   }
 >();
-const COMPARE_FOCUS_MONTHS = 12;
+const COMPARE_LOOKBACK_MONTHS = 10;
+const COMPARE_LOOKAHEAD_MONTHS = 2;
+const COMPARE_FORWARD_DAILY_BARS = 60;
+const COMPARE_FORWARD_MONTHLY_BARS = 2;
 const RANGE_SETTLE_MS = 2_000;
 const DETAIL_CACHE_REFRESH_DELAY_MS = 4_000;
 
@@ -450,7 +525,7 @@ export default function DetailView() {
   const [showTradeMarkers, setShowTradeMarkers] = useState(true);
   const [showRankingMarkers, setShowRankingMarkers] = useState(true);
   const [activeDrawTool, setActiveDrawTool] = useState<DrawTool | null>(null);
-  const [, setSelectedDrawing] = useState<SelectedDrawingInfo | null>(null);
+  const [selectedDrawing, setSelectedDrawing] = useState<SelectedDrawingInfo | null>(null);
   const COLOR_PALETTE = ["#ef4444", "#22c55e", "#0ea5e9", "#f59e0b", "#64748b"];
   const [activeDrawColorIndex, setActiveDrawColorIndex] = useState(4);
   const activeDrawColor = COLOR_PALETTE[activeDrawColorIndex] ?? "#64748b";
@@ -666,6 +741,13 @@ export default function DetailView() {
     const raw = params.get("compareAsOf");
     return raw ? raw.trim() : null;
   }, [location.search]);
+  const compareIndex = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    const raw = params.get("compareIndex");
+    if (!raw) return null;
+    const parsed = Number.parseInt(raw, 10);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+  }, [location.search]);
   const mainAsOf = useMemo(() => {
     const params = new URLSearchParams(location.search);
     const raw = params.get("mainAsOf");
@@ -691,6 +773,33 @@ export default function DetailView() {
   const [analysisHorizon] = useState<AnalysisHorizonKey>(20);
   const [analysisRiskMode, setAnalysisRiskMode] = useState<RankRiskMode>(() => resolveRiskModeFromSession());
   const [analysisAsOfTime, setAnalysisAsOfTime] = useState<number | null>(null);
+  const [annotationMode, setAnnotationMode] = useState(false);
+  const [chartNoteMode, setChartNoteMode] = useState(false);
+  const [annotationTool, setAnnotationTool] = useState<AnnotationTool>("select");
+  const [annotationFilter, setAnnotationFilter] = useState<AnnotationFilter>("all");
+  const [annotations, setAnnotations] = useState<ChartAnnotation[]>([]);
+  const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
+  const [annotationsLoading, setAnnotationsLoading] = useState(false);
+  const [readingTimeframe, setReadingTimeframe] = useState<ReadingTimeframe>("daily");
+  const [readingTargetType, setReadingTargetType] = useState<ReadingTargetType>("bar");
+  const [readingCommentType, setReadingCommentType] = useState<ReadingCommentType>("review");
+  const [readingNoteText, setReadingNoteText] = useState("");
+  const [readingTagsText, setReadingTagsText] = useState("");
+  const [readingSaving, setReadingSaving] = useState(false);
+  const [chartNoteTitle, setChartNoteTitle] = useState("");
+  const [chartNoteTimeframe, setChartNoteTimeframe] = useState<ChartNoteTimeframe>("mixed");
+  const [chartNoteParagraphs, setChartNoteParagraphs] = useState<ChartNoteParagraph[]>([]);
+  const [chartNoteSaving, setChartNoteSaving] = useState(false);
+  const [pendingCalloutAnchor, setPendingCalloutAnchor] = useState<{
+    time: number;
+    date: string | null;
+    price: number;
+    anchorType: "bar" | "indicator" | "region" | "line";
+    anchorTarget: string;
+    anchorObjectId?: string | null;
+    resolution?: "payload_fallback" | "annotation_id";
+    linkedObject?: Record<string, any> | null;
+  } | null>(null);
   const displayRef = useRef<HTMLDivElement | null>(null);
   const signalsRef = useRef<HTMLDivElement | null>(null);
   const {
@@ -722,7 +831,6 @@ export default function DetailView() {
     compareCode,
     onResetSelection: () => setSelectedDrawing(null),
   });
-
   useEffect(() => {
     if (!displayOpen && !signalsOpen) return;
     const handleClick = (event: MouseEvent) => {
@@ -763,7 +871,10 @@ export default function DetailView() {
             dailyLimit: COMPARE_INITIAL_DAILY_LIMIT,
             weeklyLimit: DEFAULT_LIMITS.weekly,
             monthlyLimit: DEFAULT_LIMITS.monthly,
-            asof: null,
+            asof: compareAsOf,
+            forwardBars: compareAsOf
+              ? { daily: COMPARE_FORWARD_DAILY_BARS, monthly: COMPARE_FORWARD_MONTHLY_BARS }
+              : undefined,
           }, COMPARE_DETAIL_PREFETCH_TIMEFRAMES);
     setCompareChartPendingSwap(!hasCompleteDetailChartPrefetch(seed, COMPARE_DETAIL_PREFETCH_TIMEFRAMES));
     resetCompareChartState(seed);
@@ -2177,6 +2288,10 @@ export default function DetailView() {
       : "根拠不足: この銘柄のランキング判定なし";
   const rightRailKind = showReplayPanel
     ? "replay"
+    : chartNoteMode
+      ? "chart-note"
+    : annotationMode
+      ? "annotation"
     : showAnalysisPanel
     ? "analysis"
     : showFinancialPanel
@@ -2186,17 +2301,38 @@ export default function DetailView() {
         : null;
   const showRightPanel = rightRailKind !== null;
   const headerDrawToolControls = (
-    <DetailDrawToolbar
-      activeTool={activeDrawTool}
-      activeDrawColor={activeDrawColor}
-      activeLineOpacity={activeLineOpacity}
-      activeLineWidth={activeLineWidth}
-      onSelectTool={selectDrawTool}
-      onResetAll={resetAllDrawings}
-      onCycleColor={() => setActiveDrawColorIndex((prev) => (prev + 1) % COLOR_PALETTE.length)}
-      onLineOpacityChange={setActiveLineOpacity}
-      onLineWidthChange={setActiveLineWidth}
-    />
+    <>
+      <AnnotationToolbar
+        enabled={annotationMode}
+        activeTool={annotationTool}
+        filter={annotationFilter}
+        onToggleEnabled={() => setAnnotationMode((current) => !current)}
+        onSelectTool={setAnnotationTool}
+        onFilterChange={setAnnotationFilter}
+      />
+      <IconButton
+        icon={<IconNotes size={18} />}
+        label={chartNoteMode ? "ノート ON" : "ノート"}
+        variant="iconLabel"
+        selected={chartNoteMode}
+        tooltip="チャートノート"
+        ariaLabel="チャートノート"
+        onClick={() => setChartNoteMode((current) => !current)}
+      />
+      {!annotationMode && (
+        <DetailDrawToolbar
+          activeTool={activeDrawTool}
+          activeDrawColor={activeDrawColor}
+          activeLineOpacity={activeLineOpacity}
+          activeLineWidth={activeLineWidth}
+          onSelectTool={selectDrawTool}
+          onResetAll={resetAllDrawings}
+          onCycleColor={() => setActiveDrawColorIndex((prev) => (prev + 1) % COLOR_PALETTE.length)}
+          onLineOpacityChange={setActiveLineOpacity}
+          onLineWidthChange={setActiveLineWidth}
+        />
+      )}
+    </>
   );
 
   useEffect(() => {
@@ -2555,7 +2691,10 @@ export default function DetailView() {
       dailyLimit: compareDailyLimit,
       weeklyLimit: DEFAULT_LIMITS.weekly,
       monthlyLimit,
-      asof: null,
+      asof: compareAsOf,
+      forwardBars: compareAsOf
+        ? { daily: COMPARE_FORWARD_DAILY_BARS, monthly: COMPARE_FORWARD_MONTHLY_BARS }
+        : undefined,
     };
     const applyCompareFrames = (frames: ChartPrefetchFrames) => {
       if (!hasCompleteDetailChartPrefetch(frames, COMPARE_DETAIL_PREFETCH_TIMEFRAMES)) return false;
@@ -2820,6 +2959,644 @@ export default function DetailView() {
   const dailyCandles = useMemo(
     () => filterCandlesByAsOf(dailyParse.candles, chartAsOfTime),
     [chartAsOfTime, dailyParse.candles]
+  );
+  const dailyMaLines = useMemo(() => {
+    return buildDetailMaLines(dailyCandles, maSettings.daily);
+  }, [dailyCandles, maSettings.daily]);
+  const annotationAsOfDate = useMemo(() => {
+    if (mainAsOfTime != null) return toAnnotationDate(mainAsOfTime);
+    if (detailAsOfTime != null) return toAnnotationDate(detailAsOfTime);
+    if (selectedDate) return selectedDate;
+    const lastDaily = dailyCandles[dailyCandles.length - 1]?.time;
+    return toAnnotationDate(lastDaily);
+  }, [dailyCandles, detailAsOfTime, mainAsOfTime, selectedDate]);
+  const selectedAnnotation = useMemo(
+    () => annotations.find((annotation) => annotation.id === selectedAnnotationId) ?? null,
+    [annotations, selectedAnnotationId]
+  );
+  const selectedBarForChartReading = useMemo(() => {
+    if (!selectedBarData) return null;
+    return {
+      date: toAnnotationDate(selectedBarData.time),
+      time: selectedBarData.time,
+      open: selectedBarData.open,
+      high: selectedBarData.high,
+      low: selectedBarData.low,
+      close: selectedBarData.close,
+      volume: null,
+    };
+  }, [selectedBarData]);
+  const chartReadingNoteDate = useMemo(() => {
+    if (readingTargetType === "bar" && selectedBarForChartReading?.date) {
+      return selectedBarForChartReading.date;
+    }
+    return annotationAsOfDate;
+  }, [annotationAsOfDate, readingTargetType, selectedBarForChartReading?.date]);
+  const handleSelectDrawing = useCallback((drawing: SelectedDrawingInfo | null) => {
+    setSelectedDrawing(drawing);
+    if (drawing?.annotationId) {
+      setSelectedAnnotationId(drawing.annotationId);
+    }
+  }, []);
+  const visibleAnnotations = useMemo(() => {
+    if (annotationFilter === "hidden") return [];
+    return annotations.filter(
+      (annotation) =>
+        annotationFilter === "all" ||
+        annotation.object_type === annotationFilter ||
+        (annotationFilter === "context" &&
+          (annotation.object_type === "chart_context" || annotation.payload?.context_type === "environment"))
+    );
+  }, [annotationFilter, annotations]);
+  const annotationDrawBoxes = useMemo(
+    () => visibleAnnotations.map(annotationToDrawBox).filter(Boolean),
+    [visibleAnnotations]
+  );
+  const annotationHorizontalLines = useMemo(
+    () => visibleAnnotations.map(annotationToHorizontalLine).filter(Boolean),
+    [visibleAnnotations]
+  );
+  const annotationEventMarkers = useMemo(
+    () => visibleAnnotations.map(annotationToEventMarker).filter(Boolean),
+    [visibleAnnotations]
+  );
+  const annotationCallouts = useMemo(
+    () =>
+      visibleAnnotations
+        .map((annotation) => annotationToCallout(annotation, annotation.id === selectedAnnotationId))
+        .filter(Boolean),
+    [selectedAnnotationId, visibleAnnotations]
+  );
+  const resolveIndicatorCalloutAnchor = useCallback(
+    (candleTime: number, clickedPrice: number | null | undefined) => {
+      if (!Number.isFinite(clickedPrice)) return null;
+      const supported = new Map([
+        [7, "ma7"],
+        [20, "ma20"],
+        [60, "ma60"],
+        [100, "ma100"],
+      ]);
+      let best: { target: string; price: number; distance: number } | null = null;
+      dailyMaLines.forEach((line) => {
+        const target = supported.get(Number(line.period));
+        if (!target || line.visible === false) return;
+        const point = (line.data ?? []).find((item) => item.time === candleTime);
+        const price = Number(point?.value);
+        if (!Number.isFinite(price)) return;
+        const distance = Math.abs(price - clickedPrice!);
+        if (!best || distance < best.distance) {
+          best = { target, price, distance };
+        }
+      });
+      if (!best) return null;
+      const tolerance = Math.max(120, Math.abs(best.price) * 0.012);
+      if (best.distance <= tolerance) return best;
+      const ma20 = dailyMaLines
+        .find((line) => Number(line.period) === 20 && line.visible !== false)
+        ?.data?.find((item) => item.time === candleTime);
+      const ma20Price = Number(ma20?.value);
+      return Number.isFinite(ma20Price) ? { target: "ma20", price: ma20Price, distance: Math.abs(ma20Price - clickedPrice!) } : null;
+    },
+    [dailyMaLines]
+  );
+  const resolveSelectedShapeCalloutAnchor = useCallback(() => {
+    if (selectedAnnotation?.object_type === "region") {
+      const payload = selectedAnnotation.payload ?? {};
+      const start = Number(payload.start_time);
+      const end = Number(payload.end_time);
+      const low = Number(payload.price_low);
+      const high = Number(payload.price_high);
+      if ([start, end, low, high].every(Number.isFinite)) {
+        return {
+          time: Math.round((start + end) / 2),
+          date: toAnnotationDate(Math.round((start + end) / 2)),
+          price: (low + high) / 2,
+          anchorType: "region" as const,
+          anchorTarget: "region",
+          anchorObjectId: selectedAnnotation.id,
+          resolution: "annotation_id" as const,
+          linkedObject: {
+            object_type: "region",
+            annotation_id: selectedAnnotation.id,
+            resolution: "annotation_id",
+          },
+        };
+      }
+    }
+    if (selectedAnnotation?.object_type === "line") {
+      const payload = selectedAnnotation.payload ?? {};
+      const price = Number(payload.price);
+      if (Number.isFinite(price)) {
+        return {
+          time: Number.isFinite(Number(payload.start_time)) ? Number(payload.start_time) : Number(String(annotationAsOfDate ?? "").replaceAll("-", "")),
+          date: annotationAsOfDate,
+          price,
+          anchorType: "line" as const,
+          anchorTarget: payload.line_type || "line",
+          anchorObjectId: selectedAnnotation.id,
+          resolution: "annotation_id" as const,
+          linkedObject: {
+            object_type: "line",
+            annotation_id: selectedAnnotation.id,
+            resolution: "annotation_id",
+          },
+        };
+      }
+    }
+    if (readingTargetType === "region" && selectedDrawing?.kind === "drawBox") {
+      const startTime = Math.min(selectedDrawing.startTime, selectedDrawing.endTime);
+      const endTime = Math.max(selectedDrawing.startTime, selectedDrawing.endTime);
+      const priceLow = Math.min(selectedDrawing.topPrice, selectedDrawing.bottomPrice);
+      const priceHigh = Math.max(selectedDrawing.topPrice, selectedDrawing.bottomPrice);
+      const centerTime = Math.round((startTime + endTime) / 2);
+      return {
+        time: centerTime,
+        date: toAnnotationDate(centerTime),
+        price: (priceLow + priceHigh) / 2,
+        anchorType: "region" as const,
+        anchorTarget: "region",
+        resolution: "payload_fallback" as const,
+        linkedObject: {
+          object_type: "region",
+          resolution: "payload_fallback",
+          date_start: toAnnotationDate(startTime),
+          date_end: toAnnotationDate(endTime),
+          price_low: priceLow,
+          price_high: priceHigh,
+        },
+      };
+    }
+    if (readingTargetType === "line" && selectedDrawing?.kind === "horizontalLine") {
+      return {
+        time: Number(String(annotationAsOfDate ?? "").replaceAll("-", "")),
+        date: annotationAsOfDate,
+        price: selectedDrawing.price,
+        anchorType: "line" as const,
+        anchorTarget: "line",
+        resolution: "payload_fallback" as const,
+        linkedObject: {
+          object_type: "line",
+          resolution: "payload_fallback",
+          price: selectedDrawing.price,
+        },
+      };
+    }
+    return null;
+  }, [annotationAsOfDate, readingTargetType, selectedAnnotation, selectedDrawing]);
+  const dailyAnnotationDrawTool: DrawTool | null = annotationMode
+    ? annotationTool === "region"
+      ? "drawBox"
+      : annotationTool === "line"
+        ? "horizontalLine"
+        : null
+    : activeDrawTool;
+
+  const fetchAnnotations = useCallback(async () => {
+    if (!code || !annotationAsOfDate) return;
+    setAnnotationsLoading(true);
+    try {
+      const response = await withAnnotationApiRetry(() =>
+        api.get("/chart-annotations", {
+          params: { code, as_of_date: annotationAsOfDate },
+        })
+      );
+      const nextAnnotations = Array.isArray(response.data?.items) ? response.data.items : [];
+      setAnnotations(nextAnnotations);
+      setSelectedAnnotationId((current) =>
+        current && nextAnnotations.some((annotation: ChartAnnotation) => annotation.id === current)
+          ? current
+          : nextAnnotations[0]?.id ?? null
+      );
+    } finally {
+      setAnnotationsLoading(false);
+    }
+  }, [annotationAsOfDate, code]);
+
+  useEffect(() => {
+    if (!annotationMode && !chartNoteMode) return;
+    void fetchAnnotations();
+  }, [annotationMode, chartNoteMode, fetchAnnotations]);
+
+  const fetchChartReadingNote = useCallback(async () => {
+    if (!code || !chartReadingNoteDate) return;
+    const response = await withAnnotationApiRetry(() =>
+      api.get("/chart-reading/bundle", {
+        params: { code, as_of_date: chartReadingNoteDate },
+      })
+    );
+    const notes = Array.isArray(response.data?.notes) ? response.data.notes : [];
+    const note =
+      notes.find((item) => item.as_of_date === chartReadingNoteDate && item.timeframe === readingTimeframe) ??
+      notes.find((item) => item.as_of_date === chartReadingNoteDate) ??
+      null;
+    setReadingNoteText(note?.note_text ?? "");
+    setReadingTagsText(Array.isArray(note?.tags) ? note.tags.join(", ") : "");
+  }, [chartReadingNoteDate, code, readingTimeframe]);
+
+  useEffect(() => {
+    if (!annotationMode) return;
+    void fetchChartReadingNote();
+  }, [annotationMode, fetchChartReadingNote]);
+
+  const fetchChartNote = useCallback(async () => {
+    if (!code || !annotationAsOfDate) return;
+    const response = await withAnnotationApiRetry(() =>
+      api.get("/chart-reading/bundle", {
+        params: { code, as_of_date: annotationAsOfDate },
+      })
+    );
+    const notes = Array.isArray(response.data?.notes) ? response.data.notes : [];
+    const note =
+      notes.find((item) => item.as_of_date === annotationAsOfDate && item.timeframe === "mixed") ??
+      notes.find((item) => item.as_of_date === annotationAsOfDate && Array.isArray(item.paragraphs) && item.paragraphs.length) ??
+      null;
+    setChartNoteTitle(note?.title ?? "");
+    setChartNoteTimeframe((note?.timeframe as ChartNoteTimeframe) || "mixed");
+    setChartNoteParagraphs(
+      Array.isArray(note?.paragraphs) && note.paragraphs.length
+        ? note.paragraphs
+        : [
+            {
+              paragraph_id: "p1",
+              order: 1,
+              text: "",
+              comment_type: "daily_bar_reading",
+              linked_objects: [],
+              reason_tags: [],
+              no_lookahead: true,
+            },
+          ]
+    );
+  }, [annotationAsOfDate, code]);
+
+  useEffect(() => {
+    if (!chartNoteMode) return;
+    void fetchChartNote();
+  }, [chartNoteMode, fetchChartNote]);
+
+  const persistAnnotation = useCallback(async (annotation: ChartAnnotation) => {
+    const response = await withAnnotationApiRetry(() =>
+      api.put(`/chart-annotations/${annotation.id}`, {
+        code: annotation.code,
+        as_of_date: annotation.as_of_date,
+        object_type: annotation.object_type,
+        timeframe: annotation.timeframe,
+        payload: annotation.payload ?? {},
+        tags: annotation.tags ?? [],
+        no_lookahead: annotation.no_lookahead !== false,
+      })
+    );
+    const saved = response.data?.annotation ?? annotation;
+    setAnnotations((current) => current.map((item) => (item.id === saved.id ? saved : item)));
+    setSelectedAnnotationId(saved.id);
+  }, []);
+
+  const createAndPersistAnnotation = useCallback(
+    async (
+      objectType: ChartAnnotationType,
+      payload: Record<string, any>,
+      tags: string[] = [],
+      timeframe: ReadingTimeframe | "daily" | "weekly" | "monthly" | "environment" = "daily"
+    ) => {
+      if (!code || !annotationAsOfDate) return null;
+      const response = await withAnnotationApiRetry(() =>
+        api.post("/chart-annotations", {
+          code,
+          as_of_date: annotationAsOfDate,
+          timeframe,
+          object_type: objectType,
+          payload,
+          tags,
+          no_lookahead: payload.no_lookahead !== false,
+        })
+      );
+      const saved = response.data?.annotation ?? null;
+      if (saved) {
+        setAnnotations((current) => [...current.filter((item) => item.id !== saved.id), saved]);
+        setSelectedAnnotationId(saved.id);
+      }
+      return saved;
+    },
+    [annotationAsOfDate, code]
+  );
+
+  const buildAnnotationPayload = useCallback(
+    (objectType: ChartAnnotationType, patch: Record<string, any>) => ({
+      ...emptyAnnotationPayload(objectType),
+      timeframe: "daily",
+      code,
+      as_of_date: annotationAsOfDate,
+      ...patch,
+      no_lookahead: patch.no_lookahead ?? true,
+    }),
+    [annotationAsOfDate, code]
+  );
+
+  const handleAnnotationChange = useCallback(
+    (annotation: ChartAnnotation) => {
+      setAnnotations((current) => current.map((item) => (item.id === annotation.id ? annotation : item)));
+      void persistAnnotation(annotation);
+    },
+    [persistAnnotation]
+  );
+
+  const handleAnnotationDelete = useCallback(async (annotation: ChartAnnotation) => {
+    await withAnnotationApiRetry(() => api.delete(`/chart-annotations/${annotation.id}`));
+    setAnnotations((current) => current.filter((item) => item.id !== annotation.id));
+    setSelectedAnnotationId((current) => (current === annotation.id ? null : current));
+  }, []);
+
+  const handleSaveChartReadingNote = useCallback(async (options?: { allowDelete?: boolean }) => {
+    if (!code || !chartReadingNoteDate) return;
+    const nextNoteText = readingNoteText.trim();
+    const nextTags = parseTagsInput(readingTagsText);
+    if (!options?.allowDelete && !nextNoteText && nextTags.length === 0) return;
+    setReadingSaving(true);
+    try {
+      const linkedObjects: Array<Record<string, unknown>> = [
+        {
+          object_type: readingTargetType,
+          comment_type: readingCommentType,
+          resolution: "note_target",
+        },
+      ];
+      if (readingTargetType === "bar" && selectedBarForChartReading) {
+        const linkedBar: Record<string, unknown> = {
+          object_type: "bar",
+          timeframe: "daily",
+          bar_date: selectedBarForChartReading.date,
+          bar_time: selectedBarForChartReading.time,
+          open: selectedBarForChartReading.open,
+          high: selectedBarForChartReading.high,
+          low: selectedBarForChartReading.low,
+          close: selectedBarForChartReading.close,
+          volume: selectedBarForChartReading.volume,
+          comment_type: readingCommentType,
+          resolution: "selected_bar",
+        };
+        if (
+          selectedAnnotation?.object_type === "bar" &&
+          Number(selectedAnnotation.payload?.bar_time) === selectedBarForChartReading.time
+        ) {
+          linkedBar.annotation_id = selectedAnnotation.id;
+          linkedBar.resolution = "annotation_id";
+        }
+        linkedObjects.push(linkedBar);
+      }
+      await withAnnotationApiRetry(() =>
+        api.put("/chart-notes", {
+          code,
+          as_of_date: chartReadingNoteDate,
+          timeframe: readingTimeframe,
+          note_text: nextNoteText,
+          tags: nextTags,
+          linked_objects: linkedObjects,
+          no_lookahead: true,
+        })
+      );
+    } finally {
+      setReadingSaving(false);
+    }
+  }, [
+    chartReadingNoteDate,
+    code,
+    readingCommentType,
+    readingNoteText,
+    readingTagsText,
+    readingTargetType,
+    readingTimeframe,
+    selectedAnnotation,
+    selectedBarForChartReading,
+  ]);
+
+  useEffect(() => {
+    if (!annotationMode || !chartReadingNoteDate) return;
+    if (!readingNoteText.trim() && parseTagsInput(readingTagsText).length === 0) return;
+    const timer = window.setTimeout(() => {
+      void handleSaveChartReadingNote();
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [annotationMode, chartReadingNoteDate, handleSaveChartReadingNote, readingNoteText, readingTagsText]);
+
+  const handleClearChartReadingNote = useCallback(() => {
+    setReadingNoteText("");
+    setReadingTagsText("");
+    void handleSaveChartReadingNote({ allowDelete: true });
+  }, [handleSaveChartReadingNote]);
+
+  const handleAddChartNoteParagraph = useCallback(() => {
+    setChartNoteParagraphs((current) => [
+      ...current,
+      {
+        paragraph_id: `p${current.length + 1}`,
+        order: current.length + 1,
+        text: "",
+        comment_type: "review",
+        linked_objects: [],
+        reason_tags: [],
+        no_lookahead: true,
+      },
+    ]);
+  }, []);
+
+  const handleChartNoteParagraphChange = useCallback((paragraph: ChartNoteParagraph) => {
+    setChartNoteParagraphs((current) =>
+      current.map((item) => (item.paragraph_id === paragraph.paragraph_id ? paragraph : item))
+    );
+  }, []);
+
+  const appendLinkToParagraph = useCallback((paragraphId: string, link: ChartNoteLinkedObject) => {
+    setChartNoteParagraphs((current) =>
+      current.map((paragraph) =>
+        paragraph.paragraph_id === paragraphId
+          ? {
+              ...paragraph,
+              linked_objects: [
+                ...paragraph.linked_objects.filter(
+                  (item) =>
+                    !(
+                      item.annotation_id === link.annotation_id &&
+                      item.anchor_target === link.anchor_target &&
+                      item.object_type === link.object_type
+                    )
+                ),
+                link,
+              ],
+            }
+          : paragraph
+      )
+    );
+  }, []);
+
+  const handleLinkSelectedAnnotationToParagraph = useCallback(
+    (paragraphId: string) => {
+      if (!selectedAnnotation) return;
+      const payload = selectedAnnotation.payload ?? {};
+      appendLinkToParagraph(paragraphId, {
+        object_type: selectedAnnotation.object_type,
+        annotation_id: selectedAnnotation.id,
+        anchor_type: payload.anchor_type,
+        anchor_target: payload.anchor_target,
+        resolution: "annotation_id",
+      });
+    },
+    [appendLinkToParagraph, selectedAnnotation]
+  );
+
+  const handleLinkMa20ToParagraph = useCallback(
+    (paragraphId: string) => {
+      appendLinkToParagraph(paragraphId, {
+        object_type: "indicator",
+        anchor_type: "indicator",
+        anchor_target: "ma20",
+        resolution: "indicator_anchor",
+      });
+    },
+    [appendLinkToParagraph]
+  );
+
+  const handleSaveChartNote = useCallback(async () => {
+    if (!code || !annotationAsOfDate) return;
+    setChartNoteSaving(true);
+    try {
+      const normalizedParagraphs = chartNoteParagraphs.map((paragraph, index) => ({
+        ...paragraph,
+        order: index + 1,
+        no_lookahead: paragraph.no_lookahead !== false,
+      }));
+      await withAnnotationApiRetry(() =>
+        api.put("/chart-notes", {
+          code,
+          as_of_date: annotationAsOfDate,
+          timeframe: chartNoteTimeframe,
+          title: chartNoteTitle,
+          note_text: normalizedParagraphs.map((paragraph) => paragraph.text).filter(Boolean).join("\n"),
+          paragraphs: normalizedParagraphs,
+          tags: Array.from(new Set(normalizedParagraphs.flatMap((paragraph) => paragraph.reason_tags ?? []))),
+          no_lookahead: true,
+        })
+      );
+      await fetchChartNote();
+    } finally {
+      setChartNoteSaving(false);
+    }
+  }, [annotationAsOfDate, chartNoteParagraphs, chartNoteTimeframe, chartNoteTitle, code, fetchChartNote]);
+
+  const handleAnnotateSelectedDrawing = useCallback(() => {
+    if (!selectedDrawing) return;
+    const tags = parseTagsInput(readingTagsText);
+    if (selectedDrawing.kind === "drawBox") {
+      const startTime = Math.min(selectedDrawing.startTime, selectedDrawing.endTime);
+      const endTime = Math.max(selectedDrawing.startTime, selectedDrawing.endTime);
+      const priceLow = Math.min(selectedDrawing.topPrice, selectedDrawing.bottomPrice);
+      const priceHigh = Math.max(selectedDrawing.topPrice, selectedDrawing.bottomPrice);
+      void createAndPersistAnnotation(
+        "region",
+        buildAnnotationPayload("region", {
+          timeframe: readingTimeframe,
+          start_time: startTime,
+          end_time: endTime,
+          date_start: toAnnotationDate(startTime),
+          date_end: toAnnotationDate(endTime),
+          price_low: priceLow,
+          price_high: priceHigh,
+          free_text: readingNoteText,
+          tags,
+          linked_object: {
+            object_type: "region",
+            resolution: "payload_fallback",
+            timeframe: readingTimeframe,
+            payload: {
+              start_time: startTime,
+              end_time: endTime,
+              price_low: priceLow,
+              price_high: priceHigh,
+            },
+          },
+        }),
+        tags,
+        readingTimeframe
+      );
+      return;
+    }
+    if (selectedDrawing.kind === "horizontalLine") {
+      void createAndPersistAnnotation(
+        "line",
+        buildAnnotationPayload("line", {
+          timeframe: readingTimeframe,
+          price: selectedDrawing.price,
+          date_start: annotationAsOfDate,
+          free_text: readingNoteText,
+          tags,
+          linked_object: {
+            object_type: "line",
+            resolution: "payload_fallback",
+            timeframe: readingTimeframe,
+            payload: { price: selectedDrawing.price },
+          },
+        }),
+        tags,
+        readingTimeframe
+      );
+    }
+  }, [
+    annotationAsOfDate,
+    buildAnnotationPayload,
+    createAndPersistAnnotation,
+    readingNoteText,
+    readingTagsText,
+    readingTimeframe,
+    selectedDrawing,
+  ]);
+
+  const handleDailyAddDrawBox = useCallback(
+    (box) => {
+      if (annotationMode && annotationTool === "region") {
+        const startTime = Math.min(box.startTime, box.endTime);
+        const endTime = Math.max(box.startTime, box.endTime);
+        const priceLow = Math.min(box.topPrice, box.bottomPrice);
+        const priceHigh = Math.max(box.topPrice, box.bottomPrice);
+        void createAndPersistAnnotation(
+          "region",
+          buildAnnotationPayload("region", {
+            start_time: startTime,
+            end_time: endTime,
+            date_start: toAnnotationDate(startTime),
+            date_end: toAnnotationDate(endTime),
+            price_low: priceLow,
+            price_high: priceHigh,
+          })
+        );
+        return;
+      }
+      addDrawBox(dailyDrawingKey)(box);
+    },
+    [addDrawBox, annotationMode, annotationTool, buildAnnotationPayload, createAndPersistAnnotation, dailyDrawingKey]
+  );
+
+  const handleDailyAddHorizontalLine = useCallback(
+    (line) => {
+      if (annotationMode && annotationTool === "line") {
+        void createAndPersistAnnotation(
+          "line",
+          buildAnnotationPayload("line", {
+            price: line.price,
+            date_start: annotationAsOfDate,
+          })
+        );
+        return;
+      }
+      addHorizontalLine(dailyDrawingKey)(line);
+    },
+    [
+      addHorizontalLine,
+      annotationAsOfDate,
+      annotationMode,
+      annotationTool,
+      buildAnnotationPayload,
+      createAndPersistAnnotation,
+      dailyDrawingKey,
+    ]
   );
   const detailMarkerRange = useMemo(() => {
     if (!dailyCandles.length) return null;
@@ -3862,7 +4639,7 @@ export default function DetailView() {
     updateSelectedBar(dailyCandles.length - 1);
   }, [cursorMode, dailyCandles, selectedBarIndex, selectedBarData, selectedDate, updateSelectedBar]);
 
-  const handleDailyChartClick = (time: number | null) => {
+  const handleDailyChartClick = (time: number | null, point?: { x: number; y: number; price: number | null } | null) => {
     if (time === null) return;
     const nearestIndex = findNearestCandleIndex(dailyCandles, time);
     if (nearestIndex != null) {
@@ -3881,6 +4658,77 @@ export default function DetailView() {
     }
     if (nearestIndex != null) {
       updateSelectedBar(nearestIndex);
+      if (annotationMode && annotationTool === "bar") {
+        const candle = dailyCandles[nearestIndex];
+        if (candle) {
+          void createAndPersistAnnotation(
+            "bar",
+            buildAnnotationPayload("bar", {
+              bar_time: candle.time,
+              bar_date: toAnnotationDate(candle.time),
+            })
+          );
+        }
+      }
+      if (annotationMode && annotationTool === "callout") {
+        const candle = dailyCandles[nearestIndex];
+        if (candle) {
+          const tags = parseTagsInput(readingTagsText);
+          if (!pendingCalloutAnchor) {
+            const shapeAnchor =
+              readingTargetType === "region" || readingTargetType === "line" ? resolveSelectedShapeCalloutAnchor() : null;
+            const indicatorAnchor =
+              readingTargetType === "indicator"
+                ? resolveIndicatorCalloutAnchor(candle.time, point?.price ?? candle.close)
+                : null;
+            if (readingTargetType === "indicator" && !indicatorAnchor) {
+              return;
+            }
+            if ((readingTargetType === "region" || readingTargetType === "line") && !shapeAnchor) {
+              return;
+            }
+            setPendingCalloutAnchor({
+              time: shapeAnchor?.time ?? candle.time,
+              date: shapeAnchor?.date ?? toAnnotationDate(candle.time),
+              price:
+                shapeAnchor?.price ??
+                indicatorAnchor?.price ??
+                (Number.isFinite(point?.price) ? point!.price! : candle.close),
+              anchorType: shapeAnchor?.anchorType ?? (indicatorAnchor ? "indicator" : "bar"),
+              anchorTarget: shapeAnchor?.anchorTarget ?? indicatorAnchor?.target ?? "candle",
+              anchorObjectId: shapeAnchor?.anchorObjectId ?? null,
+              resolution: shapeAnchor?.resolution,
+              linkedObject: shapeAnchor?.linkedObject ?? null,
+            });
+            return;
+          }
+          void createAndPersistAnnotation(
+            "callout",
+            buildAnnotationPayload("callout", {
+              timeframe: readingTimeframe,
+              anchor_type: pendingCalloutAnchor.anchorType,
+              anchor_target: pendingCalloutAnchor.anchorTarget,
+              anchor_time: pendingCalloutAnchor.time,
+              anchor_date: pendingCalloutAnchor.date,
+              anchor_price: pendingCalloutAnchor.price,
+              anchor_object_id: pendingCalloutAnchor.anchorObjectId ?? undefined,
+              resolution: pendingCalloutAnchor.resolution,
+              linked_object: pendingCalloutAnchor.linkedObject ?? undefined,
+              label_position: {
+                date: toAnnotationDate(candle.time),
+                price: Number.isFinite(point?.price) ? point!.price : candle.close,
+              },
+              leader_line: true,
+              free_text: readingNoteText,
+              tags,
+              comment_type: readingCommentType,
+            }),
+            tags,
+            readingTimeframe
+          );
+          setPendingCalloutAnchor(null);
+        }
+      }
     }
   };
 
@@ -4026,9 +4874,6 @@ export default function DetailView() {
 
 
 
-  const dailyMaLines = useMemo(() => {
-    return buildDetailMaLines(dailyCandles, maSettings.daily);
-  }, [dailyCandles, maSettings.daily]);
   const dailyChartMaLines = useMemo(() => toDetailChartMaLines(dailyMaLines), [dailyMaLines]);
   const dailyPositionRiskOverlayDrawings = useMemo(
     () =>
@@ -4043,9 +4888,21 @@ export default function DetailView() {
     () => [...dailyDrawings.priceBands, ...dailyPositionRiskOverlayDrawings.priceBands],
     [dailyDrawings.priceBands, dailyPositionRiskOverlayDrawings.priceBands]
   );
+  const dailyDrawBoxesWithAnnotations = useMemo(
+    () => [...dailyDrawings.drawBoxes, ...annotationDrawBoxes],
+    [annotationDrawBoxes, dailyDrawings.drawBoxes]
+  );
   const dailyHorizontalLinesWithPositionRisk = useMemo(
-    () => [...dailyDrawings.horizontalLines, ...dailyPositionRiskOverlayDrawings.horizontalLines],
-    [dailyDrawings.horizontalLines, dailyPositionRiskOverlayDrawings.horizontalLines]
+    () => [
+      ...dailyDrawings.horizontalLines,
+      ...annotationHorizontalLines,
+      ...dailyPositionRiskOverlayDrawings.horizontalLines,
+    ],
+    [
+      annotationHorizontalLines,
+      dailyDrawings.horizontalLines,
+      dailyPositionRiskOverlayDrawings.horizontalLines,
+    ]
   );
   const dailyMaLineByPeriod = useMemo(
     () => new Map(dailyMaLines.map((line) => [line.period, line])),
@@ -4546,7 +5403,14 @@ export default function DetailView() {
     autoAnalysisBackfillRequest,
   ]);
   const mergedDailyEventMarkers = useMemo(() => {
-    const merged = [...dailyEventMarkers];
+    const merged = [...dailyEventMarkers, ...annotationEventMarkers];
+    if (annotationMode && readingTargetType === "bar" && selectedBarForChartReading) {
+      merged.push({
+        time: selectedBarForChartReading.time,
+        label: "注釈対象",
+        kind: "tdnet-neutral",
+      });
+    }
     if (showRankingMarkers && dailyCandles.length > 0 && code) {
       chartRankingAppearances.forEach((item) => {
         if (!item || typeof item !== "object") return;
@@ -4617,16 +5481,21 @@ export default function DetailView() {
   }, [
     code,
     chartRankingAppearances,
+    annotationEventMarkers,
+    annotationMode,
     dailyEventMarkers,
     dailyCandles,
     exactDecisionToneByDate,
     persistedSignalEvents,
+    readingTargetType,
+    selectedBarForChartReading,
     showDecisionMarkers,
     showRankingMarkers,
   ]);
   const compareMonthlyInitialRange = useMemo(() => {
-    const months = rangeMonths ?? (compareAsOfTime ? COMPARE_FOCUS_MONTHS : null);
+    const months = rangeMonths;
     if (!months) return null;
+    if (compareAsOfTime) return buildCompareAroundAsOfRange(compareMonthlyCandles, compareAsOfTime);
     return buildRange(compareMonthlyCandles, months);
   }, [rangeMonths, compareMonthlyCandles, compareAsOfTime]);
   const compareMonthlyBaseRange = useMemo(() => {
@@ -4636,8 +5505,9 @@ export default function DetailView() {
   }, [rangeMonths, mainMonthlyTargetRange, monthlyCandles]);
   const compareDailyInitialRange = useMemo(() => {
     if (!compareDailyCandles.length) return null;
-    const months = rangeMonths ?? (compareAsOfTime ? COMPARE_FOCUS_MONTHS : null);
+    const months = rangeMonths;
     if (!months) return null;
+    if (compareAsOfTime) return buildCompareAroundAsOfRange(compareDailyCandles, compareAsOfTime);
     return buildRange(compareDailyCandles, months);
   }, [compareDailyCandles, rangeMonths, compareAsOfTime]);
   const compareMonthlyVisibleRange = useMemo(
@@ -4952,43 +5822,50 @@ export default function DetailView() {
     };
   }, [showPositionLedger]);
 
-  // Cursor mode keyboard handler
+  // Selected daily candle keyboard handler
   useEffect(() => {
-    if (!cursorMode) return;
+    if (!cursorMode && !selectedBarData) return;
 
     const handleCursorKeyDown = (e: KeyboardEvent) => {
-      // Don't handle if typing in textarea or input
+      // Do not steal caret movement or select navigation while editing fields.
       const target = e.target as HTMLElement;
-      if (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT') {
+      if (
+        target.tagName === "TEXTAREA" ||
+        target.tagName === "INPUT" ||
+        target.tagName === "SELECT" ||
+        target.isContentEditable
+      ) {
         return;
       }
 
       switch (e.key) {
-        case 'ArrowLeft':
+        case "ArrowLeft":
           e.preventDefault();
           moveToPrevDay();
           break;
-        case 'ArrowRight':
+        case "ArrowRight":
           e.preventDefault();
           moveToNextDay();
           break;
-        case 'c':
-        case 'C':
-          if (!e.ctrlKey && !e.metaKey) {
+        case "c":
+        case "C":
+          if (cursorMode && !e.ctrlKey && !e.metaKey) {
             e.preventDefault();
             toggleCursorMode();
           }
           break;
-        case 'Escape':
-          e.preventDefault();
-          setCursorMode(false);
+        case "Escape":
+          if (cursorMode) {
+            e.preventDefault();
+            setCursorMode(false);
+          }
           break;
       }
     };
 
-    window.addEventListener('keydown', handleCursorKeyDown);
-    return () => window.removeEventListener('keydown', handleCursorKeyDown);
-  }, [cursorMode, moveToNextDay, moveToPrevDay, toggleCursorMode]);
+    window.addEventListener("keydown", handleCursorKeyDown);
+    return () => window.removeEventListener("keydown", handleCursorKeyDown);
+  }, [cursorMode, moveToNextDay, moveToPrevDay, selectedBarData, toggleCursorMode]);
 
 
   const compareHasMoreDaily = compareDailyData.length >= compareDailyLimit;
@@ -5119,7 +5996,7 @@ export default function DetailView() {
         : "すべて読込済み";
 
   const toggleRange = (months: number) => {
-    setRangeMonths((prev) => (prev === months ? null : months));
+    setRangeMonths(months);
     manualCompareDailyRangeRef.current = null;
     manualCompareMonthlyRangeRef.current = null;
     // Suppress programmatic visible-range events after preset change
@@ -5379,14 +6256,22 @@ export default function DetailView() {
     const currentMainAsOf = mainAsOf ?? null;
     return storedMainAsOf === currentMainAsOf;
   }, [compareList, code, mainAsOf]);
-  const nextCompareItem = useMemo(() => {
+  const currentCompareListIndex = useMemo(() => {
     if (!compareListEligible || !compareCode) return null;
-    const index = compareListItems.findIndex(
-      (item) => item.ticker === compareCode && (item.asof ?? null) === (compareAsOf ?? null)
-    );
-    if (index < 0) return null;
-    return compareListItems[index + 1] ?? null;
-  }, [compareListEligible, compareListItems, compareCode, compareAsOf]);
+    const index =
+      compareIndex != null &&
+      compareListItems[compareIndex]?.ticker === compareCode &&
+      (compareListItems[compareIndex]?.asof ?? null) === (compareAsOf ?? null)
+        ? compareIndex
+        : compareListItems.findIndex(
+            (item) => item.ticker === compareCode && (item.asof ?? null) === (compareAsOf ?? null)
+          );
+    return index >= 0 ? index : null;
+  }, [compareListEligible, compareListItems, compareCode, compareAsOf, compareIndex]);
+  const nextCompareItem = useMemo(() => {
+    if (currentCompareListIndex == null) return null;
+    return compareListItems[currentCompareListIndex + 1] ?? null;
+  }, [compareListItems, currentCompareListIndex]);
   const prevCode = useMemo(() => {
     if (!code) return null;
     const index = listCodes.indexOf(code);
@@ -5497,13 +6382,13 @@ export default function DetailView() {
       }}
     />
   );
-  const headerCursorButton = (
+  const headerCursorButton = annotationMode ? null : (
     <IconButton
-      label={cursorMode ? "カーソルON" : "カーソルOFF"}
+      label={cursorMode ? "日付選択 ON" : "日付選択"}
       icon={cursorMode ? <IconPointer size={18} /> : <IconPointerOff size={18} />}
       variant="iconLabel"
       selected={cursorMode}
-      tooltip="カーソル ON/OFF"
+      tooltip="チャートの日付を選択"
       className="cursor-button"
       onClick={toggleCursorMode}
     />
@@ -5613,7 +6498,7 @@ export default function DetailView() {
               className={`popover-item ${cursorMode ? "active" : ""}`}
               onClick={toggleCursorMode}
             >
-              <span className="popover-item-label">カーソル</span>
+              <span className="popover-item-label">日付選択</span>
               {cursorMode && <span className="popover-check">ON</span>}
             </button>
           </div>
@@ -5811,6 +6696,10 @@ export default function DetailView() {
                       if (nextCompareItem.asof) {
                         params.set("compareAsOf", nextCompareItem.asof);
                       }
+                      const nextIndex = currentCompareListIndex == null ? -1 : currentCompareListIndex + 1;
+                      if (nextIndex >= 0) {
+                        params.set("compareIndex", String(nextIndex));
+                      }
                       navigate(`/detail/${code}?${params.toString()}`);
                     }}
                   >
@@ -5853,7 +6742,7 @@ export default function DetailView() {
                       activeDrawColor={activeDrawColor}
                       activeLineOpacity={activeLineOpacity}
                       activeLineWidth={activeLineWidth}
-                      onSelectShape={setSelectedDrawing}
+                      onSelectShape={handleSelectDrawing}
                       onAddTimeZone={addTimeZone(monthlyDrawingKey)}
                       onUpdateTimeZone={updateTimeZone(monthlyDrawingKey)}
                       onDeleteTimeZone={deleteTimeZone(monthlyDrawingKey)}
@@ -5900,7 +6789,7 @@ export default function DetailView() {
                         boxes={compareBoxes}
                         showBoxes={showBoxes}
                         gapBands={gapBandsOverride}
-                        drawingEnabled={activeDrawTool != null}
+                        drawingEnabled={dailyAnnotationDrawTool != null}
                         timeZones={compareMonthlyDrawings.timeZones}
                         priceBands={compareMonthlyDrawings.priceBands}
                         drawBoxes={compareMonthlyDrawings.drawBoxes}
@@ -5912,7 +6801,7 @@ export default function DetailView() {
                         activeDrawColor={activeDrawColor}
                         activeLineOpacity={activeLineOpacity}
                         activeLineWidth={activeLineWidth}
-                        onSelectShape={setSelectedDrawing}
+                        onSelectShape={handleSelectDrawing}
                         onAddTimeZone={addTimeZone(compareMonthlyDrawingKey)}
                         onUpdateTimeZone={updateTimeZone(compareMonthlyDrawingKey)}
                         onDeleteTimeZone={deleteTimeZone(compareMonthlyDrawingKey)}
@@ -5967,25 +6856,27 @@ export default function DetailView() {
                         drawingEnabled={activeDrawTool != null}
                         timeZones={dailyDrawings.timeZones}
                         priceBands={dailyPriceBandsWithPositionRisk}
-                        drawBoxes={dailyDrawings.drawBoxes}
+                        drawBoxes={dailyDrawBoxesWithAnnotations}
                         horizontalLines={dailyHorizontalLinesWithPositionRisk}
+                        callouts={annotationCallouts}
                         showPriceBands
                         meeMeeDetailChrome={DETAIL_CHROME_DAILY}
-                        activeTool={activeDrawTool}
+                        activeTool={dailyAnnotationDrawTool}
                         activeDrawColor={activeDrawColor}
                         activeLineOpacity={activeLineOpacity}
                         activeLineWidth={activeLineWidth}
-                        onSelectShape={setSelectedDrawing}
+                        onSelectShape={handleSelectDrawing}
+                        onSelectCallout={setSelectedAnnotationId}
                         onAddTimeZone={addTimeZone(dailyDrawingKey)}
                         onUpdateTimeZone={updateTimeZone(dailyDrawingKey)}
                         onDeleteTimeZone={deleteTimeZone(dailyDrawingKey)}
                         onAddPriceBand={addPriceBand(dailyDrawingKey)}
                         onUpdatePriceBand={updatePriceBand(dailyDrawingKey)}
                         onDeletePriceBand={deletePriceBand(dailyDrawingKey)}
-                        onAddDrawBox={addDrawBox(dailyDrawingKey)}
+                        onAddDrawBox={handleDailyAddDrawBox}
                         onUpdateDrawBox={updateDrawBox(dailyDrawingKey)}
                         onDeleteDrawBox={deleteDrawBox(dailyDrawingKey)}
-                        onAddHorizontalLine={addHorizontalLine(dailyDrawingKey)}
+                        onAddHorizontalLine={handleDailyAddHorizontalLine}
                         onUpdateHorizontalLine={updateHorizontalLine(dailyDrawingKey)}
                         onDeleteHorizontalLine={deleteHorizontalLine(dailyDrawingKey)}
                         partialTimes={dailyMonthBoundaries}
@@ -6001,10 +6892,12 @@ export default function DetailView() {
                           latestTradeTime
                         }}
                         cursorTime={resolvedCursorAsOfTime}
+                        selectedTime={selectedBarData?.time ?? null}
                         onCrosshairMove={(time, point) =>
                           handleCompareDailyCrosshair(time, "left", point)
                         }
                         onVisibleRangeChange={handleDailyVisibleRangeChange}
+                        onChartClick={handleDailyChartClick}
                       />
                     )}
                     {holdDailyChartUntilDecisionReady && (
@@ -6048,7 +6941,7 @@ export default function DetailView() {
                         activeDrawColor={activeDrawColor}
                         activeLineOpacity={activeLineOpacity}
                         activeLineWidth={activeLineWidth}
-                        onSelectShape={setSelectedDrawing}
+                        onSelectShape={handleSelectDrawing}
                         onAddTimeZone={addTimeZone(compareDailyDrawingKey)}
                         onUpdateTimeZone={updateTimeZone(compareDailyDrawingKey)}
                         onDeleteTimeZone={deleteTimeZone(compareDailyDrawingKey)}
@@ -6112,28 +7005,30 @@ export default function DetailView() {
                       boxes={boxes}
                       showBoxes={showBoxes}
                       gapBands={gapBandsOverride}
-                      drawingEnabled={activeDrawTool != null}
+                      drawingEnabled={dailyAnnotationDrawTool != null}
                       timeZones={dailyDrawings.timeZones}
                       priceBands={dailyPriceBandsWithPositionRisk}
-                      drawBoxes={dailyDrawings.drawBoxes}
+                      drawBoxes={dailyDrawBoxesWithAnnotations}
                       horizontalLines={dailyHorizontalLinesWithPositionRisk}
+                      callouts={annotationCallouts}
                       showPriceBands
                       meeMeeDetailChrome={DETAIL_CHROME_DAILY}
-                      activeTool={activeDrawTool}
+                      activeTool={dailyAnnotationDrawTool}
                       activeDrawColor={activeDrawColor}
                       activeLineOpacity={activeLineOpacity}
                       activeLineWidth={activeLineWidth}
-                      onSelectShape={setSelectedDrawing}
+                      onSelectShape={handleSelectDrawing}
+                      onSelectCallout={setSelectedAnnotationId}
                       onAddTimeZone={addTimeZone(dailyDrawingKey)}
                       onUpdateTimeZone={updateTimeZone(dailyDrawingKey)}
                       onDeleteTimeZone={deleteTimeZone(dailyDrawingKey)}
                       onAddPriceBand={addPriceBand(dailyDrawingKey)}
                       onUpdatePriceBand={updatePriceBand(dailyDrawingKey)}
                       onDeletePriceBand={deletePriceBand(dailyDrawingKey)}
-                      onAddDrawBox={addDrawBox(dailyDrawingKey)}
+                      onAddDrawBox={handleDailyAddDrawBox}
                       onUpdateDrawBox={updateDrawBox(dailyDrawingKey)}
                       onDeleteDrawBox={deleteDrawBox(dailyDrawingKey)}
-                      onAddHorizontalLine={addHorizontalLine(dailyDrawingKey)}
+                      onAddHorizontalLine={handleDailyAddHorizontalLine}
                       onUpdateHorizontalLine={updateHorizontalLine(dailyDrawingKey)}
                       onDeleteHorizontalLine={deleteHorizontalLine(dailyDrawingKey)}
                       partialTimes={dailyMonthBoundaries}
@@ -6149,8 +7044,10 @@ export default function DetailView() {
                         latestTradeTime
                       }}
                       cursorTime={resolvedCursorAsOfTime}
+                      selectedTime={selectedBarData?.time ?? null}
                       onCrosshairMove={handleDailyCrosshair}
                       onVisibleRangeChange={handleDailyVisibleRangeChange}
+                      onChartClick={handleDailyChartClick}
                     />
                   )
                 )}
@@ -6176,7 +7073,7 @@ export default function DetailView() {
                     activeDrawColor={activeDrawColor}
                     activeLineOpacity={activeLineOpacity}
                     activeLineWidth={activeLineWidth}
-                    onSelectShape={setSelectedDrawing}
+                    onSelectShape={handleSelectDrawing}
                     onAddTimeZone={addTimeZone(weeklyDrawingKey)}
                     onUpdateTimeZone={updateTimeZone(weeklyDrawingKey)}
                     onDeleteTimeZone={deleteTimeZone(weeklyDrawingKey)}
@@ -6202,6 +7099,7 @@ export default function DetailView() {
                       latestTradeTime
                     }}
                     cursorTime={resolvedCursorAsOfTime}
+                    selectedTime={selectedBarData?.time ?? null}
                     onCrosshairMove={handleWeeklyCrosshair}
                     onVisibleRangeChange={handleWeeklyVisibleRangeChange}
                   />
@@ -6228,7 +7126,7 @@ export default function DetailView() {
                     activeDrawColor={activeDrawColor}
                     activeLineOpacity={activeLineOpacity}
                     activeLineWidth={activeLineWidth}
-                    onSelectShape={setSelectedDrawing}
+                    onSelectShape={handleSelectDrawing}
                     onAddTimeZone={addTimeZone(monthlyDrawingKey)}
                     onUpdateTimeZone={updateTimeZone(monthlyDrawingKey)}
                     onDeleteTimeZone={deleteTimeZone(monthlyDrawingKey)}
@@ -6254,6 +7152,7 @@ export default function DetailView() {
                       latestTradeTime
                     }}
                     cursorTime={resolvedCursorAsOfTime}
+                    selectedTime={selectedBarData?.time ?? null}
                     onCrosshairMove={handleMonthlyCrosshair}
                     onVisibleRangeChange={handleMonthlyVisibleRangeChange}
                   />
@@ -6315,28 +7214,30 @@ export default function DetailView() {
                       boxes={boxes}
                       showBoxes={showBoxes}
                       gapBands={gapBandsOverride}
-                      drawingEnabled={activeDrawTool != null}
+                      drawingEnabled={dailyAnnotationDrawTool != null}
                       timeZones={dailyDrawings.timeZones}
                       priceBands={dailyPriceBandsWithPositionRisk}
-                      drawBoxes={dailyDrawings.drawBoxes}
+                      drawBoxes={dailyDrawBoxesWithAnnotations}
                       horizontalLines={dailyHorizontalLinesWithPositionRisk}
+                      callouts={annotationCallouts}
                       showPriceBands
                       meeMeeDetailChrome={DETAIL_CHROME_DAILY}
-                      activeTool={activeDrawTool}
+                      activeTool={dailyAnnotationDrawTool}
                       activeDrawColor={activeDrawColor}
                       activeLineOpacity={activeLineOpacity}
                       activeLineWidth={activeLineWidth}
-                      onSelectShape={setSelectedDrawing}
+                      onSelectShape={handleSelectDrawing}
+                      onSelectCallout={setSelectedAnnotationId}
                       onAddTimeZone={addTimeZone(dailyDrawingKey)}
                       onUpdateTimeZone={updateTimeZone(dailyDrawingKey)}
                       onDeleteTimeZone={deleteTimeZone(dailyDrawingKey)}
                       onAddPriceBand={addPriceBand(dailyDrawingKey)}
                       onUpdatePriceBand={updatePriceBand(dailyDrawingKey)}
                       onDeletePriceBand={deletePriceBand(dailyDrawingKey)}
-                      onAddDrawBox={addDrawBox(dailyDrawingKey)}
+                      onAddDrawBox={handleDailyAddDrawBox}
                       onUpdateDrawBox={updateDrawBox(dailyDrawingKey)}
                       onDeleteDrawBox={deleteDrawBox(dailyDrawingKey)}
-                      onAddHorizontalLine={addHorizontalLine(dailyDrawingKey)}
+                      onAddHorizontalLine={handleDailyAddHorizontalLine}
                       onUpdateHorizontalLine={updateHorizontalLine(dailyDrawingKey)}
                       onDeleteHorizontalLine={deleteHorizontalLine(dailyDrawingKey)}
                       partialTimes={dailyMonthBoundaries}
@@ -6351,8 +7252,9 @@ export default function DetailView() {
                         currentPositions,
                         latestTradeTime
                       }}
-                      cursorTime={resolvedCursorAsOfTime}
-                      onCrosshairMove={handleDailyCrosshair}
+                        cursorTime={resolvedCursorAsOfTime}
+                        selectedTime={selectedBarData?.time ?? null}
+                        onCrosshairMove={handleDailyCrosshair}
                       onVisibleRangeChange={handleDailyVisibleRangeChange}
                       onChartClick={handleDailyChartClick}
                     />
@@ -6403,7 +7305,7 @@ export default function DetailView() {
                         activeDrawColor={activeDrawColor}
                         activeLineOpacity={activeLineOpacity}
                         activeLineWidth={activeLineWidth}
-                        onSelectShape={setSelectedDrawing}
+                        onSelectShape={handleSelectDrawing}
                         onAddTimeZone={addTimeZone(weeklyDrawingKey)}
                         onUpdateTimeZone={updateTimeZone(weeklyDrawingKey)}
                         onDeleteTimeZone={deleteTimeZone(weeklyDrawingKey)}
@@ -6419,6 +7321,7 @@ export default function DetailView() {
                         partialTimes={weeklyMonthBoundaries}
                         visibleRange={resolvedWeeklyVisibleRange}
                         cursorTime={resolvedCursorAsOfTime}
+                        selectedTime={selectedBarData?.time ?? null}
                         onCrosshairMove={handleWeeklyCrosshair}
                         onVisibleRangeChange={handleWeeklyVisibleRangeChange}
                       />
@@ -6470,7 +7373,7 @@ export default function DetailView() {
                         activeDrawColor={activeDrawColor}
                         activeLineOpacity={activeLineOpacity}
                         activeLineWidth={activeLineWidth}
-                        onSelectShape={setSelectedDrawing}
+                        onSelectShape={handleSelectDrawing}
                         onAddTimeZone={addTimeZone(monthlyDrawingKey)}
                         onUpdateTimeZone={updateTimeZone(monthlyDrawingKey)}
                         onDeleteTimeZone={deleteTimeZone(monthlyDrawingKey)}
@@ -6486,6 +7389,7 @@ export default function DetailView() {
                         partialTimes={monthlyYearBoundaries}
                         visibleRange={resolvedMonthlyVisibleRange}
                         cursorTime={resolvedCursorAsOfTime}
+                        selectedTime={selectedBarData?.time ?? null}
                         onCrosshairMove={handleMonthlyCrosshair}
                         onVisibleRangeChange={handleMonthlyVisibleRangeChange}
                       />
@@ -6591,6 +7495,50 @@ export default function DetailView() {
                 onNextDay={moveToNextDay}
                 onCopyForConsult={handleCopyForConsult}
               />
+            )}
+            {rightRailKind === "annotation" && (
+              <ScreenPanel title="チャート読解" className="detail-annotation-panel">
+                <ChartReadingPanel
+                  loading={annotationsLoading}
+                  timeframe={readingTimeframe}
+                  targetType={readingTargetType}
+                  commentType={readingCommentType}
+                  noteText={readingNoteText}
+                  tagsText={readingTagsText}
+                  saving={readingSaving}
+                  selectedDrawing={selectedDrawing}
+                  selectedAnnotation={selectedAnnotation}
+                  selectedBar={selectedBarForChartReading}
+                  noteDate={chartReadingNoteDate}
+                  onTimeframeChange={setReadingTimeframe}
+                  onTargetTypeChange={setReadingTargetType}
+                  onCommentTypeChange={setReadingCommentType}
+                  onNoteTextChange={setReadingNoteText}
+                  onTagsTextChange={setReadingTagsText}
+                  onClearNote={handleClearChartReadingNote}
+                  onAnnotateDrawing={handleAnnotateSelectedDrawing}
+                  onAnnotationChange={handleAnnotationChange}
+                  onAnnotationDelete={handleAnnotationDelete}
+                />
+              </ScreenPanel>
+            )}
+            {rightRailKind === "chart-note" && (
+              <ScreenPanel title="チャートノート" className="detail-annotation-panel">
+                <ChartNotePanel
+                  title={chartNoteTitle}
+                  timeframe={chartNoteTimeframe}
+                  paragraphs={chartNoteParagraphs}
+                  selectedAnnotation={selectedAnnotation}
+                  saving={chartNoteSaving}
+                  onTitleChange={setChartNoteTitle}
+                  onTimeframeChange={setChartNoteTimeframe}
+                  onAddParagraph={handleAddChartNoteParagraph}
+                  onParagraphChange={handleChartNoteParagraphChange}
+                  onLinkSelectedAnnotation={handleLinkSelectedAnnotationToParagraph}
+                  onLinkMa20={handleLinkMa20ToParagraph}
+                  onSave={handleSaveChartNote}
+                />
+              </ScreenPanel>
             )}
             {rightRailKind === "financial" && (
               <Suspense fallback={null}>

@@ -186,6 +186,53 @@ class StockRepository:
             grouped.setdefault(code, []).append(tuple(row[1:]))
         return grouped
 
+    def get_daily_bars_with_source_around_batch(
+        self,
+        codes: List[str],
+        before_limit: int = 400,
+        after_limit: int = 0,
+        asof_dt: int | None = None,
+    ) -> Dict[str, List[Tuple]]:
+        unique_codes = [code for code in dict.fromkeys(str(code).strip() for code in codes) if code]
+        if not unique_codes:
+            return {}
+        if asof_dt is None or after_limit <= 0:
+            return self.get_daily_bars_with_source_batch(unique_codes, limit=before_limit, asof_dt=asof_dt)
+
+        normalized_day_expr = """
+            CASE
+                WHEN length(CAST(abs(date) AS VARCHAR)) = 8
+                    THEN CAST(epoch(strptime(CAST(date AS VARCHAR), '%Y%m%d')) AS BIGINT)
+                ELSE CAST(date AS BIGINT)
+            END
+        """
+
+        before_query = f"""
+            SELECT code, date, o, h, l, c, v, COALESCE(source, 'pan') AS source
+            FROM daily_bars
+            WHERE code = ? AND {normalized_day_expr} <= ?
+            ORDER BY {normalized_day_expr} DESC
+            LIMIT ?
+        """
+        after_query = f"""
+            SELECT code, date, o, h, l, c, v, COALESCE(source, 'pan') AS source
+            FROM daily_bars
+            WHERE code = ? AND {normalized_day_expr} > ?
+            ORDER BY {normalized_day_expr} ASC
+            LIMIT ?
+        """
+        with self._get_read_conn() as conn:
+            rows: List[Tuple] = []
+            for code in unique_codes:
+                rows.extend(conn.execute(before_query, [code, asof_dt, int(before_limit)]).fetchall())
+                rows.extend(conn.execute(after_query, [code, asof_dt, int(after_limit)]).fetchall())
+
+        grouped: Dict[str, List[Tuple]] = {code: [] for code in unique_codes}
+        for row in sorted(rows, key=lambda item: (str(item[0]), int(item[1]))):
+            code = str(row[0])
+            grouped.setdefault(code, []).append(tuple(row[1:]))
+        return grouped
+
     def get_weekly_bars_batch(
         self,
         codes: List[str],
@@ -430,6 +477,61 @@ class StockRepository:
         for code, code_rows in list(grouped.items()):
             recent_daily = recent_daily_map.get(code, [])
             grouped[code] = self._finalize_monthly_rows(code_rows, recent_daily, limit=limit)
+        return grouped
+
+    def get_monthly_bars_around_batch(
+        self,
+        codes: List[str],
+        before_limit: int = 120,
+        after_limit: int = 0,
+        asof_dt: int | None = None,
+        recent_daily_rows_by_code: Dict[str, List[Tuple]] | None = None,
+    ) -> Dict[str, List[Tuple]]:
+        unique_codes = [code for code in dict.fromkeys(str(code).strip() for code in codes) if code]
+        if not unique_codes:
+            return {}
+        if asof_dt is None or after_limit <= 0:
+            return self.get_monthly_bars_batch(
+                unique_codes,
+                limit=before_limit,
+                asof_dt=asof_dt,
+                recent_daily_rows_by_code=recent_daily_rows_by_code,
+            )
+
+        normalized_month_expr = """
+            CASE
+                WHEN length(CAST(abs(month) AS VARCHAR)) = 8
+                    THEN CAST(epoch(strptime(CAST(month AS VARCHAR), '%Y%m%d')) AS BIGINT)
+                WHEN length(CAST(abs(month) AS VARCHAR)) = 6
+                    THEN CAST(epoch(strptime(CAST(month AS VARCHAR) || '01', '%Y%m%d')) AS BIGINT)
+                ELSE CAST(month AS BIGINT)
+            END
+        """
+
+        before_query = f"""
+            SELECT code, month, o, h, l, c, v
+            FROM monthly_bars
+            WHERE code = ? AND {normalized_month_expr} <= ?
+            ORDER BY {normalized_month_expr} DESC
+            LIMIT ?
+        """
+        after_query = f"""
+            SELECT code, month, o, h, l, c, v
+            FROM monthly_bars
+            WHERE code = ? AND {normalized_month_expr} > ?
+            ORDER BY {normalized_month_expr} ASC
+            LIMIT ?
+        """
+        with self._get_read_conn() as conn:
+            rows: List[Tuple] = []
+            for code in unique_codes:
+                rows.extend(conn.execute(before_query, [code, asof_dt, int(before_limit)]).fetchall())
+                rows.extend(conn.execute(after_query, [code, asof_dt, int(after_limit)]).fetchall())
+
+        grouped: Dict[str, List[Tuple]] = {code: [] for code in unique_codes}
+        for row in sorted(rows, key=lambda item: (str(item[0]), int(item[1]))):
+            code = str(row[0])
+            grouped.setdefault(code, []).append(tuple(row[1:]))
         return grouped
 
     def get_latest_params_for_screening(self, codes: Optional[List[str]] = None) -> List[Tuple]:

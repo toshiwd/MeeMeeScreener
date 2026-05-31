@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { shallow } from "zustand/shallow";
@@ -545,7 +545,7 @@ export default function CandidatesView() {
       return;
     }
 
-    setToastMessage("スクショ生成を開始します...");
+    setToastMessage("スクショ作成を開始します...");
     const result = await generateScreenshots(consultTargets);
 
     if (result.success) {
@@ -656,7 +656,7 @@ export default function CandidatesView() {
           phaseN={ticker?.phaseN ?? null}
           action={{
             label: "\u2713",
-            ariaLabel: "蛟呵｣懊°繧牙､悶☆",
+            ariaLabel: "候補から外す",
             className: "candidate-toggle active",
             onClick: () => removeKeep(item.code)
           }}
@@ -707,7 +707,6 @@ export default function CandidatesView() {
         style={listStyles}
       >
         {loadingList && <div className="rank-status">読み込み中...</div>}
-        {emptyLabel && <div className="rank-status">{emptyLabel}</div>}
         <VirtualizedCardGrid
           items={sortedItems}
           columns={columns}
@@ -856,7 +855,7 @@ export default function CandidatesView() {
                   className={consultTab === "selection" ? "active" : ""}
                   onClick={() => setConsultTab("selection")}
                 >
-                  選定相談
+                  選択相談
                 </button>
                 <button
                   type="button"
@@ -873,14 +872,14 @@ export default function CandidatesView() {
                   onClick={buildConsultation}
                   disabled={!consultTargets.length || consultBusy}
                 >
-                  {consultBusy ? "作成中..." : "相談作成"}
+                {consultBusy ? "作成中..." : "相談作成"}
                 </button>
                 <button
                   type="button"
                   onClick={handleCreateScreenshots}
                   disabled={!consultTargets.length || screenshotBusy}
                 >
-                  {screenshotBusy ? "作成中..." : "スクショ作成"}
+                {screenshotBusy ? "作成中..." : "スクショ作成"}
                 </button>
                 <button type="button" onClick={handleCopyConsult} disabled={!consultText}>
                   コピー

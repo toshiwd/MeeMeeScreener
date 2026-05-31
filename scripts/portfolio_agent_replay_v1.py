@@ -60,6 +60,9 @@ REQUIRED_ARTIFACTS = (
     "run_config.json",
     "daily_market_snapshot.csv",
     "daily_candidate_snapshot.csv",
+    "daily_candidate_trace.csv",
+    "candidate_trace_schema.json",
+    "candidate_trace_generation_report.json",
     "daily_action_ledger.jsonl",
     "orders_ledger.csv",
     "positions_ledger.csv",
@@ -336,6 +339,97 @@ def build_no_lookahead_audit(
 
 def _candidate_features(row: pd.Series) -> dict[str, Any]:
     return {column: row.get(column) for column in SELECTION_ALLOWED_COLUMNS if column in row.index}
+
+
+def _candidate_trace_schema() -> dict[str, Any]:
+    return {
+        "schema_version": "candidate_trace_schema_v1",
+        "axis_id": AXIS_ID,
+        "scope": "TRADEX-only",
+        "required_join_key": ["decision_date", "code", "baseline_rank", "baseline_score", "source_run_id"],
+        "columns": [
+            "trace_schema_version",
+            "source_run_id",
+            "source_artifact_path",
+            "decision_date",
+            "code",
+            "baseline_rank",
+            "baseline_score",
+            "score_components_json",
+            "score_component_attribution_available",
+            "candidate_source",
+            "signal_family",
+            "setup_name",
+            "reason_codes_json",
+            "regime_bucket",
+            "gate_flags_json",
+            "risk_flags_json",
+            "event_flags_json",
+            "liquidity_flags_json",
+            "feature_snapshot_json",
+            "trace_availability_json",
+        ],
+        "rules": {
+            "point_in_time": True,
+            "ranking_order_changed": False,
+            "score_formula_changed": False,
+            "fabricate_missing_semantics": False,
+            "missing_semantics_are_null_and_recorded": True,
+        },
+    }
+
+
+def _candidate_trace_row(*, output_dir: Path, run_id: str, ymd: int, row: pd.Series, rank: int, score: int, next_open_available: bool) -> dict[str, Any]:
+    missing_semantics = {
+        "candidate_source": False,
+        "signal_family": False,
+        "setup_name": False,
+        "reason_codes": False,
+        "regime_bucket": False,
+        "event_flags": False,
+    }
+    gate_flags = {
+        "entry_allowed_by_score": bool(row.get("entry_allowed_by_score")),
+        "downside_guard_blocked": bool(row.get("downside_guard_blocked")),
+    }
+    liquidity_flags = {"next_open_available": bool(next_open_available)}
+    risk_flags = {"downside_guard_blocked": bool(row.get("downside_guard_blocked"))}
+    return {
+        "trace_schema_version": "candidate_trace_schema_v1",
+        "source_run_id": run_id,
+        "source_artifact_path": str(output_dir / "daily_candidate_snapshot.csv"),
+        "decision_date": int(ymd),
+        "code": str(row["code"]),
+        "baseline_rank": int(rank),
+        "baseline_score": int(score),
+        "score_components_json": row.get("score_components_json"),
+        "score_component_attribution_available": bool(row.get("score_components_json")),
+        "candidate_source": None,
+        "signal_family": None,
+        "setup_name": None,
+        "reason_codes_json": "[]",
+        "regime_bucket": None,
+        "gate_flags_json": _json_text(gate_flags),
+        "risk_flags_json": _json_text(risk_flags),
+        "event_flags_json": "{}",
+        "liquidity_flags_json": _json_text(liquidity_flags),
+        "feature_snapshot_json": _json_text(_candidate_features(row)),
+        "trace_availability_json": _json_text(
+            {
+                "score_components_json": bool(row.get("score_components_json")),
+                "candidate_source": missing_semantics["candidate_source"],
+                "signal_family": missing_semantics["signal_family"],
+                "setup_name": missing_semantics["setup_name"],
+                "reason_codes": missing_semantics["reason_codes"],
+                "regime_bucket": missing_semantics["regime_bucket"],
+                "gate_flags": True,
+                "risk_flags": True,
+                "event_flags": missing_semantics["event_flags"],
+                "liquidity_flags": True,
+                "feature_snapshot": True,
+            }
+        ),
+    }
 
 
 def _score_candidates(day_rows: pd.DataFrame, *, entry_score_threshold: int, top_n: int) -> pd.DataFrame:
@@ -651,6 +745,7 @@ def run_portfolio_agent_replay_v1(
     total_cost = 0.0
     realized_pnl_total = 0.0
     candidate_rows: list[dict[str, Any]] = []
+    candidate_trace_rows: list[dict[str, Any]] = []
     action_rows: list[dict[str, Any]] = []
     order_rows: list[dict[str, Any]] = []
     position_rows: list[dict[str, Any]] = []
@@ -968,6 +1063,17 @@ def run_portfolio_agent_replay_v1(
                         "score_components_json": row.get("score_components_json"),
                     }
                 )
+                candidate_trace_rows.append(
+                    _candidate_trace_row(
+                        output_dir=output_dir,
+                        run_id=run_name,
+                        ymd=ymd,
+                        row=row,
+                        rank=rank,
+                        score=score,
+                        next_open_available=next_open is not None,
+                    )
+                )
 
         positions_market_value = 0.0
         for code, position in positions.items():
@@ -1068,6 +1174,31 @@ def run_portfolio_agent_replay_v1(
         )
     )
     paths["daily_candidate_snapshot.csv"] = str(_write_csv(output_dir / "daily_candidate_snapshot.csv", candidate_rows))
+    paths["daily_candidate_trace.csv"] = str(_write_csv(output_dir / "daily_candidate_trace.csv", candidate_trace_rows))
+    paths["candidate_trace_schema.json"] = str(_write_json(output_dir / "candidate_trace_schema.json", _candidate_trace_schema()))
+    trace_frame = pd.DataFrame(candidate_trace_rows)
+    trace_generation_report = {
+        "schema_version": f"{SCHEMA_PREFIX}_candidate_trace_generation_report_v1",
+        "generated_at": _utc_now(),
+        "axis_id": AXIS_ID,
+        "trace_rows": len(candidate_trace_rows),
+        "candidate_snapshot_rows": len(candidate_rows),
+        "row_count_matches_candidate_snapshot": len(candidate_trace_rows) == len(candidate_rows),
+        "score_component_attribution_available_rate": None
+        if trace_frame.empty
+        else float(trace_frame["score_component_attribution_available"].astype(bool).mean()),
+        "candidate_source_available_rate": 0.0,
+        "signal_family_available_rate": 0.0,
+        "setup_name_available_rate": 0.0,
+        "reason_codes_available_rate": 0.0,
+        "ranking_order_changed": False,
+        "score_formula_changed": False,
+        "candidate_generation_changed": False,
+        "runtime_db_write": False,
+        "trace_sidecar_only": True,
+        "missing_semantics": ["candidate_source", "signal_family", "setup_name", "reason_codes", "regime_bucket", "event_flags"],
+    }
+    paths["candidate_trace_generation_report.json"] = str(_write_json(output_dir / "candidate_trace_generation_report.json", trace_generation_report))
     paths["daily_action_ledger.jsonl"] = str(_write_jsonl(output_dir / "daily_action_ledger.jsonl", action_rows))
     paths["orders_ledger.csv"] = str(_write_csv(output_dir / "orders_ledger.csv", order_rows))
     paths["positions_ledger.csv"] = str(_write_csv(output_dir / "positions_ledger.csv", position_rows))
@@ -1086,6 +1217,7 @@ def run_portfolio_agent_replay_v1(
     existing = {name: (output_dir / name).exists() for name in REQUIRED_ARTIFACTS if name != "_ARTIFACT_COMPLETE.json"}
     critical_logs = {
         "daily_candidate_snapshot.csv": len(candidate_rows),
+        "daily_candidate_trace.csv": len(candidate_trace_rows),
         "daily_action_ledger.jsonl": len(action_rows),
         "rejected_candidates.csv": len(rejected_rows),
         "post_run_outcome_labels.csv": len(post_run_rows),

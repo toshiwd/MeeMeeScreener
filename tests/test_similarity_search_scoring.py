@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from app.backend.api.routers import similar
 from app.backend.similarity import (
     RECENT_DAILY_FEATURE_COUNT,
+    RECENT_DAILY_SHAPE_FEATURES,
     RECENT_DAILY_SHAPE_WINDOW,
     SimilarityService,
 )
@@ -112,7 +113,7 @@ def test_similar_api_hides_vectors_unless_requested(monkeypatch) -> None:
     assert "vec24" in with_vectors.json()[0]
 
 
-def test_recent_daily_shape_vector_uses_half_year_ohlc_ma_features_without_volume() -> None:
+def test_recent_daily_shape_vector_uses_half_year_close_and_ma_features_without_volume() -> None:
     service = SimilarityService(db_path="C:/tmp/unused.duckdb")
     dates = pd.bdate_range("2025-10-01", periods=140)
     daily_rows = []
@@ -250,7 +251,7 @@ def test_recent_daily_shape_search_reuses_live_candidate_cache(monkeypatch) -> N
             "code": [row["code"] for row in rows],
             "asof": [row["asof"] for row in rows],
             "daily_asof": [pd.Timestamp("2026-03-31"), pd.Timestamp("2026-03-31")],
-            "daily_shape_available": [True, True],
+            "daily_shape_available": [False, True],
             "vec_daily": [_recent_daily_unit_vector(), _recent_daily_unit_vector()],
         }
     )
@@ -308,6 +309,103 @@ def test_recent_daily_shape_search_reuses_live_candidate_cache(monkeypatch) -> N
     assert second[0].ticker == "DAILY_MATCH"
     assert build_calls["count"] == 1
     assert all(item.ticker != "QUERY" for item in first + second)
+
+
+def test_recent_daily_shape_artifact_search_can_return_historical_match() -> None:
+    service = SimilarityService(db_path="C:/tmp/unused.duckdb")
+    rows = [
+        _env_row(code="QUERY", close=100.0, scale=1.0, asof="2026-03-31"),
+        _env_row(code="MATCH", close=100.0, scale=1.0, asof="2025-12-31"),
+        _env_row(code="MATCH", close=100.0, scale=1.0, asof="2026-03-31"),
+    ]
+    service.df_env = pd.DataFrame(rows)
+    service.df_vec60 = pd.DataFrame(
+        {
+            "code": [row["code"] for row in rows],
+            "asof": [row["asof"] for row in rows],
+            "vec60": [_unit_vector(60), _unit_vector(60), _unit_vector(60)],
+        }
+    )
+    service.df_vec24 = pd.DataFrame(
+        {
+            "code": [row["code"] for row in rows],
+            "asof": [row["asof"] for row in rows],
+            "vec24": [_unit_vector(24), _unit_vector(24), _unit_vector(24)],
+        }
+    )
+    service.df_daily_vec = pd.DataFrame(
+        {
+            "code": [row["code"] for row in rows],
+            "asof": [row["asof"] for row in rows],
+            "daily_asof": [row["asof"] for row in rows],
+            "daily_shape_available": [True, True, True],
+            "vec_daily": [
+                _recent_daily_unit_vector(),
+                _recent_daily_unit_vector(),
+                _negative_recent_daily_unit_vector(),
+            ],
+        }
+    )
+    service.tag_index = {"UP_UP_UP_HIGH": [0, 1, 2]}
+    service._rebuild_tag_lookup_indexes()
+    service.loaded = True
+
+    results = service.search("QUERY", k=1, alpha=0.0)
+
+    assert [(item.ticker, item.asof) for item in results] == [("MATCH", "2025-12-31")]
+    assert results[0].tags["fallback"] == "recent_daily_shape_artifact"
+
+
+def test_recent_daily_shape_asof_search_uses_precomputed_artifacts(monkeypatch) -> None:
+    service = SimilarityService(db_path="C:/tmp/unused.duckdb")
+    rows = [
+        _env_row(code="QUERY", close=100.0, scale=1.0, asof="2025-12-31"),
+        _env_row(code="QUERY", close=100.0, scale=1.0, asof="2026-03-31"),
+        _env_row(code="MATCH", close=100.0, scale=1.0, asof="2025-12-31"),
+        _env_row(code="MATCH", close=100.0, scale=1.0, asof="2026-03-31"),
+    ]
+    service.df_env = pd.DataFrame(rows)
+    service.df_vec60 = pd.DataFrame(
+        {
+            "code": [row["code"] for row in rows],
+            "asof": [row["asof"] for row in rows],
+            "vec60": [_unit_vector(60), _unit_vector(60), _unit_vector(60), _unit_vector(60)],
+        }
+    )
+    service.df_vec24 = pd.DataFrame(
+        {
+            "code": [row["code"] for row in rows],
+            "asof": [row["asof"] for row in rows],
+            "vec24": [_unit_vector(24), _unit_vector(24), _unit_vector(24), _unit_vector(24)],
+        }
+    )
+    service.df_daily_vec = pd.DataFrame(
+        {
+            "code": [row["code"] for row in rows],
+            "asof": [row["asof"] for row in rows],
+            "daily_asof": [row["asof"] for row in rows],
+            "daily_shape_available": [True, True, True, True],
+            "vec_daily": [
+                _recent_daily_unit_vector(),
+                _negative_recent_daily_unit_vector(),
+                _recent_daily_unit_vector(),
+                _negative_recent_daily_unit_vector(),
+            ],
+        }
+    )
+    service.tag_index = {"UP_UP_UP_HIGH": [0, 1, 2, 3]}
+    service._rebuild_tag_lookup_indexes()
+    service.loaded = True
+
+    def fail_db_access(*_args, **_kwargs):
+        raise AssertionError("DB should not be used for indexed daily shape asof search")
+
+    monkeypatch.setattr("app.backend.similarity.get_conn_for_path", fail_db_access)
+
+    results = service.search("QUERY", asof="2026-01-15", k=1, alpha=0.0)
+
+    assert [(item.ticker, item.asof) for item in results] == [("MATCH", "2025-12-31")]
+    assert results[0].tags["query_daily_asof"] == "2025-12-31"
 
 
 def test_recent_daily_shape_cache_can_be_prewarmed(monkeypatch) -> None:
@@ -428,10 +526,7 @@ def test_similarity_search_scores_same_shape_equally_across_price_scales() -> No
     assert abs(scores["SAME_PRICE"] - scores["DOUBLE_PRICE"]) < 1e-6
     assert scores["SAME_PRICE"] > 0.99
     assert results[0].tags["daily_shape_window_days"] == RECENT_DAILY_SHAPE_WINDOW
-    assert results[0].tags["daily_shape_features"] == (
-        "close_return,candle_body,upper_wick,lower_wick,"
-        "ma7_gap,ma20_gap,ma60_gap,ma7_slope,ma20_slope,ma60_slope"
-    )
+    assert results[0].tags["daily_shape_features"] == RECENT_DAILY_SHAPE_FEATURES
 
 
 def test_similarity_search_uses_daily_shape_after_monthly_shape() -> None:

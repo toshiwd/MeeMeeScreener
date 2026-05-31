@@ -58,10 +58,10 @@ describe("mergeHealthStatus", () => {
 
 describe("resolveGridRangeBars", () => {
   it("maps square grid density to the expected bar count", () => {
-    expect(resolveGridRangeBars(1, 1, 120)).toBe(180);
-    expect(resolveGridRangeBars(2, 2, 120)).toBe(90);
-    expect(resolveGridRangeBars(3, 3, 120)).toBe(60);
-    expect(resolveGridRangeBars(4, 4, 120)).toBe(45);
+    expect(resolveGridRangeBars(1, 1, 120)).toBe(240);
+    expect(resolveGridRangeBars(2, 2, 120)).toBe(120);
+    expect(resolveGridRangeBars(3, 3, 120)).toBe(80);
+    expect(resolveGridRangeBars(4, 4, 120)).toBe(60);
   });
 
   it("falls back for non-square layouts", () => {
@@ -72,7 +72,7 @@ describe("resolveGridRangeBars", () => {
 describe("gridPresetOptions", () => {
   it("exposes only square presets", () => {
     expect(gridPresetOptions.map((item) => item.label)).toEqual(["1x1", "2x2", "3x3", "4x4"]);
-    expect(gridPresetOptions.map((item) => item.bars)).toEqual([180, 90, 60, 45]);
+    expect(gridPresetOptions.map((item) => item.bars)).toEqual([240, 120, 80, 60]);
   });
 });
 

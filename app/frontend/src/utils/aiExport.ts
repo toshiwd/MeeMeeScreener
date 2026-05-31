@@ -1,6 +1,6 @@
 ﻿/**
- * AI逶ｸ隲・畑驫俶氛諠・ｱ蜃ｺ蜉帙Θ繝ｼ繝・ぅ繝ｪ繝・ぅ
- * 驫俶氛隧ｳ邏ｰ/邱ｴ鄙偵Δ繝ｼ繝峨°繧牙他縺ｳ蜃ｺ縺励｀arkdown蠖｢蠑上〒蜃ｺ蜉・
+ * AI相談用の銘柄情報エクスポートユーティリティ。
+ * 銘柄詳細/練習モードから呼び出し、Markdown形式で出力する。
  */
 
 import type { Box, MaSetting } from "../store";
@@ -700,41 +700,41 @@ export const buildAIExport = (input: AIExportInput): AIExportResult => {
 ${headerJson}
 \`\`\`
 
-# AI逶ｸ隲・畑 驫俶氛諠・ｱ繧ｨ繧ｯ繧ｹ繝昴・繝・
+# AI相談用 銘柄情報エクスポート
 
-## 蝓ｺ譛ｬ諠・ｱ
-- 驫俶氛繧ｳ繝ｼ繝・ ${input.code}
-- 驫俶氛蜷・ ${input.name ?? N_A}
-- 繧ｨ繧ｯ繧ｹ繝昴・繝域律譎・ ${exportedAt}
+## 基本情報
+- 銘柄コード: ${input.code}
+- 銘柄名: ${input.name ?? N_A}
+- エクスポート日時: ${exportedAt}
 - schemaVersion: ai_export_v2
 - volumeUnit: ${VOLUME_UNIT}
 
-## 陦ｨ遉ｺ險ｭ螳・
-- 陦ｨ遉ｺ雜ｳ: ${input.visibleTimeframe === "daily" ? "譌･雜ｳ" : input.visibleTimeframe === "weekly" ? "騾ｱ雜ｳ" : "譛郁ｶｳ"}
-- 陦ｨ遉ｺ譛滄俣: ${input.rangeMonths ? `${input.rangeMonths}ヶ月` : "all period"}
-- Boxes陦ｨ遉ｺ: ${input.showBoxes ? "ON" : "OFF"}
-- Positions陦ｨ遉ｺ: ${input.showPositions ? "ON" : "OFF"}
+## 表示設定
+- 表示足: ${input.visibleTimeframe === "daily" ? "日足" : input.visibleTimeframe === "weekly" ? "週足" : "月足"}
+- 表示期間: ${input.rangeMonths ? `${input.rangeMonths}ヶ月` : "all period"}
+- Boxes表示: ${input.showBoxes ? "ON" : "OFF"}
+- Positions表示: ${input.showPositions ? "ON" : "OFF"}
 
-## 迴ｾ蝨ｨ蛟､繝ｻ遘ｻ蜍募ｹｳ蝮・
-- 迴ｾ蝨ｨ蛟､(邨ょ､): ${formatNumber(currentPrice, 2)}
+## 現在値・移動平均
+- 現在値(終値): ${formatNumber(currentPrice, 2)}
 - Last date: ${lastDaily ? formatDateLabel(lastDaily.time) : N_A}
 
-### 譌･雜ｳMA險ｭ螳・
-- 譛牙柑MA: ${getActiveMAList(input.maSettings.daily)}
-- MA蛟､: ${computeMAValues(input.dailyBars, input.maSettings.daily)}
+### 日足MA設定
+- 有効MA: ${getActiveMAList(input.maSettings.daily)}
+- MA値: ${computeMAValues(input.dailyBars, input.maSettings.daily)}
 
-### 騾ｱ雜ｳMA險ｭ螳・
-- 譛牙柑MA: ${getActiveMAList(input.maSettings.weekly)}
-- MA蛟､: ${computeMAValues(input.weeklyBars, input.maSettings.weekly)}
+### 週足MA設定
+- 有効MA: ${getActiveMAList(input.maSettings.weekly)}
+- MA値: ${computeMAValues(input.weeklyBars, input.maSettings.weekly)}
 
-### 譛郁ｶｳMA險ｭ螳・
-- 譛牙柑MA: ${getActiveMAList(input.maSettings.monthly)}
-- MA蛟､: ${computeMAValues(input.monthlyBars, input.maSettings.monthly)}
+### 月足MA設定
+- 有効MA: ${getActiveMAList(input.maSettings.monthly)}
+- MA値: ${computeMAValues(input.monthlyBars, input.maSettings.monthly)}
 
-## 繧ｷ繧ｰ繝翫Ν/繝舌ャ繧ｸ
+## シグナル/バッジ
 ${signalsText}
 
-## Box諠・ｱ
+## Box情報
 ${boxesText}
 
 ## Positions
@@ -783,19 +783,19 @@ ${(() => {
 ${patternSnapshotJson}
 \`\`\`
 
-## OHLCV 繝・・繧ｿ
+## OHLCV データ
 
-### 譌･雜ｳ (逶ｴ霑・20譛ｬ)
+### 日足 (直近120本)
 \`\`\`csv
 ${buildOHLCVCsv(input.dailyBars, 120, dailyMemos)}
 \`\`\`
 
-### 騾ｱ雜ｳ (逶ｴ霑・0譛ｬ)
+### 週足 (直近60本)
 \`\`\`csv
 ${buildOHLCVCsv(input.weeklyBars, 60)}
 \`\`\`
 
-### 譛郁ｶｳ (逶ｴ霑・6譛ｬ)
+### 月足 (直近36本)
 \`\`\`csv
 ${buildOHLCVCsv(input.monthlyBars, 36)}
 \`\`\`

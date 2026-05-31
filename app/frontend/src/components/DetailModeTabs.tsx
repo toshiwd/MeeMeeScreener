@@ -21,7 +21,7 @@ export default function DetailModeTabs({
   onSimilar,
   onFinancial,
   onPractice,
-  onPositions
+  onPositions,
 }: DetailModeTabsProps) {
   return (
     <div className="detail-mode-bar">

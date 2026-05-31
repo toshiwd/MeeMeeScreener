@@ -1019,6 +1019,80 @@ def _init_duckdb_schema(conn: duckdb.DuckDBPyConnection) -> None:
     )
     conn.execute(
         """
+        CREATE TABLE IF NOT EXISTS chart_notes (
+            code TEXT,
+            as_of_date TEXT,
+            timeframe TEXT,
+            title TEXT,
+            note_text TEXT,
+            paragraphs_json TEXT DEFAULT '[]',
+            tags_json TEXT DEFAULT '[]',
+            linked_objects_json TEXT DEFAULT '[]',
+            no_lookahead BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (code, as_of_date, timeframe)
+        );
+        """
+    )
+    _try_alter_table(conn, "ALTER TABLE chart_notes ADD COLUMN title TEXT")
+    _try_alter_table(conn, "ALTER TABLE chart_notes ADD COLUMN paragraphs_json TEXT DEFAULT '[]'")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS chart_annotations (
+            id TEXT PRIMARY KEY,
+            code TEXT,
+            as_of_date TEXT,
+            timeframe TEXT,
+            object_type TEXT,
+            payload_json TEXT DEFAULT '{}',
+            tags_json TEXT DEFAULT '[]',
+            no_lookahead BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO chart_notes (
+            code,
+            as_of_date,
+            timeframe,
+            title,
+            note_text,
+            paragraphs_json,
+            tags_json,
+            linked_objects_json,
+            no_lookahead,
+            created_at,
+            updated_at
+        )
+        SELECT
+            symbol,
+            date,
+            timeframe,
+            NULL,
+            memo,
+            '[]',
+            '[]',
+            '[]',
+            TRUE,
+            COALESCE(updated_at, CURRENT_TIMESTAMP),
+            COALESCE(updated_at, CURRENT_TIMESTAMP)
+        FROM daily_memos dm
+        WHERE COALESCE(memo, '') <> ''
+          AND NOT EXISTS (
+              SELECT 1
+              FROM chart_notes cn
+              WHERE cn.code = dm.symbol
+                AND cn.as_of_date = dm.date
+                AND cn.timeframe = dm.timeframe
+          );
+        """
+    )
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS edinetdb_company_map (
             sec_code TEXT PRIMARY KEY,
             edinet_code TEXT,

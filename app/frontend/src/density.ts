@@ -7,10 +7,10 @@ export type DensityOption = {
 };
 
 export const DENSITY_PRESET_OPTIONS = [
-  { value: 1, label: "1x1", bars: 180 },
-  { value: 2, label: "2x2", bars: 90 },
-  { value: 3, label: "3x3", bars: 60 },
-  { value: 4, label: "4x4", bars: 45 }
+  { value: 1, label: "1x1", bars: 240 },
+  { value: 2, label: "2x2", bars: 120 },
+  { value: 3, label: "3x3", bars: 80 },
+  { value: 4, label: "4x4", bars: 60 }
 ] as const satisfies readonly DensityOption[];
 
 export const DEFAULT_DENSITY_PRESET: DensityPreset = 3;

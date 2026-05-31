@@ -8,6 +8,7 @@ export type BatchBarsRequestPayload = {
   includeProvisional: boolean;
   includeBoxes?: boolean;
   asof?: string;
+  forwardBars?: Partial<Record<BatchBarsRequestTimeframe, number>>;
   forceRefresh?: boolean;
 };
 
@@ -65,6 +66,7 @@ type DetailParams = {
   weeklyLimit: number;
   monthlyLimit: number;
   asof?: string | null;
+  forwardBars?: Partial<Record<BatchBarsRequestTimeframe, number>>;
 };
 
 type ScopedDetailParams = DetailParams & {
@@ -88,6 +90,7 @@ export const buildScopedDetailBatchBarsRequestPayload = ({
   weeklyLimit,
   monthlyLimit,
   asof,
+  forwardBars,
   timeframes,
   includeBoxes,
   forceRefresh,
@@ -112,6 +115,9 @@ export const buildScopedDetailBatchBarsRequestPayload = ({
   };
   if (typeof asof === "string" && asof.trim()) {
     payload.asof = asof.trim();
+  }
+  if (forwardBars && Object.values(forwardBars).some((value) => Number(value) > 0)) {
+    payload.forwardBars = forwardBars;
   }
   if (forceRefresh === true) {
     payload.forceRefresh = true;

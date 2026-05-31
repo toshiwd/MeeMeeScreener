@@ -283,7 +283,7 @@ export type Settings = {
   gridScrollTop: number;
   gridTimeframe: GridTimeframe;
   listTimeframe: GridTimeframe;
-  listRangeBars: 30 | 45 | 60 | 90 | 120 | 180 | 240 | 360;
+  listRangeBars: 30 | 45 | 60 | 80 | 90 | 120 | 180 | 240 | 360;
   showBoxes: boolean;
   showIndicators: boolean;
   // Legacy sort key (for backward compatibility during migration)

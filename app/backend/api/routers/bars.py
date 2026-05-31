@@ -51,6 +51,7 @@ class BatchBarsV3Request(BaseModel):
     includeProvisional: bool = True
     includeBoxes: bool = False
     asof: str | int | None = None
+    forwardBars: Dict[str, int] = Field(default_factory=dict)
     forceRefresh: bool = False
 
 
@@ -463,10 +464,12 @@ def _make_batch_v3_cache_key(
     include_provisional: bool,
     include_boxes: bool,
     asof_dt: int | None,
+    forward_bars: Dict[str, int],
     runtime_db_path: str | None,
     data_version: str | None,
 ) -> tuple[Any, ...]:
     normalized_limits = tuple(sorted((frame, int(value)) for frame, value in timeframe_limits.items()))
+    normalized_forward = tuple(sorted((frame, int(value)) for frame, value in forward_bars.items()))
     return (
         tuple(codes),
         tuple(requested_frames),
@@ -475,6 +478,7 @@ def _make_batch_v3_cache_key(
         bool(include_provisional),
         bool(include_boxes),
         int(asof_dt) if asof_dt is not None else None,
+        normalized_forward,
         runtime_db_path,
         data_version,
     )
@@ -536,6 +540,7 @@ def _fetch_multi_timeframe_items(
     include_provisional: bool,
     include_boxes: bool,
     asof_dt: int | None,
+    forward_bars: Dict[str, int] | None = None,
     force_refresh: bool = False,
 ) -> Dict[str, Dict[str, Dict[str, Any]]]:
     items: Dict[str, Dict[str, Dict[str, Any]]] = {code: {} for code in codes}
@@ -544,6 +549,10 @@ def _fetch_multi_timeframe_items(
 
     frame_limits = {
         frame: int(timeframe_limits.get(frame, limit)) if timeframe_limits else int(limit)
+        for frame in _SUPPORTED_TIMEFRAMES
+    }
+    frame_forward_bars = {
+        frame: max(0, int((forward_bars or {}).get(frame, 0)))
         for frame in _SUPPORTED_TIMEFRAMES
     }
 
@@ -570,12 +579,25 @@ def _fetch_multi_timeframe_items(
     confirmed_daily_rows_by_code: Dict[str, List[tuple]] | None = None
     persisted_provisional_rows_by_code: Dict[str, tuple | None] = {}
     if "daily" in requested_frames:
-        raw_daily, confirmed_daily_rows_by_code, persisted_provisional_rows_by_code = _source_aware_daily_rows(
-            repo,
-            codes,
-            frame_limits["daily"],
-            asof_dt=asof_dt,
-        )
+        if asof_dt is not None and frame_forward_bars["daily"] > 0:
+            raw_daily = repo.get_daily_bars_with_source_around_batch(
+                codes,
+                before_limit=frame_limits["daily"],
+                after_limit=frame_forward_bars["daily"],
+                asof_dt=asof_dt,
+            )
+            confirmed_daily_rows_by_code = {
+                code: [tuple(row[:7]) for row in rows]
+                for code, rows in raw_daily.items()
+            }
+            persisted_provisional_rows_by_code = {code: None for code in codes}
+        else:
+            raw_daily, confirmed_daily_rows_by_code, persisted_provisional_rows_by_code = _source_aware_daily_rows(
+                repo,
+                codes,
+                frame_limits["daily"],
+                asof_dt=asof_dt,
+            )
         raw_daily_rows_by_code = {}
         for code in codes:
             raw_rows = raw_daily.get(code, [])
@@ -605,7 +627,10 @@ def _fetch_multi_timeframe_items(
                         asof_dt=asof_dt,
                     )
                 )
-            daily_rows = merged[-frame_limits["daily"] :] if frame_limits["daily"] > 0 else merged
+            if asof_dt is not None and frame_forward_bars["daily"] > 0:
+                daily_rows = merged
+            else:
+                daily_rows = merged[-frame_limits["daily"] :] if frame_limits["daily"] > 0 else merged
             payload = _to_payload_rows(daily_rows, boxes_enabled=False)
             payload["provenance"] = _build_frame_provenance(
                 code=code,
@@ -683,12 +708,21 @@ def _fetch_multi_timeframe_items(
             items[code]["weekly"] = payload
 
     if "monthly" in requested_frames:
-        monthly_rows_by_code = repo.get_monthly_bars_batch(
-            codes,
-            frame_limits["monthly"],
-            asof_dt=asof_dt,
-            recent_daily_rows_by_code=raw_daily_rows_by_code,
-        )
+        if asof_dt is not None and frame_forward_bars["monthly"] > 0:
+            monthly_rows_by_code = repo.get_monthly_bars_around_batch(
+                codes,
+                before_limit=frame_limits["monthly"],
+                after_limit=frame_forward_bars["monthly"],
+                asof_dt=asof_dt,
+                recent_daily_rows_by_code=raw_daily_rows_by_code,
+            )
+        else:
+            monthly_rows_by_code = repo.get_monthly_bars_batch(
+                codes,
+                frame_limits["monthly"],
+                asof_dt=asof_dt,
+                recent_daily_rows_by_code=raw_daily_rows_by_code,
+            )
         for code in codes:
             monthly_rows = monthly_rows_by_code.get(code, [])
             confirmed_rows = (
@@ -781,6 +815,7 @@ def batch_bars_v3(
         )
         return {"items": {}, "meta": meta}
     timeframe_limits = _normalize_timeframe_limits(payload.timeframeLimits)
+    forward_bars = _normalize_timeframe_limits(payload.forwardBars)
     cache_key = _make_batch_v3_cache_key(
         codes=valid_codes,
         requested_frames=requested_frames,
@@ -789,6 +824,7 @@ def batch_bars_v3(
         include_provisional=bool(payload.includeProvisional),
         include_boxes=bool(payload.includeBoxes),
         asof_dt=asof_dt,
+        forward_bars=forward_bars,
         runtime_db_path=str(getattr(config, "DB_PATH", None)) if getattr(config, "DB_PATH", None) else None,
         data_version=meta.get("data_version"),
     )
@@ -826,6 +862,7 @@ def batch_bars_v3(
             include_provisional=bool(payload.includeProvisional),
             include_boxes=bool(payload.includeBoxes),
             asof_dt=asof_dt,
+            forward_bars=forward_bars,
             force_refresh=force_refresh,
         )
         if not force_refresh:

@@ -76,6 +76,9 @@ def save_daily_memo(payload: dict = Body(...)):
     date = payload.get("date")
     timeframe = payload.get("timeframe", "D")
     memo = (payload.get("memo") or "").strip()
+    tags = payload.get("tags") if isinstance(payload.get("tags"), list) else []
+    linked_objects = payload.get("linked_objects") if isinstance(payload.get("linked_objects"), list) else []
+    no_lookahead = bool(payload.get("no_lookahead", True))
 
     if not symbol or not date:
         return JSONResponse(status_code=400, content={"error": "symbol_and_date_required"})
@@ -95,9 +98,25 @@ def save_daily_memo(payload: dict = Body(...)):
                     """,
                     [symbol, date, timeframe],
                 )
+                conn.execute(
+                    """
+                    DELETE FROM chart_notes
+                    WHERE code = ? AND as_of_date = ? AND timeframe = ?
+                    """,
+                    [symbol, date, timeframe],
+                )
                 return {"ok": True, "deleted": True, "updated_at": None}
 
-            return MemoRepository.upsert_memo(conn, symbol, date, timeframe, memo)
+            return MemoRepository.upsert_memo(
+                conn,
+                symbol,
+                date,
+                timeframe,
+                memo,
+                tags=tags,
+                linked_objects=linked_objects,
+                no_lookahead=no_lookahead,
+            )
     except Exception as exc:
         if is_transient_duckdb_error(exc):
             return _db_retryable_response(error_detail=str(exc))
@@ -115,6 +134,13 @@ def delete_daily_memo(symbol: str, date: str, timeframe: str = "D"):
                 """
                 DELETE FROM daily_memos
                 WHERE symbol = ? AND date = ? AND timeframe = ?
+                """,
+                [normalized_symbol, date, timeframe],
+            )
+            conn.execute(
+                """
+                DELETE FROM chart_notes
+                WHERE code = ? AND as_of_date = ? AND timeframe = ?
                 """,
                 [normalized_symbol, date, timeframe],
             )
