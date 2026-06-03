@@ -32,6 +32,8 @@ def test_health_light_skips_txt_status_collection():
     assert payload["txt_count"] is None
     assert payload["last_updated"] is None
     assert payload["code_txt_missing"] is None
+    assert payload["operator_mutation"]["active"] is False
+    assert "job_lanes" in payload
 
 
 def test_health_live_is_db_independent():
@@ -75,6 +77,8 @@ def test_health_returns_not_ready_200_when_db_temporarily_busy_after_boot():
     assert payload["db_retryable"] is True
     assert payload["transient_db_busy"] is True
     assert payload["errors"] == ["db_unavailable"]
+    assert payload["operator_mutation"]["active"] is False
+    assert "job_lanes" in payload
 
 
 def test_health_deep_returns_not_ready_200_when_db_temporarily_busy_after_boot():
@@ -106,3 +110,5 @@ def test_health_deep_returns_not_ready_200_when_db_temporarily_busy_after_boot()
     assert payload["db_retryable"] is True
     assert payload["transient_db_busy"] is True
     assert payload["errors"] == ["db_unavailable"]
+    assert payload["operator_mutation"]["active"] is False
+    assert "job_lanes" in payload

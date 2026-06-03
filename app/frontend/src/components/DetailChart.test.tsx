@@ -701,4 +701,81 @@ describe("DetailChart MeeMee chrome", () => {
 
     render.cleanup();
   });
+
+  it("shows MOOMOO-style handles and arrow measurement for a selected BOX", async () => {
+    rafSpy?.mockImplementation((callback) => window.setTimeout(() => callback(0), 0));
+    const candles = [
+      { time: 100, open: 100, high: 110, low: 95, close: 108 },
+      { time: 200, open: 108, high: 112, low: 104, close: 106 },
+      { time: 300, open: 106, high: 114, low: 103, close: 111 }
+    ];
+    const render = await renderClient(
+      <DetailChart
+        candles={candles}
+        volume={[]}
+        maLines={[]}
+        showVolume={false}
+        boxes={[]}
+        showBoxes={false}
+        drawBoxes={[{ startTime: 100, endTime: 300, topPrice: 120, bottomPrice: 90 }]}
+        selectionEnabled
+        activeTool={null}
+      />
+    );
+
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    canvasMock?.ctx.arc.mockClear();
+    canvasMock?.ctx.fillText.mockClear();
+
+    await act(async () => {
+      render.container.querySelector(".detail-chart-wrapper")?.dispatchEvent(
+        new MouseEvent("mousedown", { bubbles: true, button: 0, buttons: 1, clientX: 150, clientY: 100 })
+      );
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+    });
+
+    expect(canvasMock?.ctx.arc).toHaveBeenCalledTimes(4);
+    expect(canvasMock?.ctx.fillText).toHaveBeenCalledWith("3bars,0d", 200, 104);
+    expect(canvasMock?.ctx.setLineDash).toHaveBeenCalledWith([7, 5]);
+
+    render.cleanup();
+  });
+
+  it("notifies the route after a horizontal line is committed", async () => {
+    const onDrawCommit = vi.fn();
+    const onAddHorizontalLine = vi.fn();
+    const render = await renderClient(
+      <DetailChart
+        candles={baseCandles}
+        volume={baseVolume}
+        maLines={[]}
+        showVolume={false}
+        boxes={[]}
+        showBoxes={false}
+        activeTool="horizontalLine"
+        onAddHorizontalLine={onAddHorizontalLine}
+        onDrawCommit={onDrawCommit}
+      />
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    act(() => {
+      render.container.querySelector(".detail-chart-wrapper")?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, button: 0, clientX: 150, clientY: 100 })
+      );
+    });
+
+    expect(onAddHorizontalLine).toHaveBeenCalledTimes(1);
+    expect(onDrawCommit).toHaveBeenCalledWith("horizontalLine");
+
+    render.cleanup();
+  });
 });

@@ -108,7 +108,7 @@ def _seed_positions_db(db_path: Path) -> None:
             INSERT INTO positions_live
             VALUES
                 ('1234', 100, 0, TIMESTAMP '2024-01-05 00:00:00', TIMESTAMP '2024-01-05 00:00:00', FALSE, NULL, 100, 0, 0),
-                ('2413', 200, 0, TIMESTAMP '2024-02-05 00:00:00', TIMESTAMP '2024-02-05 00:00:00', FALSE, NULL, 200, 0, 0)
+                ('2413', 300, 50, TIMESTAMP '2024-02-05 00:00:00', TIMESTAMP '2024-02-05 00:00:00', FALSE, NULL, 200, 100, 50)
             """
         )
         conn.execute(
@@ -136,6 +136,9 @@ def test_positions_routes_hide_orphan_live_codes_and_use_joined_names(
     held_items = held_response.json()["items"]
     assert [item["symbol"] for item in held_items] == ["2413"]
     assert held_items[0]["name"] == "エムスリー"
+    assert held_items[0]["spot_qty"] == 2
+    assert held_items[0]["margin_long_qty"] == 1
+    assert held_items[0]["margin_short_qty"] == 0.5
     assert len(held_sqls) == 1
 
     current_sqls: list[str] = []

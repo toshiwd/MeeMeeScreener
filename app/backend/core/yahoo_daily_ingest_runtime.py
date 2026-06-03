@@ -12,6 +12,7 @@ from app.backend.core.screener_snapshot_job import schedule_screener_snapshot_re
 from app.backend.core.yahoo_daily_ingest_job import YF_DAILY_INGEST_JOB_TYPE
 from app.backend.services.jpx_calendar import get_jpx_session_info, jst_now
 from app.backend.services.data.yahoo_daily_ingest import ingest_latest_provisional_daily_rows
+from app.backend.services.operator_mutation_lock import OperatorMutationBusyError, operator_mutation_scope
 
 logger = logging.getLogger(__name__)
 
@@ -152,11 +153,29 @@ def handle_yf_daily_ingest(job_id: str, payload: dict) -> None:
     )
 
     authoritative_started = datetime.now()
-    report = ingest_latest_provisional_daily_rows(
-        max_codes=max_codes,
-        asof_dt=asof_dt,
-        dry_run=dry_run,
-    )
+    try:
+        with operator_mutation_scope("yf_daily_ingest", timeout_sec=0.0):
+            report = ingest_latest_provisional_daily_rows(
+                max_codes=max_codes,
+                asof_dt=asof_dt,
+                dry_run=dry_run,
+            )
+    except OperatorMutationBusyError as exc:
+        job_manager._update_db(
+            job_id,
+            YF_DAILY_INGEST_JOB_TYPE,
+            "skipped",
+            progress=100,
+            finished_at=datetime.now(),
+            message="Yahoo daily ingest skipped: operator mutation active.",
+            error="operator_mutation_busy",
+        )
+        logger.info(
+            "Yahoo daily ingest skipped due operator mutation active action=%s since=%s",
+            exc.holder_action,
+            exc.holder_since,
+        )
+        return
     authoritative_elapsed_ms = int((datetime.now() - authoritative_started).total_seconds() * 1000)
     inserted = int(report.get("inserted") or 0)
     updated = int(report.get("updated") or 0)

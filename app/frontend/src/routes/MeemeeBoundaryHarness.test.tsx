@@ -536,6 +536,9 @@ describe("MeeMee boundary harness", () => {
                 has_issue: false,
                 buy_qty: 100,
                 sell_qty: 0,
+                spot_qty: 0,
+                margin_long_qty: 100,
+                margin_short_qty: 0,
               },
             ],
           },
@@ -584,7 +587,7 @@ describe("MeeMee boundary harness", () => {
 
     expect(render.container.textContent).toContain("7203");
     expect(render.container.textContent).toContain("Toyota");
-    expect(render.container.textContent).toContain("売-買");
+    expect(render.container.textContent).toContain("0-100");
     expect(render.container.querySelectorAll("[data-testid='chart-card']")).toHaveLength(1);
 
     render.cleanup();

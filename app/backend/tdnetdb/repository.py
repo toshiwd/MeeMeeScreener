@@ -276,26 +276,22 @@ class TdnetdbRepository:
         with self._connect_write() as conn:
             ensure_tdnetdb_schema(conn)
             conn.executemany(
+                "DELETE FROM tdnet_disclosures WHERE disclosure_id = ?",
+                [[row[0]] for row in rows],
+            )
+            conn.executemany(
                 """
                 INSERT INTO tdnet_disclosures (
                     disclosure_id, sec_code, company_name, title, category,
                     published_at, tdnet_url, pdf_url, xbrl_url, summary_text, raw_json, fetched_at
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(disclosure_id) DO UPDATE SET
-                    sec_code = excluded.sec_code,
-                    company_name = excluded.company_name,
-                    title = excluded.title,
-                    category = excluded.category,
-                    published_at = excluded.published_at,
-                    tdnet_url = excluded.tdnet_url,
-                    pdf_url = excluded.pdf_url,
-                    xbrl_url = excluded.xbrl_url,
-                    summary_text = excluded.summary_text,
-                    raw_json = excluded.raw_json,
-                    fetched_at = excluded.fetched_at
                 """,
                 rows,
+            )
+            conn.executemany(
+                "DELETE FROM tdnet_disclosure_features WHERE disclosure_id = ?",
+                [[row[0]] for row in feature_rows],
             )
             conn.executemany(
                 """
@@ -305,23 +301,6 @@ class TdnetdbRepository:
                     earnings, governance, distress, title_normalized, tags_json, raw_text, fetched_at
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(disclosure_id) DO UPDATE SET
-                    sec_code = excluded.sec_code,
-                    published_at = excluded.published_at,
-                    event_type = excluded.event_type,
-                    sentiment = excluded.sentiment,
-                    importance_score = excluded.importance_score,
-                    forecast_revision = excluded.forecast_revision,
-                    dividend_revision = excluded.dividend_revision,
-                    share_buyback = excluded.share_buyback,
-                    share_split = excluded.share_split,
-                    earnings = excluded.earnings,
-                    governance = excluded.governance,
-                    distress = excluded.distress,
-                    title_normalized = excluded.title_normalized,
-                    tags_json = excluded.tags_json,
-                    raw_text = excluded.raw_text,
-                    fetched_at = excluded.fetched_at
                 """,
                 feature_rows,
             )

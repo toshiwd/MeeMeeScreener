@@ -140,10 +140,6 @@ function MockDetailFinancialPanel() {
   return <div data-testid="financial-panel">financial-panel</div>;
 }
 
-function MockDetailAnalysisPanel() {
-  return <div data-testid="legacy-analysis-panel">legacy-analysis-panel</div>;
-}
-
 function MockTradexAnalysisMount() {
   return <div data-testid="tradex-analysis-panel">tradex-analysis-panel</div>;
 }
@@ -213,6 +209,7 @@ vi.mock("../components/DetailChart", async () => {
           "data-candles": candles,
           "data-price-bands": Array.isArray(props.priceBands) ? props.priceBands.length : 0,
           "data-horizontal-lines": Array.isArray(props.horizontalLines) ? props.horizontalLines.length : 0,
+          "data-event-markers": Array.isArray(props.eventMarkers) ? props.eventMarkers.length : 0,
           "data-visible-from": visibleRange?.from ?? "",
           "data-visible-to": visibleRange?.to ?? "",
           "data-last-time": lastCandleTime ?? "",
@@ -278,10 +275,6 @@ vi.mock("../components/DailyMemoPanel", () => ({
 
 vi.mock("./detail/DetailFinancialPanel", () => ({
   DetailFinancialPanel: MockDetailFinancialPanel,
-}));
-
-vi.mock("./detail/DetailAnalysisPanel", () => ({
-  DetailAnalysisPanel: MockDetailAnalysisPanel,
 }));
 
 vi.mock("./detail/DetailTdnetCard", () => ({
@@ -399,6 +392,20 @@ const createTimeoutError = (message = "timeout of 15000ms exceeded") => {
   const error = new Error(message) as Error & { code?: string };
   error.code = "ECONNABORTED";
   return error;
+};
+
+const createChartDbBusyError = () => {
+  return Object.assign(new Error("Request failed with status code 503"), {
+    response: {
+      status: 503,
+      data: {
+        detail: {
+          error: "chart_db_busy",
+          message: "database is temporarily busy",
+        },
+      },
+    },
+  });
 };
 
 const createBarsFrame = (time: number, base: number) => ({
@@ -607,6 +614,31 @@ describe("DetailView", () => {
     render.cleanup();
   });
 
+  it("navigates to a directly entered ticker code on submit", async () => {
+    const render = await renderDetailView();
+    const input = render.container.querySelector<HTMLInputElement>("[aria-label='銘柄コードを入力']");
+    const form = input?.closest("form");
+
+    expect(input?.value).toBe("7203");
+    expect(form).not.toBeNull();
+
+    act(() => {
+      if (!input || !form) return;
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, "6758");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => {
+      if (!form) return;
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+    await flushMicrotasks();
+
+    expect(render.container.querySelector<HTMLInputElement>("[aria-label='銘柄コードを入力']")?.value).toBe("6758");
+    expect(render.container.textContent).toContain("Next Corp");
+
+    render.cleanup();
+  });
+
   it("keeps overwrite observability hidden on the normal detail route", async () => {
     vi.stubEnv("VITE_SHOW_OPERATOR_CONSOLE", "1");
     mocks.backendReadyRef.value = true;
@@ -622,6 +654,30 @@ describe("DetailView", () => {
 
     expect(await waitForSelector(container, "[data-testid='detail-chart']")).not.toBeNull();
     expect(container.querySelector("[data-testid='detail-overwrite-observability']")).toBeNull();
+
+    render.cleanup();
+  });
+
+  it("shows chart db busy errors as retryable user-facing chart messages", async () => {
+    mocks.backendReadyRef.value = true;
+    mocks.apiPost.mockImplementation((url: string) => {
+      if (url === "/batch_bars_v3") {
+        return Promise.reject(createChartDbBusyError());
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    const render = await renderDetailView();
+
+    await act(async () => {
+      await flushMicrotasks();
+      await new Promise((resolve) => setTimeout(resolve, 2200));
+      await flushMicrotasks();
+    });
+
+    expect(render.container.textContent).toContain("チャートDBが一時的に混み合っています");
+    expect(render.container.textContent).not.toContain("Request failed with status code 503");
+    expect(render.container.textContent).not.toContain("timeout of 30000ms exceeded");
 
     render.cleanup();
   });
@@ -761,7 +817,7 @@ describe("DetailView", () => {
     render.cleanup();
   });
 
-  it("renders TRADEX analysis and hides the legacy panel on analysis mode", async () => {
+  it("renders the consolidated analysis panel on analysis mode", async () => {
     const render = await renderDetailView();
     const { container } = render;
     const analysisTab = container.querySelector("[data-testid='analysis-tab']");
@@ -774,13 +830,103 @@ describe("DetailView", () => {
       await flushMicrotasks();
     });
 
+    expect(container.querySelector("[data-testid='tradex-analysis-panel']")).toBeNull();
+    expect(container.textContent).toContain("TRADEX詳細を開く");
+    const tradexDetails = Array.from(container.querySelectorAll("summary")).find((node) =>
+      node.textContent?.includes("TRADEX詳細を開く")
+    );
+    await act(async () => {
+      tradexDetails?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await flushMicrotasks();
+    });
     expect(await waitForSelector(container, "[data-testid='tradex-analysis-panel']")).not.toBeNull();
-    expect(container.querySelector("[data-testid='legacy-analysis-panel']")).toBeNull();
 
     render.cleanup();
   });
 
-  it("requests daily, weekly, and monthly bars for both the current and next code", async () => {
+  it("shows MA candle read-only review in annotation mode when the bundle provides it", async () => {
+    mocks.backendReadyRef.value = true;
+    mocks.apiPost.mockImplementation((url: string) => {
+      if (url === "/batch_bars_v3") {
+        return Promise.resolve(createBarsResponse("7203"));
+      }
+      return Promise.resolve({ data: {} });
+    });
+    mocks.apiGet.mockImplementation((url: string) => {
+      if (url === "/system/runtime-selection") {
+        return Promise.resolve({ data: {} });
+      }
+      if (url === "/chart-annotations") {
+        return Promise.resolve({ data: { items: [] } });
+      }
+      if (url === "/chart-reading/bundle") {
+        return Promise.resolve({
+          data: {
+            notes: [],
+            ma_role_review: {
+              schema_version: "ma_role_readonly_review_v1",
+              available: true,
+              read_only: true,
+              display_only: true,
+              ranking_effect: false,
+              automatic_trade_action: false,
+              matches: [
+                {
+                  rule_id: "ma_candle_review_001",
+                  display_label: "candle:normal_bear+three_bar_falling / MA7/20:below,below,below",
+                  actionability: "watch_context_not_trade_signal",
+                },
+              ],
+              chart_markers: [
+                {
+                  date: "2024-03-09",
+                  kind: "ranking-up",
+                  label: "MA",
+                  rule_id: "ma_candle_review_001",
+                  actionability: "watch_context_not_trade_signal",
+                },
+              ],
+            },
+          },
+        });
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    const render = await renderDetailView("/detail/7203?mainAsOf=2026-03-31");
+    const { container } = render;
+
+    expect(await waitForSelector(container, "[data-testid='detail-chart']")).not.toBeNull();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 450));
+      await flushMicrotasks();
+    });
+    expect(await waitForSelector(container, "[data-testid='annotation-toolbar']")).not.toBeNull();
+    const annotationToggle = container.querySelector<HTMLButtonElement>("[data-testid='annotation-toolbar'] button");
+    await act(async () => {
+      annotationToggle?.click();
+      await flushMicrotasks();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await flushMicrotasks();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      await flushMicrotasks();
+    });
+
+    expect(mocks.apiGet.mock.calls.map(([url]) => url)).toContain("/chart-reading/bundle");
+    const review = await waitForSelector(container, "[data-testid='ma-role-review-panel']", 30);
+    expect(review).not.toBeNull();
+    expect(review?.textContent).toContain("MA/Candle Review");
+    expect(review?.textContent).toContain("Showing 1 important historical MA/candle markers");
+    expect(review?.textContent).toContain("Research evidence stays out of the main UI");
+    const chartWithMarker = Array.from(container.querySelectorAll("[data-testid='detail-chart']")).find(
+      (node) => Number((node as HTMLElement).getAttribute("data-event-markers") || "0") > 0
+    );
+    expect(chartWithMarker).not.toBeNull();
+
+    render.cleanup();
+  });
+
+  it("prioritizes current daily bars before loading secondary charts and next-code prefetch", async () => {
     vi.useFakeTimers();
     mocks.backendReadyRef.value = true;
     mocks.storeState.tickers = [
@@ -812,10 +958,10 @@ describe("DetailView", () => {
     });
 
     const batchBarsCalls = mocks.apiPost.mock.calls.filter(([url]) => url === "/batch_bars_v3");
-    expect(batchBarsCalls).toHaveLength(2);
+    expect(batchBarsCalls).toHaveLength(3);
     expect(batchBarsCalls[0]?.[1]).toMatchObject({
       codes: ["9101"],
-      timeframes: ["daily", "weekly", "monthly"],
+      timeframes: ["daily"],
       timeframeLimits: {
         daily: 2000,
         weekly: 520,
@@ -823,6 +969,15 @@ describe("DetailView", () => {
       },
     });
     expect(batchBarsCalls[1]?.[1]).toMatchObject({
+      codes: ["9101"],
+      timeframes: ["weekly", "monthly"],
+      timeframeLimits: {
+        daily: 2000,
+        weekly: 520,
+        monthly: 240,
+      },
+    });
+    expect(batchBarsCalls[2]?.[1]).toMatchObject({
       codes: ["9102"],
       timeframes: ["daily", "weekly", "monthly"],
       timeframeLimits: {
@@ -841,7 +996,7 @@ describe("DetailView", () => {
     });
 
     const batchBarsCallsAfterNavigate = mocks.apiPost.mock.calls.filter(([url]) => url === "/batch_bars_v3");
-    expect(batchBarsCallsAfterNavigate).toHaveLength(2);
+    expect(batchBarsCallsAfterNavigate).toHaveLength(3);
 
     render.cleanup();
   });
@@ -987,7 +1142,7 @@ describe("DetailView", () => {
       await flushMicrotasks();
     });
 
-    expect(container.textContent).toContain("9202");
+    expect(container.querySelector<HTMLInputElement>("[aria-label='銘柄コードを入力']")?.value).toBe("9202");
     expect(container.textContent).toContain("日足: 読み込み中...");
     expect(container.textContent).toContain("週足: 読み込み中...");
     expect(container.textContent).toContain("月足: 読み込み中...");
@@ -1032,7 +1187,7 @@ describe("DetailView", () => {
 
     const chartNodes = Array.from(container.querySelectorAll("[data-testid='detail-chart']"));
     expect(chartNodes.length).toBeGreaterThan(0);
-    expect(container.textContent).toContain("9302");
+    expect(container.querySelector<HTMLInputElement>("[aria-label='銘柄コードを入力']")?.value).toBe("9302");
     for (const chartNode of chartNodes) {
       expect(chartNode.getAttribute("data-candles")).toBe("0");
     }

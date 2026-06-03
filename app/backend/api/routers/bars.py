@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import time
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from collections import OrderedDict
@@ -14,6 +15,7 @@ from pydantic import BaseModel, Field
 from app.backend.api.dependencies import get_stock_repo
 from app.core.config import config
 from app.backend.infra.duckdb.stock_repo import StockRepository
+from app.db.session import DatabaseAccessBusyError
 from app.backend.services.meemee_data_freshness_contract import build_chart_data_freshness_contract
 from app.backend.services.data.bar_aggregation import merge_weekly_rows_with_daily
 from app.backend.services.data.yahoo_provisional import (
@@ -21,6 +23,11 @@ from app.backend.services.data.yahoo_provisional import (
     get_provisional_daily_rows_from_spark,
     merge_daily_rows_with_provisional,
     normalize_date_key,
+)
+from app.backend.services.chart_display_cache import (
+    build_chart_display_cache_key,
+    load_chart_display_cache,
+    store_chart_display_cache,
 )
 from shared.chart_data_provenance import build_chart_data_provenance
 from app.services.box_detector import detect_boxes
@@ -32,6 +39,7 @@ _SUPPORTED_TIMEFRAMES = {"daily", "weekly", "monthly"}
 _BATCH_V3_CACHE_TTL_SEC = 300.0
 _BATCH_V3_CACHE_MAX_ENTRIES = 512
 _WEEKLY_PATCH_DAILY_LIMIT = 10
+_MONTHLY_PATCH_DAILY_LIMIT = 45
 _batch_v3_cache_lock = Lock()
 _batch_v3_cache: "OrderedDict[tuple[Any, ...], tuple[float, Dict[str, Dict[str, Dict[str, Any]]]]]" = OrderedDict()
 _batch_v3_inflight: dict[tuple[Any, ...], Event] = {}
@@ -542,7 +550,12 @@ def _fetch_multi_timeframe_items(
     asof_dt: int | None,
     forward_bars: Dict[str, int] | None = None,
     force_refresh: bool = False,
+    timings_ms: Dict[str, float] | None = None,
 ) -> Dict[str, Dict[str, Dict[str, Any]]]:
+    def mark_timing(name: str, started_at: float) -> None:
+        if timings_ms is not None:
+            timings_ms[name] = round((time.perf_counter() - started_at) * 1000.0, 3)
+
     items: Dict[str, Dict[str, Dict[str, Any]]] = {code: {} for code in codes}
     if not codes:
         return items
@@ -560,6 +573,7 @@ def _fetch_multi_timeframe_items(
     if include_provisional and asof_dt is None and (
         "daily" in requested_frames or "weekly" in requested_frames or "monthly" in requested_frames
     ):
+        started_at = time.perf_counter()
         try:
             provisional_map_raw = get_provisional_daily_rows_from_spark(
                 codes,
@@ -574,11 +588,30 @@ def _fetch_multi_timeframe_items(
             }
         except Exception as exc:
             logger.debug("Yahoo provisional fetch skipped in batch bars: %s", exc)
+        finally:
+            mark_timing("provisional_overlay_ms", started_at)
 
     raw_daily_rows_by_code: Dict[str, List[tuple]] | None = None
     confirmed_daily_rows_by_code: Dict[str, List[tuple]] | None = None
     persisted_provisional_rows_by_code: Dict[str, tuple | None] = {}
+    if "daily" not in requested_frames:
+        shared_daily_tail_limit = 0
+        if "monthly" in requested_frames:
+            shared_daily_tail_limit = max(shared_daily_tail_limit, _MONTHLY_PATCH_DAILY_LIMIT)
+        if include_provisional and asof_dt is None and "weekly" in requested_frames:
+            shared_daily_tail_limit = max(shared_daily_tail_limit, _WEEKLY_PATCH_DAILY_LIMIT)
+        if shared_daily_tail_limit > 0:
+            started_at = time.perf_counter()
+            raw_daily_rows_by_code, confirmed_daily_rows_by_code, persisted_provisional_rows_by_code = _source_aware_daily_rows(
+                repo,
+                codes,
+                shared_daily_tail_limit,
+                asof_dt=asof_dt,
+            )
+            mark_timing("shared_daily_tail_ms", started_at)
+
     if "daily" in requested_frames:
+        started_at = time.perf_counter()
         if asof_dt is not None and frame_forward_bars["daily"] > 0:
             raw_daily = repo.get_daily_bars_with_source_around_batch(
                 codes,
@@ -643,8 +676,10 @@ def _fetch_multi_timeframe_items(
                 include_provisional=include_provisional,
             )
             items[code]["daily"] = payload
+        mark_timing("daily_ms", started_at)
 
     if "weekly" in requested_frames:
+        started_at = time.perf_counter()
         weekly_rows_by_code = repo.get_weekly_bars_batch(
             codes,
             frame_limits["weekly"],
@@ -706,8 +741,10 @@ def _fetch_multi_timeframe_items(
                 include_provisional=include_provisional,
             )
             items[code]["weekly"] = payload
+        mark_timing("weekly_ms", started_at)
 
     if "monthly" in requested_frames:
+        started_at = time.perf_counter()
         if asof_dt is not None and frame_forward_bars["monthly"] > 0:
             monthly_rows_by_code = repo.get_monthly_bars_around_batch(
                 codes,
@@ -756,6 +793,7 @@ def _fetch_multi_timeframe_items(
                 include_provisional=include_provisional,
             )
             items[code]["monthly"] = payload
+        mark_timing("monthly_ms", started_at)
 
     return items
 
@@ -798,6 +836,8 @@ def batch_bars_v3(
     payload: BatchBarsV3Request,
     repo: StockRepository = Depends(get_stock_repo),
 ) -> Dict[str, Dict]:
+    request_started_at = time.perf_counter()
+    timings_ms: Dict[str, float] = {}
     requested_frames = _normalize_requested_frames(payload.timeframes)
     valid_codes = _normalize_codes(payload.codes)
     asof_dt = _parse_asof(payload.asof)
@@ -828,8 +868,21 @@ def batch_bars_v3(
         runtime_db_path=str(getattr(config, "DB_PATH", None)) if getattr(config, "DB_PATH", None) else None,
         data_version=meta.get("data_version"),
     )
+    display_cache_key = build_chart_display_cache_key(
+        codes=valid_codes,
+        requested_frames=requested_frames,
+        limit=int(payload.limit),
+        timeframe_limits=timeframe_limits,
+        include_provisional=bool(payload.includeProvisional),
+        include_boxes=bool(payload.includeBoxes),
+        asof_dt=asof_dt,
+        forward_bars=forward_bars,
+        runtime_db_path=str(getattr(config, "DB_PATH", None)) if getattr(config, "DB_PATH", None) else None,
+    )
     cached_items = None if force_refresh else _get_cached_batch_v3_items(cache_key)
     if cached_items is not None:
+        timings_ms["cache_hit_ms"] = round((time.perf_counter() - request_started_at) * 1000.0, 3)
+        meta["timings_ms"] = timings_ms
         meta["data_freshness_contract"] = build_chart_data_freshness_contract(
             items=cached_items,
             requested_timeframes=requested_frames,
@@ -842,9 +895,12 @@ def batch_bars_v3(
     if not force_refresh:
         inflight_event, is_owner = _claim_batch_v3_inflight(cache_key)
         if not is_owner:
+            wait_started_at = time.perf_counter()
             inflight_event.wait(timeout=15.0)
+            timings_ms["inflight_wait_ms"] = round((time.perf_counter() - wait_started_at) * 1000.0, 3)
             cached_items = _get_cached_batch_v3_items(cache_key)
             if cached_items is not None:
+                meta["timings_ms"] = timings_ms
                 meta["data_freshness_contract"] = build_chart_data_freshness_contract(
                     items=cached_items,
                     requested_timeframes=requested_frames,
@@ -864,15 +920,57 @@ def batch_bars_v3(
             asof_dt=asof_dt,
             forward_bars=forward_bars,
             force_refresh=force_refresh,
+            timings_ms=timings_ms,
         )
         if not force_refresh:
             _store_cached_batch_v3_items(cache_key, items)
+    except DatabaseAccessBusyError as exc:
+        timings_ms["db_busy_ms"] = round((time.perf_counter() - request_started_at) * 1000.0, 3)
+        meta["timings_ms"] = timings_ms
+        stale = load_chart_display_cache(display_cache_key)
+        if stale is not None:
+            stale_payload = stale["payload"]
+            stale_meta = dict(stale_payload.get("meta") or {})
+            stale_meta["timings_ms"] = timings_ms
+            stale_meta["display_cache"] = {
+                "hit": True,
+                "stale": True,
+                "reason": "db_busy",
+                "cache_id": stale.get("cache_id"),
+                "stored_at": stale.get("stored_at"),
+            }
+            return {
+                "items": stale_payload.get("items") if isinstance(stale_payload.get("items"), dict) else {},
+                "meta": stale_meta,
+            }
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "chart_db_busy",
+                "message": "database is temporarily busy",
+                "retry_after_ms": 1000,
+                "timings_ms": timings_ms,
+            },
+        ) from exc
     finally:
         if not force_refresh and is_owner:
             _finish_batch_v3_inflight(cache_key)
+    timings_ms["total_ms"] = round((time.perf_counter() - request_started_at) * 1000.0, 3)
+    meta["timings_ms"] = timings_ms
     meta["data_freshness_contract"] = build_chart_data_freshness_contract(
         items=items,
         requested_timeframes=requested_frames,
         generated_at=meta.get("fetched_at"),
     )
-    return {"items": items, "meta": meta}
+    response_payload = {"items": items, "meta": meta}
+    try:
+        stored = store_chart_display_cache(cache_key=display_cache_key, payload=response_payload)
+        meta["display_cache"] = {
+            "hit": False,
+            "stale": False,
+            "cache_id": stored.get("cache_id"),
+            "stored_at": stored.get("stored_at"),
+        }
+    except Exception as exc:
+        logger.debug("chart display cache store skipped: %s", exc)
+    return response_payload

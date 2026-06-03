@@ -60,3 +60,21 @@ def test_tdnet_repository_exposes_free_provider_report_links(tmp_path) -> None:
     assert {"label": "短信サマリー", "url": "https://example.test/summary.pdf"} in row["reportLinks"]
     assert {"label": "業績予想", "url": "https://example.test/forecast.pdf"} in row["reportLinks"]
     assert {"label": "XBRL", "url": "https://example.test/report.zip"} in row["reportLinks"]
+
+
+def test_tdnet_repository_is_compatible_with_legacy_tables_without_primary_keys(tmp_path) -> None:
+    import duckdb
+
+    db_path = tmp_path / "tdnet-legacy.duckdb"
+    with duckdb.connect(str(db_path)) as conn:
+        conn.execute("CREATE TABLE tdnet_disclosures AS SELECT 'yanoshin:1244728' disclosure_id, '7203' sec_code, 'old' company_name, 'old' title, NULL::VARCHAR category, NULL::TIMESTAMP published_at, NULL::VARCHAR tdnet_url, NULL::VARCHAR pdf_url, NULL::VARCHAR xbrl_url, NULL::VARCHAR summary_text, '{}' raw_json, CURRENT_TIMESTAMP fetched_at")
+        conn.execute("CREATE TABLE tdnet_disclosure_features AS SELECT 'yanoshin:1244728' disclosure_id, '7203' sec_code, NULL::TIMESTAMP published_at, 'other' event_type, 'neutral' sentiment, 0.2::DOUBLE importance_score, FALSE forecast_revision, FALSE dividend_revision, FALSE share_buyback, FALSE share_split, FALSE earnings, FALSE governance, FALSE distress, '' title_normalized, '[]' tags_json, '' raw_text, CURRENT_TIMESTAMP fetched_at")
+    repo = TdnetdbRepository(db_path)
+    item = normalize_tdnet_item(_yanoshin_sample(), fallback_code=None)
+    assert item is not None
+
+    assert repo.upsert_disclosures([item]) == 1
+
+    with duckdb.connect(str(db_path), read_only=True) as conn:
+        rows = conn.execute("SELECT company_name FROM tdnet_disclosures WHERE disclosure_id = 'yanoshin:1244728'").fetchall()
+    assert rows == [("Toyota",)]

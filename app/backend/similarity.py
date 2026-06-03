@@ -42,6 +42,9 @@ RECENT_DAILY_SHAPE_WINDOW = 126
 RECENT_DAILY_FEATURE_COUNT = 6
 RECENT_DAILY_SHAPE_FEATURES = "close_return,ma7_gap,ma20_gap,ma60_gap,ma100_gap,ma200_gap"
 RECENT_DAILY_VECTOR_WIDTH = RECENT_DAILY_SHAPE_WINDOW * RECENT_DAILY_FEATURE_COUNT
+RECENT_DAILY_WEIGHTING = "linear_recent_1.0_to_2.5"
+RECENT_DAILY_WEIGHT_MIN = 1.0
+RECENT_DAILY_WEIGHT_MAX = 2.5
 SEARCH_CACHE_TTL_SEC = max(1.0, float(os.getenv("MEEMEE_SIMILAR_SEARCH_CACHE_TTL_SEC", "15")))
 SEARCH_CACHE_MAX_ENTRIES = max(16, int(os.getenv("MEEMEE_SIMILAR_SEARCH_CACHE_MAX_ENTRIES", "128")))
 SHAPE_SCORE_WEIGHT = 0.85
@@ -72,7 +75,7 @@ class SimilarityService:
         self.df_monthly_path = os.path.join(self.data_dir, "monthly_bars.parquet")
         self.df_vec60_path = os.path.join(self.data_dir, "vec60.parquet")
         self.df_vec24_path = os.path.join(self.data_dir, "vec24.parquet")
-        self.df_daily_vec_path = os.path.join(self.data_dir, "daily_vec126_ohlc_ma.parquet")
+        self.df_daily_vec_path = os.path.join(self.data_dir, "daily_vec126_ohlc_ma_recent_weighted_v2.parquet")
         self.df_env_path = os.path.join(self.data_dir, "monthly_env.parquet")
         self.tag_index_path = os.path.join(self.data_dir, "tag_index.pkl")
 
@@ -183,6 +186,18 @@ class SimilarityService:
         z_scores = (matrix - means) / stds
         l2_norms = np.linalg.norm(z_scores, axis=1, keepdims=True) + 1e-9
         return z_scores / l2_norms
+
+    @staticmethod
+    def _recent_daily_shape_weights() -> "np.ndarray":
+        if np is None:
+            raise RuntimeError("numpy_missing")
+        # Daily slices are reversed before weighting: offset 0 is the latest bar.
+        return np.linspace(
+            RECENT_DAILY_WEIGHT_MAX,
+            RECENT_DAILY_WEIGHT_MIN,
+            RECENT_DAILY_SHAPE_WINDOW,
+            dtype=np.float32,
+        )
 
     def _month_values_to_compare_keys(self, values: "pd.Series") -> "pd.Series":
         if pd is None:
@@ -480,6 +495,7 @@ class SimilarityService:
         feature_matrix = np.vstack([item[::-1] for item in slices]).astype(np.float32)
         if not np.isfinite(feature_matrix).all():
             return None
+        feature_matrix *= self._recent_daily_shape_weights()
         vector = self._normalize_shape_vector(feature_matrix.reshape(1, -1))[0].astype(np.float32)
         return vector, pd.Timestamp(daily_dates[int(daily_pos)]).normalize()
 
@@ -1014,6 +1030,7 @@ class SimilarityService:
                     "daily_shape": "available" if bool(df_daily_vec.iloc[idx]["daily_shape_available"]) else "missing",
                     "daily_shape_window_days": RECENT_DAILY_SHAPE_WINDOW,
                     "daily_shape_features": RECENT_DAILY_SHAPE_FEATURES,
+                    "daily_shape_weighting": RECENT_DAILY_WEIGHTING,
                     "daily_asof": (
                         df_daily_vec.iloc[idx]["daily_asof"].strftime("%Y-%m-%d")
                         if pd.notna(df_daily_vec.iloc[idx]["daily_asof"])
@@ -1127,6 +1144,7 @@ class SimilarityService:
                     "daily_shape": "available",
                     "daily_shape_window_days": RECENT_DAILY_SHAPE_WINDOW,
                     "daily_shape_features": RECENT_DAILY_SHAPE_FEATURES,
+                    "daily_shape_weighting": RECENT_DAILY_WEIGHTING,
                     "daily_asof": r_asof.strftime("%Y-%m-%d"),
                 },
                 vec60=None,
@@ -1211,6 +1229,7 @@ class SimilarityService:
                     "daily_shape": "available",
                     "daily_shape_window_days": RECENT_DAILY_SHAPE_WINDOW,
                     "daily_shape_features": RECENT_DAILY_SHAPE_FEATURES,
+                    "daily_shape_weighting": RECENT_DAILY_WEIGHTING,
                     "daily_asof": daily_asof.strftime("%Y-%m-%d"),
                 },
                 vec60=None,

@@ -19,6 +19,7 @@ from app.utils.text_utils import _normalize_code
 from app.backend.infra.files.trade_repo import TradeRepository
 from app.backend.core.text_encoding import repair_cp932_mojibake
 from app.backend.services.holding_review import build_holding_review_bundle
+from app.backend.import_positions import TradeImportBusyError
 
 # Re-export or re-implement helpers if needed, or import from services
 # The legacy router imported _calc_* from position_calc.
@@ -307,6 +308,17 @@ def trade_csv_upload(file: UploadFile = File(...)):
             }
         )
     except Exception as e:
+        if isinstance(e, TradeImportBusyError):
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "error": "trade_import_busy",
+                    "retryable": True,
+                    "message": str(e),
+                    "retry_after_ms": e.retry_after_ms,
+                },
+                headers={"Retry-After": "1"},
+            )
         return JSONResponse(status_code=500, content={"ok": False, "error": f"ingest_failed:{e}"})
 
 @router.post("/api/imports/trade-history")
@@ -354,6 +366,17 @@ def import_trade_history(
 
     except Exception as e:
         traceback.print_exc()
+        if isinstance(e, TradeImportBusyError):
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "error": "trade_import_busy",
+                    "retryable": True,
+                    "message": str(e),
+                    "retry_after_ms": e.retry_after_ms,
+                },
+                headers={"Retry-After": "1"},
+            )
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 
@@ -406,7 +429,8 @@ def get_held_positions():
                 return _db_retryable_response()
             rows = conn.execute(
                 """
-                SELECT p.symbol, p.buy_qty, p.sell_qty, p.opened_at, p.has_issue, p.issue_note, t.name
+                SELECT p.symbol, p.buy_qty, p.sell_qty, p.opened_at, p.has_issue, p.issue_note, t.name,
+                       p.spot_qty, p.margin_long_qty, p.margin_short_qty
                 FROM positions_live p
                 JOIN tickers t ON t.code = p.symbol
                 WHERE p.buy_qty > 0 OR p.sell_qty > 0
@@ -429,6 +453,9 @@ def get_held_positions():
 
                 b_qty = to_lots(r[1])
                 s_qty = to_lots(r[2])
+                spot_qty = to_lots(r[7])
+                margin_long_qty = to_lots(r[8])
+                margin_short_qty = to_lots(r[9])
                 b_str = f"{int(b_qty)}" if b_qty.is_integer() else f"{b_qty}"
                 s_str = f"{int(s_qty)}" if s_qty.is_integer() else f"{s_qty}"
 
@@ -438,6 +465,9 @@ def get_held_positions():
                         "name": name,
                         "buy_qty": b_qty,
                         "sell_qty": s_qty,
+                        "spot_qty": spot_qty,
+                        "margin_long_qty": margin_long_qty,
+                        "margin_short_qty": margin_short_qty,
                         "sell_buy_text": f"{s_str}-{b_str}",
                         "opened_at": r[3],
                         "has_issue": r[4],

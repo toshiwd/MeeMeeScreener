@@ -37,7 +37,6 @@ import {
 } from "@tabler/icons-react";
 import TechnicalFilterDrawer from "../components/TechnicalFilterDrawer";
 import AiExplainSettingsSection from "../features/aiExplain/AiExplainSettingsSection";
-import { computeSignalMetrics } from "../utils/signals";
 import {
   buildConsultationPack,
   ConsultationSort,
@@ -104,18 +103,17 @@ import {
   createDefaultWalkforwardParams,
   extractErrorDetail,
   gridPresetOptions,
+  rangeOptions,
   buildVisibleRequestSignature,
+  canCommitGridDerivedSort,
   isGridBarsDependentSortKey,
   resolveGridFastSortValue,
   resolveGridChartPrefetchWindow,
-  resolveGridRefineWindow,
   mergeHealthStatus,
   normalizeHealthStatus,
   resolveGridRangeBars,
-  resolveGridPrimaryChangeValue,
   resolveGridVolumeSurgeRatio,
   buildAvailableSectorOptions,
-  resolveGridSignalSortScore,
   toWalkforwardParams
 } from "./grid/gridHelpers";
 import { resolveListThumbnailMaSettings } from "../storeHelpers";
@@ -128,6 +126,8 @@ const GRID_CHART_BACKGROUND_PREFETCH_LIMIT = 240;
 const GRID_CHART_BACKGROUND_PREFETCH_CHUNK_SIZE = 48;
 const GRID_CHART_BACKGROUND_PREFETCH_INITIAL_DELAY_MS = 300;
 const GRID_CHART_BACKGROUND_PREFETCH_STEP_DELAY_MS = 700;
+const GRID_CHART_BACKGROUND_PREFETCH_MAX_PASSES = 3;
+const GRID_SORT_IDLE_MS = 160;
 
 type GridSortEntry = {
   ticker: Ticker;
@@ -183,10 +183,7 @@ const computeGridMaSlopePct = (
 };
 
 const resolveGridRefinedSortValue = (
-  ticker: Ticker,
   sortKey: string,
-  performancePeriod: string,
-  timeframe: "monthly" | "weekly" | "daily",
   bars: number[][] | undefined
 ) => {
   switch (sortKey) {
@@ -198,26 +195,10 @@ const resolveGridRefinedSortValue = (
       return computeGridMaSlopePct(bars, 20);
     case "ma60Slope":
       return computeGridMaSlopePct(bars, 60);
-    case "chg1D":
-      return resolveGridPrimaryChangeValue(ticker, timeframe, bars);
-    case "buySignalLatest":
-      if (!bars?.length) return resolveGridFastSortValue(ticker, sortKey, performancePeriod);
-      return resolveGridSignalSortScore(
-        computeSignalMetrics(bars),
-        ticker.liquidity20d,
-        "up"
-      );
-    case "sellSignalLatest":
-      if (!bars?.length) return resolveGridFastSortValue(ticker, sortKey, performancePeriod);
-      return resolveGridSignalSortScore(
-        computeSignalMetrics(bars),
-        ticker.liquidity20d,
-        "down"
-      );
     case "volumeSurge":
       return resolveGridVolumeSurgeRatio(bars, 20);
     default:
-      return resolveGridFastSortValue(ticker, sortKey, performancePeriod);
+      return null;
   }
 };
 
@@ -345,11 +326,11 @@ export default function GridView() {
   const [toastAction, setToastAction] = useState<ToastAction | null>(null);
   const toastKeyRef = useRef(0);
   const [activeIndex, setActiveIndex] = useState(0);
-  const [visibleRange, setVisibleRange] = useState<{ start: number; stop: number } | null>(null);
   const [refinedSortState, setRefinedSortState] = useState<{
     key: string;
-    items: typeof tickers;
+    items: GridSortEntry[];
   } | null>(null);
+  const [gridScrollIdleVersion, setGridScrollIdleVersion] = useState(0);
   const [consultVisible, setConsultVisible] = useState(false);
   const [consultExpanded, setConsultExpanded] = useState(false);
   const [consultTab, setConsultTab] = useState<"selection" | "position">("selection");
@@ -415,6 +396,8 @@ export default function GridView() {
   const deferredVisibleRequestTimerRef = useRef<number | null>(null);
   const backgroundChartPrefetchTimerRef = useRef<number | null>(null);
   const backgroundChartPrefetchRunRef = useRef(0);
+  const gridScrollIdleTimerRef = useRef<number | null>(null);
+  const gridIsScrollingRef = useRef(false);
   const barsErrorRetryCooldownRef = useRef<Record<string, number>>({});
   const undoTimerRef = useRef<number | null>(null);
   const txtUpdateTerminalStatusRef = useRef<string | null>(null);
@@ -867,10 +850,6 @@ export default function GridView() {
     [sortOptions, sortKey]
   );
 
-  const gridPresetLabel = useMemo(() => {
-    return gridPresetOptions.find((item) => item.value === rows)?.label ?? `${rows}x${columns}`;
-  }, [rows, columns]);
-
   const sortDirLabel = sortDir === "desc" ? "降順" : "昇順";
   const txtUpdateCanCancel = Boolean(
     txtUpdateJob && txtUpdateJob.id && !TERMINAL_JOB_STATUS.has(txtUpdateJob.status)
@@ -1292,6 +1271,8 @@ export default function GridView() {
   );
   const sortedTickers =
     refinedSortState?.key === fastSortedSignature ? refinedSortState.items : fastSortedTickers;
+  const derivedSortPending =
+    isBarsDependentSort && refinedSortState?.key !== fastSortedSignature;
   const sortedCodes = useMemo(
     () => sortedTickers.map((item) => item.ticker.code),
     [sortedTickers]
@@ -1301,20 +1282,13 @@ export default function GridView() {
     if (!backendReady || !isBarsDependentSort) {
       return;
     }
-    const range = visibleRange ?? lastVisibleRangeRef.current;
-    const refineWindow = range
-      ? resolveGridRefineWindow(range.start, range.stop, fastSortedTickers.length, rows, columns)
-      : null;
-    if (!refineWindow || fastSortedTickers.length === 0) return;
-    const windowItems = fastSortedTickers.slice(refineWindow.start, refineWindow.stop + 1);
-    if (!windowItems.length) return;
-    const windowEntries: GridSortEntry[] = windowItems.map((item) => ({
+    if (fastSortedTickers.length === 0 || gridIsScrollingRef.current) return;
+    const codes = fastSortedTickers.map((item) => item.ticker.code);
+    if (!canCommitGridDerivedSort(codes, timeframeBarsCache)) return;
+    const entries: GridSortEntry[] = fastSortedTickers.map((item) => ({
       ...item,
       sortValue: resolveGridRefinedSortValue(
-        item.ticker,
         sortKey,
-        performancePeriod,
-        gridTimeframe,
         timeframeBarsCache[item.ticker.code]?.bars
       )
     }));
@@ -1329,61 +1303,17 @@ export default function GridView() {
       return dir === "desc" ? -diff : diff;
     };
 
-    const compareBuyState = (a: GridSortEntry, b: GridSortEntry) => {
-      const aRank = Number.isFinite(a.ticker.buyStateRank) ? (a.ticker.buyStateRank as number) : 0;
-      const bRank = Number.isFinite(b.ticker.buyStateRank) ? (b.ticker.buyStateRank as number) : 0;
-      const aScore = Number.isFinite(a.ticker.buyStateScore) ? (a.ticker.buyStateScore as number) : null;
-      const bScore = Number.isFinite(b.ticker.buyStateScore) ? (b.ticker.buyStateScore as number) : null;
-      const aRisk = Number.isFinite(a.ticker.buyRiskDistance) ? (a.ticker.buyRiskDistance as number) : null;
-      const bRisk = Number.isFinite(b.ticker.buyRiskDistance) ? (b.ticker.buyRiskDistance as number) : null;
-
-      if (aRank !== bRank) return bRank - aRank;
-      const scoreResult = compareNumeric(aScore, bScore, sortDir);
-      if (scoreResult !== 0) return scoreResult;
-      const riskResult = compareNumeric(aRisk, bRisk, "asc");
-      if (riskResult !== 0) return riskResult;
-      const totalResult = compareNumeric(a.ticker.score ?? null, b.ticker.score ?? null, "desc");
-      if (totalResult !== 0) return totalResult;
+    const compare = (a: GridSortEntry, b: GridSortEntry) => {
+      const av = typeof a.sortValue === "number" ? a.sortValue : null;
+      const bv = typeof b.sortValue === "number" ? b.sortValue : null;
+      const result = compareNumeric(av, bv, sortDir);
+      if (result !== 0) return result;
+      if (av == null && bv == null) return a.index - b.index;
       return a.ticker.code.localeCompare(b.ticker.code);
     };
 
-    const compare = (a: GridSortEntry, b: GridSortEntry) => {
-      if (sortKey === "buyCandidate") {
-        return compareBuyState(a, b);
-      }
-      const av = a.sortValue;
-      const bv = b.sortValue;
-      const aMissing =
-        av === null ||
-        av === undefined ||
-        (typeof av === "number" && !Number.isFinite(av)) ||
-        (typeof av === "string" && av.trim() === "");
-      const bMissing =
-        bv === null ||
-        bv === undefined ||
-        (typeof bv === "number" && !Number.isFinite(bv)) ||
-        (typeof bv === "string" && bv.trim() === "");
-      if (aMissing && bMissing) {
-        return a.index - b.index;
-      }
-      if (aMissing) return 1;
-      if (bMissing) return -1;
-      let result = 0;
-      if (typeof av === "string" || typeof bv === "string") {
-        result = collator.compare(String(av), String(bv));
-      } else {
-        result = Number(av) - Number(bv);
-      }
-      if (result === 0) return a.ticker.code.localeCompare(b.ticker.code);
-      return sortDir === "desc" ? -result : result;
-    };
-
-    const nextWindowItems = [...windowEntries].sort(compare);
-    const nextItems = fastSortedTickers.slice();
-    for (let i = 0; i < nextWindowItems.length; i += 1) {
-      nextItems[refineWindow.start + i] = nextWindowItems[i];
-    }
-    const nextSignature = `${fastSortedSignature}:${refineWindow.start}:${refineWindow.stop}:${nextWindowItems
+    const nextItems = [...entries].sort(compare);
+    const nextSignature = `${fastSortedSignature}:${nextItems
       .map((item) => item.ticker.code)
       .join(",")}`;
     if (refinedSortSignatureRef.current === nextSignature) return;
@@ -1393,18 +1323,13 @@ export default function GridView() {
     });
   }, [
     backendReady,
-    collator,
-    columns,
     fastSortedSignature,
     fastSortedTickers,
-    gridTimeframe,
+    gridScrollIdleVersion,
     isBarsDependentSort,
-    performancePeriod,
-    rows,
     sortDir,
     sortKey,
-    timeframeBarsCache,
-    visibleRange
+    timeframeBarsCache
   ]);
 
   useEffect(() => {
@@ -1501,6 +1426,22 @@ export default function GridView() {
     [backendReady, buildVisibleRequestKey, ensureBarsForVisible, gridTimeframe]
   );
 
+  const handleGridScroll = useCallback(
+    ({ scrollTop }: { scrollTop: number }) => {
+      setGridScrollTop(scrollTop);
+      gridIsScrollingRef.current = true;
+      if (gridScrollIdleTimerRef.current !== null) {
+        window.clearTimeout(gridScrollIdleTimerRef.current);
+      }
+      gridScrollIdleTimerRef.current = window.setTimeout(() => {
+        gridScrollIdleTimerRef.current = null;
+        gridIsScrollingRef.current = false;
+        setGridScrollIdleVersion((current) => current + 1);
+      }, GRID_SORT_IDLE_MS);
+    },
+    [setGridScrollTop]
+  );
+
   const onItemsRendered = ({
     visibleRowStartIndex,
     visibleRowStopIndex,
@@ -1526,9 +1467,6 @@ export default function GridView() {
     const normalizedCodes = normalizeVisibleCodes(codes);
     lastVisibleCodesRef.current = normalizedCodes;
     lastVisibleRangeRef.current = { start, stop };
-    setVisibleRange((prev) =>
-      prev && prev.start === start && prev.stop === stop ? prev : { start, stop }
-    );
     const summarySignature = normalizedCodes.join(",");
     if (summarySignature !== lastVisibleSummarySignatureRef.current) {
       lastVisibleSummarySignatureRef.current = summarySignature;
@@ -1562,9 +1500,6 @@ export default function GridView() {
     const normalizedCodes = normalizeVisibleCodes(codes);
     lastVisibleCodesRef.current = normalizedCodes;
     lastVisibleRangeRef.current = { start, stop };
-    setVisibleRange((prev) =>
-      prev && prev.start === start && prev.stop === stop ? prev : { start, stop }
-    );
     const summarySignature = normalizedCodes.join(",");
     if (summarySignature !== lastVisibleSummarySignatureRef.current) {
       lastVisibleSummarySignatureRef.current = summarySignature;
@@ -1598,12 +1533,15 @@ export default function GridView() {
     backgroundChartPrefetchRunRef.current = runId;
     if (!backendReady || sortedCodes.length === 0) return;
 
-    const codes = normalizeVisibleCodes(
-      sortedCodes.slice(0, GRID_CHART_BACKGROUND_PREFETCH_LIMIT)
+    let codes = normalizeVisibleCodes(
+      isBarsDependentSort
+        ? fastSortedTickers.map((item) => item.ticker.code)
+        : sortedCodes.slice(0, GRID_CHART_BACKGROUND_PREFETCH_LIMIT)
     );
     if (!codes.length) return;
 
     let cursor = 0;
+    let pass = 1;
     let disposed = false;
     const scheduleNextChunk = (delayMs: number) => {
       backgroundChartPrefetchTimerRef.current = window.setTimeout(async () => {
@@ -1620,6 +1558,22 @@ export default function GridView() {
         }
         if (!disposed && backgroundChartPrefetchRunRef.current === runId && cursor < codes.length) {
           scheduleNextChunk(GRID_CHART_BACKGROUND_PREFETCH_STEP_DELAY_MS);
+          return;
+        }
+        if (
+          !disposed &&
+          backgroundChartPrefetchRunRef.current === runId &&
+          isBarsDependentSort &&
+          pass < GRID_CHART_BACKGROUND_PREFETCH_MAX_PASSES
+        ) {
+          const cache = useStore.getState().barsCache[gridTimeframe] ?? EMPTY_TIMEFRAME_BARS_CACHE;
+          const missingCodes = codes.filter((code) => !Object.prototype.hasOwnProperty.call(cache, code));
+          if (missingCodes.length) {
+            codes = missingCodes;
+            cursor = 0;
+            pass += 1;
+            scheduleNextChunk(GRID_CHART_BACKGROUND_PREFETCH_STEP_DELAY_MS);
+          }
         }
       }, delayMs);
     };
@@ -1635,7 +1589,9 @@ export default function GridView() {
   }, [
     backendReady,
     ensureBarsForVisible,
+    fastSortedTickers,
     gridTimeframe,
+    isBarsDependentSort,
     listRangeBars,
     normalizeVisibleCodes,
     sortedCodes,
@@ -1697,6 +1653,9 @@ export default function GridView() {
       }
       if (backgroundChartPrefetchTimerRef.current !== null) {
         window.clearTimeout(backgroundChartPrefetchTimerRef.current);
+      }
+      if (gridScrollIdleTimerRef.current !== null) {
+        window.clearTimeout(gridScrollIdleTimerRef.current);
       }
     };
   }, []);
@@ -2933,7 +2892,7 @@ export default function GridView() {
                 <div className="popover-anchor" ref={sortRef}>
                   <IconButton
                     icon={<IconArrowsSort size={18} />}
-                    label={`並び: ${sortLabel}`}
+                    label={`並び: ${sortLabel}${derivedSortPending ? " (準備中)" : ""}`}
                     variant="iconLabel"
                     tooltip="並び替え"
                     ariaLabel="並び替えメニューを開く"
@@ -3901,17 +3860,21 @@ export default function GridView() {
                   className={gridTimeframe === frame ? "active" : ""}
                   onClick={() => setGridTimeframe(frame)}
                 >
-                  {frame === "daily"
-                    ? "日足"
-                    : frame === "weekly"
-                      ? "週足"
-                      : "月足"}
+                  {frame === "daily" ? "日" : frame === "weekly" ? "週" : "月"}
                 </button>
               ))}
             </div>
-            <div className="grid-preset-summary" aria-label="グリッド表示本数">
-              <span className="grid-preset-summary-label">{gridPresetLabel}</span>
-              <span className="grid-preset-summary-value">{listRangeBars}本</span>
+            <div className="segmented segmented-compact list-range">
+              {rangeOptions.map((option) => (
+                <button
+                  key={option.label}
+                  type="button"
+                  className={listRangeBars === option.count ? "active" : ""}
+                  onClick={() => setListRangeBars(option.count)}
+                >
+                  {option.label}
+                </button>
+              ))}
             </div>
             {activeSectorParam && (
               <div className="sector-filter-chip">
@@ -4151,7 +4114,7 @@ export default function GridView() {
                   itemKey={itemKey}
                   onItemsRendered={onItemsRendered}
                   initialScrollTop={gridScrollTop}
-                  onScroll={({ scrollTop }) => setGridScrollTop(scrollTop)}
+                  onScroll={handleGridScroll}
                 >
                   {({ columnIndex, rowIndex, style, data }) => {
                     const index = rowIndex * columns + columnIndex;

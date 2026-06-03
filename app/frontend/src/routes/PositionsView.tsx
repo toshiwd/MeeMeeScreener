@@ -30,6 +30,9 @@ type HeldItem = {
   issue_note?: string | null;
   buy_qty: number;
   sell_qty: number;
+  spot_qty: number;
+  margin_long_qty: number;
+  margin_short_qty: number;
 };
 
 type HistoryItem = {
@@ -66,10 +69,14 @@ const extractErrorMessage = (err: unknown, fallback = "不明なエラー") => {
     response?: {
       data?: {
         error?: unknown;
+        retryable?: unknown;
       };
     };
   };
   const responseError = maybeErr.response?.data?.error;
+  if (responseError === "trade_import_busy" || maybeErr.response?.data?.retryable === true) {
+    return "建玉取り込みは別の更新処理と重なっています。少し待ってからもう一度実行してください。";
+  }
   if (typeof responseError === "string" && responseError.trim()) return responseError;
   if (typeof maybeErr.message === "string" && maybeErr.message.trim()) return maybeErr.message;
   return fallback;
@@ -118,7 +125,7 @@ export default function PositionsView() {
     shallow
   );
 
-  const [tab, setTab] = useState<"held" | "history">("held");
+  const [tab, setTab] = useState<"margin" | "spot" | "history">("margin");
   const [sortKey, setSortKey] = useState<PositionSortKey>("code");
   const [filterSignalsOnly, setFilterSignalsOnly] = useState(false);
   const [filterDataOnly, setFilterDataOnly] = useState(false);
@@ -153,14 +160,14 @@ export default function PositionsView() {
       const stored = window.sessionStorage.getItem(POSITIONS_VIEW_STATE_KEY);
       if (!stored) return;
       const parsed = JSON.parse(stored) as {
-        tab?: "held" | "history";
+        tab?: "margin" | "spot" | "history";
         sortKey?: PositionSortKey;
         filterSignalsOnly?: boolean;
         filterDataOnly?: boolean;
         filterBuySignalsOnly?: boolean;
         filterSellSignalsOnly?: boolean;
       };
-      if (parsed.tab === "held" || parsed.tab === "history") {
+      if (parsed.tab === "margin" || parsed.tab === "spot" || parsed.tab === "history") {
         setTab(parsed.tab);
       }
       if (
@@ -225,7 +232,7 @@ export default function PositionsView() {
         const holdings = (heldRes.data?.items || []) as HeldItem[];
         const holdingSet = new Set(holdings.map((item) => item.symbol));
 
-        if (tab === "held") {
+        if (tab !== "history") {
           setHeldItems(holdings);
           setHistoryItems([]);
         } else {
@@ -239,7 +246,7 @@ export default function PositionsView() {
         }
       } catch (e) {
         console.error(e);
-        if (tab === "held") setHeldItems([]);
+        if (tab !== "history") setHeldItems([]);
         else setHistoryItems([]);
       } finally {
         setLoading(false);
@@ -271,9 +278,20 @@ export default function PositionsView() {
 
   const filteredHeldItems = useMemo(() => {
     const hasDirectionalFilter = filterBuySignalsOnly || filterSellSignalsOnly;
-    if (tab !== "held") return heldItems;
-    if (!filterSignalsOnly && !filterDataOnly && !hasDirectionalFilter) return heldItems;
-    return heldItems.filter((item) => {
+    if (tab === "history") return heldItems;
+    const tabItems = heldItems
+      .filter((item) =>
+        tab === "margin"
+          ? item.margin_long_qty > 0 || item.margin_short_qty > 0
+          : item.spot_qty > 0
+      )
+      .map((item) => {
+        const buyQty = tab === "margin" ? item.margin_long_qty : item.spot_qty;
+        const sellQty = tab === "margin" ? item.margin_short_qty : 0;
+        return { ...item, buy_qty: buyQty, sell_qty: sellQty, sell_buy_text: `${sellQty}-${buyQty}` };
+      });
+    if (!filterSignalsOnly && !filterDataOnly && !hasDirectionalFilter) return tabItems;
+    return tabItems.filter((item) => {
       if (!item?.symbol) return false;
       const payload = barsCache[item.symbol] ?? null;
       const hasData = Boolean(payload?.bars?.length);
@@ -356,7 +374,7 @@ export default function PositionsView() {
 
   // Determine active items
   const activeItems = useMemo(() => {
-    return tab === "held" ? sortedHeldItems : historyItems;
+    return tab !== "history" ? sortedHeldItems : historyItems;
   }, [tab, sortedHeldItems, historyItems]);
   const listCodes = useMemo(
     () =>
@@ -367,7 +385,7 @@ export default function PositionsView() {
   );
 
   const consultTargets = useMemo(
-    () => (tab === "held" ? sortedHeldItems.map((item) => item.symbol) : []),
+    () => (tab !== "history" ? sortedHeldItems.map((item) => item.symbol) : []),
     [tab, sortedHeldItems]
   );
 
@@ -401,7 +419,7 @@ export default function PositionsView() {
       alert("インポートが完了しました");
 
       // Reload
-      if (tab === "held") {
+      if (tab !== "history") {
         const res = await api.get("/positions/held");
         setHeldItems((res.data?.items || []) as HeldItem[]);
       } else {
@@ -438,7 +456,7 @@ export default function PositionsView() {
   const { handleVisibleItemsChange } = useVisibleCodesPrefetch<{ code: string }>({
     backendReady,
     timeframe: listTimeframe,
-    reason: tab === "held" ? "positions-held-visible" : "positions-visible",
+    reason: tab !== "history" ? "positions-held-visible" : "positions-visible",
     ensureBarsForVisible,
   });
 
@@ -603,7 +621,7 @@ export default function PositionsView() {
 
   const filterItems = useMemo(
     () =>
-      tab === "held"
+      tab !== "history"
         ? [
           {
             key: "signals",
@@ -636,7 +654,7 @@ export default function PositionsView() {
 
   const isSingleDensity = columns === 1 && rows === 1;
   const emptyLabel =
-    tab === "held"
+    tab !== "history"
       ? heldItems.length > 0 &&
         (filterSignalsOnly || filterDataOnly || filterBuySignalsOnly || filterSellSignalsOnly) &&
         sortedHeldItems.length === 0
@@ -712,7 +730,7 @@ export default function PositionsView() {
         filterItems={filterItems}
         helpLabel="相談"
         onHelpClick={() => {
-          if (tab !== "held") return;
+          if (tab === "history") return;
           setConsultVisible(true);
           setConsultExpanded(false);
           setConsultTab("selection");
@@ -730,19 +748,35 @@ export default function PositionsView() {
         <div className="positions-tabs" style={{ display: "flex", gap: "8px" }}>
           <button
             type="button"
-            className={tab === "held" ? "active" : ""}
-            onClick={() => { setSelectedRound(null); setTab("held"); }}
+            className={tab === "margin" ? "active" : ""}
+            onClick={() => { setSelectedRound(null); setTab("margin"); }}
             style={{
               padding: "6px 12px",
               borderRadius: "999px",
               border: "none",
-              background: tab === "held" ? "var(--theme-accent)" : "transparent",
-              color: tab === "held" ? "#fff" : "var(--theme-text-secondary)",
+              background: tab === "margin" ? "var(--theme-accent)" : "transparent",
+              color: tab === "margin" ? "#fff" : "var(--theme-text-secondary)",
               cursor: "pointer",
               fontWeight: 600
             }}
           >
-            保有
+            信用
+          </button>
+          <button
+            type="button"
+            className={tab === "spot" ? "active" : ""}
+            onClick={() => { setSelectedRound(null); setTab("spot"); }}
+            style={{
+              padding: "6px 12px",
+              borderRadius: "999px",
+              border: "none",
+              background: tab === "spot" ? "var(--theme-accent)" : "transparent",
+              color: tab === "spot" ? "#fff" : "var(--theme-text-secondary)",
+              cursor: "pointer",
+              fontWeight: 600
+            }}
+          >
+            現物
           </button>
           <button
             type="button"
@@ -815,7 +849,7 @@ export default function PositionsView() {
       </div>
 
       <div
-        className={`rank-shell list-shell${isSingleDensity ? " is-single" : ""} ${tab === "held" ? consultPaddingClass : ""}`}
+        className={`rank-shell list-shell${isSingleDensity ? " is-single" : ""} ${tab !== "history" ? consultPaddingClass : ""}`}
         style={listStyles}
       >
         {loading && <div className="rank-status">読み込み中...</div>}

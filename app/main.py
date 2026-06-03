@@ -274,10 +274,12 @@ from app.backend.core.signal_tracking_job import (
     RANKING_APPEARANCE_REBUILD_JOB_TYPE,
     SIGNAL_TRACKING_BASIS_BACKFILL_JOB_TYPE,
     SIGNAL_TRACKING_CAMPAIGN_REBUILD_JOB_TYPE,
+    SIGNAL_TRACKING_DAILY_REFRESH_JOB_TYPE,
     SIGNAL_TRACKING_DECISION_REBUILD_JOB_TYPE,
     handle_ranking_appearance_rebuild,
     handle_signal_tracking_basis_backfill,
     handle_signal_tracking_campaign_rebuild,
+    handle_signal_tracking_daily_refresh,
     handle_signal_tracking_decision_rebuild,
 )
 from app.backend.core.screener_snapshot_job import (
@@ -314,8 +316,18 @@ from app.backend.core.publish_candidate_maintenance_job import (
     start_publish_candidate_maintenance_scheduler,
     stop_publish_candidate_maintenance_scheduler,
 )
+from app.backend.core.chart_display_cache_prewarm_job import (
+    CHART_DISPLAY_CACHE_PREWARM_JOB_TYPE,
+    handle_chart_display_cache_prewarm,
+    start_chart_display_cache_prewarm_scheduler,
+    stop_chart_display_cache_prewarm_scheduler,
+)
 from app.backend.core.taisyaku_import_job import TAISYAKU_IMPORT_JOB_TYPE, handle_taisyaku_import
 from app.backend.core.tdnet_import_job import TDNET_IMPORT_JOB_TYPE, handle_tdnet_import
+from app.backend.core.market_reference_refresh_job import (
+    start_market_reference_refresh_scheduler,
+    stop_market_reference_refresh_scheduler,
+)
 from app.backend.core.toredex_live_job import handle_toredex_live
 from app.backend.core.toredex_self_improve_job import handle_toredex_self_improve
 from app.backend.core.txt_followup_job import handle_txt_followup
@@ -347,6 +359,7 @@ job_manager.register_handler("strategy_walkforward", handle_strategy_walkforward
 job_manager.register_handler("strategy_walkforward_gate", handle_strategy_walkforward_gate)
 job_manager.register_handler(EXTERNAL_ANALYSIS_PUBLISH_JOB_TYPE, handle_external_analysis_publish_latest)
 job_manager.register_handler(YF_DAILY_INGEST_JOB_TYPE, handle_yf_daily_ingest)
+job_manager.register_handler(CHART_DISPLAY_CACHE_PREWARM_JOB_TYPE, handle_chart_display_cache_prewarm)
 if not is_legacy_analysis_disabled():
     job_manager.register_handler(RANKING_ANALYSIS_QUALITY_JOB_TYPE, handle_ranking_analysis_quality)
 else:
@@ -362,6 +375,7 @@ job_manager.register_handler(SCREENER_SNAPSHOT_JOB_TYPE, handle_screener_snapsho
 job_manager.register_handler(SIGNAL_TRACKING_BASIS_BACKFILL_JOB_TYPE, handle_signal_tracking_basis_backfill)
 job_manager.register_handler(SIGNAL_TRACKING_DECISION_REBUILD_JOB_TYPE, handle_signal_tracking_decision_rebuild)
 job_manager.register_handler(SIGNAL_TRACKING_CAMPAIGN_REBUILD_JOB_TYPE, handle_signal_tracking_campaign_rebuild)
+job_manager.register_handler(SIGNAL_TRACKING_DAILY_REFRESH_JOB_TYPE, handle_signal_tracking_daily_refresh)
 job_manager.register_handler(RANKING_APPEARANCE_REBUILD_JOB_TYPE, handle_ranking_appearance_rebuild)
 job_manager.register_handler(EDINETDB_DAILY_WATCH_JOB_TYPE, handle_edinetdb_daily_watch)
 job_manager.register_handler(EDINETDB_BACKFILL_700_JOB_TYPE, handle_edinetdb_backfill_700)
@@ -505,6 +519,8 @@ async def lifespan(app: FastAPI):
         start_screener_snapshot_scheduler()
         start_yf_daily_ingest_scheduler()
         start_edinet_auto_start_scheduler()
+        start_market_reference_refresh_scheduler()
+        start_chart_display_cache_prewarm_scheduler()
         if not is_legacy_analysis_disabled():
             start_ranking_analysis_quality_scheduler()
         else:
@@ -523,8 +539,10 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         # Shutdown
+        stop_chart_display_cache_prewarm_scheduler(timeout_sec=1.0)
         stop_publish_candidate_maintenance_scheduler(timeout_sec=1.0)
         stop_edinet_auto_start_scheduler(timeout_sec=1.0)
+        stop_market_reference_refresh_scheduler(timeout_sec=1.0)
         if not is_legacy_analysis_disabled():
             stop_analysis_prewarm_scheduler(timeout_sec=1.0)
             stop_ranking_analysis_quality_scheduler(timeout_sec=1.0)

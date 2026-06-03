@@ -55,12 +55,22 @@ type DailyChartShape = {
   } | null;
 };
 
+type CandleLike = {
+  open?: number | null;
+  high?: number | null;
+  low?: number | null;
+  close?: number | null;
+  time?: number | null;
+};
+
 type Props = {
   analysisDtLabel: string | null;
   analysisSummaryLoading: boolean;
   analysisMissingDataVisible: boolean;
   dailyChartShape?: DailyChartShape | null;
   dailyChartShapeLoading?: boolean;
+  maRoleReview?: any | null;
+  dailyCandles?: CandleLike[];
   analysisDecision: AnalysisDecisionSummary;
   analysisGuidance: AnalysisGuidance;
   analysisEntryPolicy: AnalysisEntryPolicy | null;
@@ -235,12 +245,79 @@ const resolveShapeConflictLabel = (value: string) => {
   return value;
 };
 
+const statePart = (value: unknown, key: string) => {
+  if (typeof value !== "string") return null;
+  const part = value.split("|").find((item) => item.startsWith(`${key}:`));
+  return part ? part.slice(key.length + 1) : null;
+};
+
+const labelCandleShape = (value?: string | null) => {
+  if (value === "hammer") return "トンカチ";
+  if (value === "inverted_hammer") return "逆トンカチ";
+  if (value === "doji") return "コマ/十字";
+  if (value === "long_bull") return "大陽線";
+  if (value === "long_bear") return "大陰線";
+  if (value === "normal_bull") return "陽線";
+  if (value === "normal_bear") return "陰線";
+  return value || "なし";
+};
+
+const labelThreeCandle = (value?: string | null) => {
+  if (value === "three_white_soldiers") return "赤三兵";
+  if (value === "three_black_crows") return "三羽烏";
+  if (value === "three_bar_rising") return "3本上昇";
+  if (value === "three_bar_falling") return "3本下落";
+  if (value === "three_bar_up") return "3本上向き";
+  if (value === "three_bar_down") return "3本下向き";
+  if (value === "three_bar_flat") return "3本横ばい";
+  return value || "なし";
+};
+
+const candleShapeFromCandle = (candle?: CandleLike | null) => {
+  if (!candle) return null;
+  const open = Number(candle.open);
+  const high = Number(candle.high);
+  const low = Number(candle.low);
+  const close = Number(candle.close);
+  if (![open, high, low, close].every(Number.isFinite)) return null;
+  const range = Math.max(high - low, 1e-9);
+  const body = Math.abs(close - open);
+  const upper = high - Math.max(open, close);
+  const lower = Math.min(open, close) - low;
+  if (body <= range * 0.12) return "doji";
+  if (lower >= body * 2 && upper <= body * 0.8) return "hammer";
+  if (upper >= body * 2 && lower <= body * 0.8) return "inverted_hammer";
+  if (body >= range * 0.65) return close >= open ? "long_bull" : "long_bear";
+  return close >= open ? "normal_bull" : "normal_bear";
+};
+
+const threeCandleFromCandles = (candles: CandleLike[]) => {
+  const recent = candles.slice(-3);
+  if (recent.length < 3) return null;
+  const closes = recent.map((candle) => Number(candle.close));
+  const opens = recent.map((candle) => Number(candle.open));
+  if (![...closes, ...opens].every(Number.isFinite)) return null;
+  const allBull = recent.every((_, index) => closes[index] > opens[index]);
+  const allBear = recent.every((_, index) => closes[index] < opens[index]);
+  const rising = closes[0] < closes[1] && closes[1] < closes[2];
+  const falling = closes[0] > closes[1] && closes[1] > closes[2];
+  if (allBull && rising) return "three_white_soldiers";
+  if (allBear && falling) return "three_black_crows";
+  if (rising) return "three_bar_rising";
+  if (falling) return "three_bar_falling";
+  if (closes[2] > closes[0]) return "three_bar_up";
+  if (closes[2] < closes[0]) return "three_bar_down";
+  return "three_bar_flat";
+};
+
 export function DetailJudgementPanel({
   analysisDtLabel,
   analysisSummaryLoading,
   analysisMissingDataVisible,
   dailyChartShape,
   dailyChartShapeLoading = false,
+  maRoleReview = null,
+  dailyCandles = [],
   analysisDecision,
   analysisGuidance,
   analysisEntryPolicy,
@@ -298,6 +375,43 @@ export function DetailJudgementPanel({
     : [];
   const formatPriorityPercent = (value: number | null | undefined) =>
     analysisSummaryLoading ? "確認中" : judgementUnavailable ? "--" : formatPercentLabel(value);
+  const leadProbabilityLabel =
+    analysisSummaryLoading || judgementUnavailable
+      ? "--"
+      : analysisDecision.tone === "up"
+        ? formatPercentLabel(buyProb)
+        : analysisDecision.tone === "down"
+          ? formatPercentLabel(sellProb)
+          : formatPercentLabel(neutralProb);
+  const shapeSummaryLabel = dailyChartShapeLoading
+    ? "日足形状を確認中"
+    : dailyChartShape
+      ? `${resolveShapeLabel(dailyChartShape.shape_label)} / ${resolveShapeActionLabel(dailyChartShape.actionability)}`
+      : "日足形状なし";
+  const maRoleState = maRoleReview?.current_state ?? null;
+  const candleShapeLabel = labelCandleShape(statePart(maRoleState?.entry_exit, "candle_shape"));
+  const threeCandleLabel = labelThreeCandle(statePart(maRoleState?.entry_exit, "three_candle"));
+  const candleCombinationLabel = maRoleReview?.available && maRoleState ? `${candleShapeLabel} / ${threeCandleLabel}` : "なし";
+  const rankingMaterialLabel = judgementUnavailable ? "なし" : "あり";
+  const riskMaterialLabel = judgementUnavailable ? "高" : analysisDecision.tone === "neutral" || confidenceLabel === "low" ? "中" : "低";
+  const sortedDailyCandles = dailyCandles
+    .filter((candle) => Number.isFinite(Number(candle?.time)) && Number.isFinite(Number(candle?.close)))
+    .slice()
+    .sort((a, b) => Number(a.time) - Number(b.time));
+  const fallbackCandleShape = candleShapeFromCandle(sortedDailyCandles[sortedDailyCandles.length - 1] ?? null);
+  const fallbackThreeCandle = threeCandleFromCandles(sortedDailyCandles);
+  const displayCandleShapeLabel = labelCandleShape(statePart(maRoleState?.entry_exit, "candle_shape") ?? fallbackCandleShape);
+  const displayThreeCandleLabel = labelThreeCandle(statePart(maRoleState?.entry_exit, "three_candle") ?? fallbackThreeCandle);
+  const displayCandleCombinationLabel = `${displayCandleShapeLabel} / ${displayThreeCandleLabel}`;
+  const candleCombinationLabelForDisplay = displayCandleCombinationLabel;
+  const topScenario = sortedScenarios[0] ?? null;
+  const conclusionLabel = analysisSummaryLoading ? "確認中" : judgementUnavailable ? "見送り" : judgementStateLabel;
+  const judgementMaterials = [
+    `判定根拠: ${judgementBasisLabel}`,
+    `確信度: ${confidenceLabel}${leadProbabilityLabel !== "--" ? ` / 主確率 ${leadProbabilityLabel}` : ""}`,
+    `日足形状: ${shapeSummaryLabel}`,
+    topScenario ? `主要シナリオ: ${resolveScenarioResultLabel(topScenario.label)} / ${formatPercentLabel(topScenario.score)}` : "主要シナリオ: なし",
+  ];
 
   return (
     <ScreenPanel title="判定サマリー" className="detail-analysis-panel">
@@ -309,6 +423,47 @@ export function DetailJudgementPanel({
         {analysisMissingDataVisible && (
           <div className="detail-analysis-meta">その日の ranking appearance はまだ見つかっていません。</div>
         )}
+        <div className={`detail-judgement-human-summary detail-judgement-human-summary--${judgementUnavailable ? "unavailable" : analysisDecision.tone}`}>
+          <div className="detail-judgement-block-title">統合判断</div>
+          <div className="detail-judgement-line"><span>結論</span><strong>{conclusionLabel}</strong></div>
+          <div className="detail-judgement-line"><span>今やること</span><strong>{actionLabel}</strong></div>
+          <div className="detail-judgement-line"><span>信頼度</span><strong>{confidenceLabel === "--" ? "不明" : confidenceLabel}</strong></div>
+        </div>
+        <div className="detail-judgement-summary-block">
+          <div className="detail-judgement-block-title">判断材料</div>
+          <div className="detail-judgement-material">ランキング: {rankingMaterialLabel}</div>
+          <div className="detail-judgement-material">チャート: {shapeSummaryLabel}</div>
+          <div className="detail-judgement-material">ローソク: {candleCombinationLabel}</div>
+          <div className="detail-judgement-material">リスク: {riskMaterialLabel}</div>
+        </div>
+        <div className="detail-judgement-summary-block">
+          <div className="detail-judgement-block-title">チャートで見る場所</div>
+          <div className="detail-judgement-material">ローソク足: {candleCombinationLabelForDisplay}</div>
+          <div className="detail-judgement-material">{watchpointLabel}</div>
+          <div className="detail-judgement-material">{judgementUnavailable ? "MA20を回復できるか / 直近安値を割るなら見送り" : judgementBasisLabel}</div>
+        </div>
+        <details className="detail-judgement-details">
+          <summary>詳細を開く</summary>
+        <div className={`detail-judgement-lead detail-judgement-lead--${judgementUnavailable ? "unavailable" : analysisDecision.tone}`}>
+          <div className="detail-judgement-lead-kicker">統合判断</div>
+          <div className="detail-judgement-lead-main">
+            <span className="detail-judgement-lead-label">結論</span>
+            <strong>{conclusionLabel}</strong>
+          </div>
+          <div className="detail-judgement-lead-action">
+            次の行動: {actionLabel} / {watchpointLabel}
+          </div>
+          <div className="detail-judgement-materials">
+            {judgementMaterials.map((item) => (
+              <div className="detail-judgement-material" key={item}>
+                {item}
+              </div>
+            ))}
+          </div>
+          <div className="detail-analysis-meta">
+            選択日のランキング appearance、優先度、日足形状を統合した表示用サマリーです。
+          </div>
+        </div>
         <div className="detail-analysis-section">
           <div className="detail-analysis-section-title">日足形状</div>
           {dailyChartShapeLoading ? (
@@ -533,6 +688,7 @@ export function DetailJudgementPanel({
         <div className="detail-analysis-meta">
           ランキングの売買判定は残っています。ここでは ranking appearance、表示スコア、厳選通過状態から買い・売り・中立の優先度を表示しています。
         </div>
+        </details>
       </div>
     </ScreenPanel>
   );

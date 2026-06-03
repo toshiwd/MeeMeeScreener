@@ -197,6 +197,7 @@ def test_tools_registry_lists_expected_tools() -> None:
         "get_release_build_status",
         "get_stock_analysis_bundle",
         "get_screening_review_bundle",
+        "get_chart_reading_bundle",
     ]
 
 

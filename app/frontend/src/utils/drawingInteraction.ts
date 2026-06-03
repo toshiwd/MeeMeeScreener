@@ -27,6 +27,11 @@ export type DrawBoxShape = {
   lineWidth?: number;
 };
 
+export type CandleRangeMeasurement = {
+  bars: number;
+  days: number;
+};
+
 export const getHitKindsForTool = (tool: DrawingTool | null): DrawingHitKind[] => {
   if (!tool) return ["horizontalLine", "drawBox", "priceBand", "timeZone"];
   if (tool === "horizontalLine") return ["horizontalLine"];
@@ -90,3 +95,22 @@ export const buildDrawBoxShape = (
     lineWidth: options?.lineWidth
   };
 };
+
+export const resolveCandleRangeMeasurement = (
+  candleTimes: number[],
+  startTime: number | null | undefined,
+  endTime: number | null | undefined
+): CandleRangeMeasurement | null => {
+  if (!Number.isFinite(startTime) || !Number.isFinite(endTime)) return null;
+  const start = Math.min(startTime, endTime);
+  const end = Math.max(startTime, endTime);
+  const bars = candleTimes.filter((time) => Number.isFinite(time) && time >= start && time <= end).length;
+  if (bars === 0) return null;
+  return {
+    bars,
+    days: Math.max(0, Math.round((end - start) / 86_400))
+  };
+};
+
+export const formatCandleRangeMeasurement = ({ bars, days }: CandleRangeMeasurement) =>
+  `${bars}bars,${days}d`;

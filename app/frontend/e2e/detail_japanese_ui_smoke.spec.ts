@@ -77,21 +77,26 @@ test("detail japanese labels and annotation/note panels render without mojibake"
 
   await page.getByRole("button", { name: "日付選択" }).click();
   await expect(page.getByRole("button", { name: "日付選択 ON" })).toBeVisible();
-  await expect(page.getByText("日足情報")).toBeVisible();
+  await expect(page.getByText("注釈・日付情報", { exact: true })).toBeVisible();
+  await expect(page.getByText("選択日の情報", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("daily-memo-panel")).toHaveClass(/is-compact/);
+  await expect(page.getByLabel("選択日の価格情報")).toBeVisible();
+  await expect(page.getByLabel("選択日の建玉")).toBeVisible();
   await expect(page.getByText("日付メモ (100文字以内)")).toBeVisible();
   await page.screenshot({ path: resolve(screenshotDir, "detail_date_select.png"), fullPage: true });
 
   await page.getByRole("button", { name: "注釈編集モード" }).click();
   await expect(page.getByRole("button", { name: "注釈編集モード" })).toBeVisible();
   await expect(page.getByRole("button", { name: "日付選択 ON" })).toHaveCount(0);
-  await expect(page.getByText("チャート読解", { exact: true })).toBeVisible();
+  await expect(page.getByText("注釈・日付情報", { exact: true })).toBeVisible();
+  await expect(page.getByText("チャート読解メモ", { exact: true })).toBeVisible();
   await expect(page.locator("body")).toContainText("ローソク足");
   await expect(page.locator("body")).toContainText("ボックス/範囲");
   await expect(page.getByRole("button", { name: "注釈 水平ライン" })).toBeVisible();
   await expect(page.getByRole("button", { name: "注釈 引き出しコメント" })).toBeVisible();
   await page.screenshot({ path: resolve(screenshotDir, "detail_annotation_mode.png"), fullPage: true });
 
-  await page.getByRole("button", { name: "チャートノート" }).click();
+  await page.getByTestId("chart-note-toggle").click();
   await expect(page.getByTestId("chart-note-panel").getByText("チャートノート", { exact: true })).toBeVisible();
   await expect(page.getByText("段落 1")).toBeVisible();
   await expect(page.getByText("本文")).toBeVisible();
@@ -118,7 +123,8 @@ test("detail japanese labels and annotation/note panels render without mojibake"
       "ボックス/範囲",
       "水平ライン",
       "引き出しコメント",
-      "チャート読解",
+      "注釈・日付情報",
+      "チャート読解メモ",
       "チャートノート",
       "段落",
       "本文",

@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from app.backend.api.routers import chart_reading
 from app.backend.infra.duckdb.memo_repo import MemoRepository
+from app.backend.services import chart_reading_bundle
 from app.backend.services.chart_reading_bundle import get_chart_reading_bundle
 from app.db.schema import ensure_schema
 
@@ -144,6 +145,103 @@ def test_chart_reading_bundle_returns_notes_annotations_and_position_state() -> 
     assert bundle["annotations"][0]["object_type"] == "region"
     assert bundle["linked_tags"] == ["box", "support"]
     assert bundle["position_state"]["long_lots"] == 1
+    assert bundle["ma_role_review"]["schema_version"] == "ma_role_readonly_review_v1"
+    assert bundle["ma_role_review"]["read_only"] is True
+    assert bundle["ma_role_review"]["ranking_effect"] is False
+    assert bundle["ma_role_review"]["automatic_trade_action"] is False
+
+
+def test_chart_reading_bundle_api_exposes_ma_role_review_read_only_payload(monkeypatch) -> None:
+    conn = duckdb.connect(":memory:")
+    ensure_schema(conn)
+    conn.execute(
+        """
+        INSERT INTO daily_bars (code, date, o, h, l, c, v)
+        VALUES ('1001', 20260331, 108, 112, 101, 106, 1400)
+        """
+    )
+
+    class ConnContext:
+        def __enter__(self):
+            return conn
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(chart_reading, "try_get_conn", lambda timeout_sec=0.4: ConnContext())
+    app = FastAPI()
+    app.include_router(chart_reading.router)
+    client = TestClient(app)
+
+    response = client.get("/api/chart-reading/bundle", params={"code": "1001", "as_of_date": "2026-03-31"})
+
+    assert response.status_code == 200
+    payload = response.json()["ma_role_review"]
+    assert payload["schema_version"] == "ma_role_readonly_review_v1"
+    assert payload["read_only"] is True
+    assert payload["ranking_effect"] is False
+    assert payload["automatic_trade_action"] is False
+
+
+def test_chart_reading_bundle_labels_yahoo_overlay_as_provisional_visual_evaluation() -> None:
+    conn = duckdb.connect(":memory:")
+    ensure_schema(conn)
+    conn.execute(
+        """
+        INSERT INTO daily_bars (code, date, o, h, l, c, v, source)
+        VALUES
+            ('1001', 20260529, 100, 110, 99, 108, 1200, 'pan'),
+            ('1001', 20260601, 108, 112, 101, 106, 1400, 'yahoo')
+        """
+    )
+
+    bundle = get_chart_reading_bundle(conn, code="1001", as_of_date="2026-06-01")
+
+    assert bundle["selected_bar"]["date"] == "2026-06-01"
+    assert bundle["selected_bar"]["source"] == "yahoo"
+    assert bundle["chart_context"]["daily"]["recent_bars"][-1]["source"] == "yahoo"
+    assert bundle["visual_evaluation"] == {
+        "classification": "mixed",
+        "display_basis": "confirmed_plus_yahoo_provisional",
+        "display_evaluation_available": True,
+        "confirmed_judgment_available": True,
+        "provisional_visual_evaluation_available": True,
+        "requested_date": "2026-06-01",
+        "display_last_date": "2026-06-01",
+        "confirmed_last_date": "2026-05-29",
+        "yahoo_provisional_last_date": "2026-06-01",
+        "confirmed_judgment_basis": "non_yahoo_daily_bars_only",
+        "provisional_visual_evaluation_basis": "daily_bars_including_yahoo_overlay",
+        "warnings": ["Yahoo overlay is provisional display data and must not be presented as confirmed judgment."],
+    }
+
+
+def test_chart_reading_bundle_can_fetch_read_only_yahoo_visual_overlay(monkeypatch) -> None:
+    conn = duckdb.connect(":memory:")
+    ensure_schema(conn)
+    conn.execute(
+        """
+        INSERT INTO daily_bars (code, date, o, h, l, c, v, source)
+        VALUES ('1001', 20260529, 100, 110, 99, 108, 1200, 'pan')
+        """
+    )
+    monkeypatch.setattr(
+        chart_reading_bundle,
+        "get_provisional_daily_row_from_chart",
+        lambda code: (20260601, 108.0, 112.0, 101.0, 106.0, 1400.0),
+    )
+
+    bundle = get_chart_reading_bundle(
+        conn,
+        code="1001",
+        as_of_date="2026-06-01",
+        include_provisional_visual=True,
+    )
+
+    assert bundle["selected_bar"]["date"] == "2026-06-01"
+    assert bundle["selected_bar"]["source"] == "yahoo"
+    assert bundle["visual_evaluation"]["classification"] == "mixed"
+    assert conn.execute("SELECT COUNT(*) FROM daily_bars").fetchone()[0] == 1
 
 
 def test_chart_reading_bundle_v1_1_additive_fields_for_notes_and_callouts() -> None:

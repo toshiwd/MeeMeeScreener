@@ -347,6 +347,9 @@ function Invoke-SmokeRun {
         if ($proc -and -not $proc.HasExited) {
             Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
         }
+        # The desktop launcher may hand off to another MeeMeeScreener process.
+        # Ensure smoke verification never leaves a packaged instance holding runtime files.
+        Stop-LockProcesses
     }
 }
 

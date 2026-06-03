@@ -72,6 +72,12 @@ const baseProps = {
       playbookScoreBonus: null,
     },
   } satisfies AnalysisEntryPolicy,
+  maRoleReview: {
+    available: true,
+    current_state: {
+      entry_exit: "candle_shape:hammer|three_candle:three_bar_falling|close_ma7:below|close_ma20:below",
+    },
+  },
   patternSummary: {
     environmentLabel: "ランキング 2026-03-19",
     environmentTone: "up",
@@ -116,6 +122,14 @@ describe("DetailJudgementPanel", () => {
     const markup = renderToStaticMarkup(<DetailJudgementPanel {...baseProps} />);
 
     expect(markup).toContain("判定サマリー");
+    expect(markup).toContain("統合判断");
+    expect(markup).toContain("結論");
+    expect(markup).toContain("次の行動");
+    expect(markup).toContain("判定根拠:");
+    expect(markup).toContain("日足形状:");
+    expect(markup).toContain("ローソク");
+    expect(markup).toContain("トンカチ");
+    expect(markup).toContain("3本下落");
     expect(markup).toContain("選択日のランキング appearance を基準にした判定サマリー");
     expect(markup).toContain("買い / 中立 / 売りの優先度");
     expect(markup).toContain("継続保有 / 仕込み");

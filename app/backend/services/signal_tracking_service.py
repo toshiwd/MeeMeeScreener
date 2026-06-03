@@ -6050,6 +6050,32 @@ def list_ranking_appearances(
         }
         for row in rows
     ]
+    with _open_conn(db_path, read_only=True) as conn:
+        bars_by_code: dict[str, list[DailyBar]] = {}
+        for item in items:
+            code_value = str(item["code"])
+            bars = bars_by_code.get(code_value)
+            if bars is None:
+                bars = _fetch_code_bars(conn, code=code_value, start_ymd=int(item["date"]))
+                bars_by_code[code_value] = bars
+            if not bars:
+                continue
+            anchor_price = item.get("anchor_price_close")
+            latest_bar = bars[-1]
+            item["current_directional_return"] = _safe_directional_return(
+                "sell" if item["dir"] == "down" else "buy",
+                latest_bar.close,
+                anchor_price,
+            )
+            for bar in bars:
+                favorable_basis = bar.low if item["dir"] == "down" else bar.high
+                adverse_basis = bar.high if item["dir"] == "down" else bar.low
+                favorable = _safe_directional_return("sell" if item["dir"] == "down" else "buy", favorable_basis, anchor_price)
+                adverse = _safe_directional_return("sell" if item["dir"] == "down" else "buy", adverse_basis, anchor_price)
+                if favorable is not None and (item["max_favorable_30"] is None or favorable > item["max_favorable_30"]):
+                    item["max_favorable_30"] = favorable
+                if adverse is not None and (item["max_adverse_30"] is None or adverse < item["max_adverse_30"]):
+                    item["max_adverse_30"] = adverse
     return {
         "status": normalized_status,
         "dir": normalized_dir,

@@ -13,6 +13,63 @@
   gap: 16px;
 }
 
+.daily-memo-panel.is-compact {
+  width: 100%;
+  max-height: none;
+  gap: 10px;
+  border: 1px solid var(--theme-border);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.daily-memo-panel.is-compact .memo-panel-header,
+.daily-memo-panel.is-compact .info-header,
+.daily-memo-panel.is-compact .prev-day-info {
+  margin-bottom: 8px;
+}
+
+.daily-memo-panel.is-compact .memo-panel-header h3,
+.daily-memo-panel.is-compact .info-date {
+  font-size: 13px;
+}
+
+.daily-memo-panel.is-compact .ohlc-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 3px 10px;
+}
+
+.daily-memo-panel.is-compact .memo-meta-row {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.daily-memo-panel.is-compact .memo-ma-list {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  font-size: 11px;
+}
+
+.daily-memo-panel.is-compact .memo-position-row {
+  border-radius: 5px;
+  background: var(--theme-bg-primary);
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.daily-memo-panel.is-compact .memo-section {
+  display: grid;
+  gap: 5px;
+}
+
+.daily-memo-panel.is-compact .memo-section:last-child {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.daily-memo-panel.is-compact .memo-textarea {
+  min-height: 52px;
+}
+
 .memo-panel-header {
   display: flex;
   justify-content: space-between;

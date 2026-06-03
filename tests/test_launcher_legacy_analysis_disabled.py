@@ -12,7 +12,8 @@ def test_packaged_defaults_keep_ranking_warmup_enabled(monkeypatch):
     assert env["MEEMEE_RANKINGS_WARMUP_ENABLED"] == "1"
     assert env["MEEMEE_RANKINGS_RESULT_WARMUP_DELAY_SEC"] == "0"
     assert env["MEEMEE_RANKINGS_WARMUP_DELAY_SEC"] == "120"
-    assert env["MEEMEE_EDINET_AUTO_START_ENABLED"] == "0"
+    assert env["MEEMEE_EDINET_AUTO_START_ENABLED"] == "1"
+    assert env["MEEMEE_MARKET_REFERENCE_REFRESH_ENABLED"] == "1"
     assert env["MEEMEE_ANALYSIS_PREWARM_ENABLED"] == "0"
 
 

@@ -13,6 +13,10 @@ from app.backend.services.system_status import (
     get_readiness_state,
 )
 from app.backend.services.data.txt_update import get_txt_status
+from app.backend.services.operator_mutation_lock import (
+    get_operator_mutation_observability,
+    get_operator_mutation_state,
+)
 from app.core.config import (
     APP_ENV,
     APP_VERSION,
@@ -65,6 +69,25 @@ def _resolved_runtime_extra() -> dict:
         "resolved_stocks_db_path": str(config.DB_PATH),
         "resolved_favorites_db_path": str(config.FAVORITES_DB_PATH),
     }
+
+
+def _runtime_observability_extra() -> dict:
+    state = get_operator_mutation_state()
+    extra: dict = {
+        "operator_mutation": {
+            "active": state.active,
+            "active_action": state.active_action,
+            "active_since": state.active_since,
+        },
+        "operator_mutation_observability": get_operator_mutation_observability(),
+    }
+    try:
+        from app.backend.core.jobs import job_manager
+
+        extra["job_lanes"] = job_manager.get_lane_stats()
+    except Exception as exc:
+        extra["job_lanes"] = {"error": str(exc)[:200]}
+    return extra
 
 
 @router.get("/health")
@@ -135,6 +158,7 @@ def health():
             "txt_count": None,
             "last_updated": None,
             "code_txt_missing": None,
+            **_runtime_observability_extra(),
             **_resolved_runtime_extra(),
         },
     )
@@ -194,6 +218,7 @@ def health_deep():
             "db_retryable": bool(stats.get("db_retryable")),
             "transient_db_busy": transient_db_busy,
             "readiness_state": readiness_state,
+            **_runtime_observability_extra(),
             **_resolved_runtime_extra(),
         },
     )
@@ -224,5 +249,6 @@ def diagnostics():
         "stats": stats,
         "db_retryable": bool(stats.get("db_retryable")),
         "db_connect_stats": stats.get("db_connect_stats"),
+        **_runtime_observability_extra(),
         **_resolved_runtime_extra(),
     }

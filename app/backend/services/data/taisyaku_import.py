@@ -214,26 +214,29 @@ def _write_import_rows(
         ensure_schema(conn)
         if master_rows:
             conn.executemany(
+                "DELETE FROM taisyaku_issue_master WHERE code = ? AND application_date = ?",
+                [[row[1], row[0]] for row in master_rows],
+            )
+            conn.executemany(
                 """
                 INSERT INTO taisyaku_issue_master (
                     application_date, code, issue_name,
                     tse_flag, jnx_flag, odx_flag, jax_flag, nse_flag, fse_flag, sse_flag, fetched_at
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(code, application_date) DO UPDATE SET
-                    issue_name = excluded.issue_name,
-                    tse_flag = excluded.tse_flag,
-                    jnx_flag = excluded.jnx_flag,
-                    odx_flag = excluded.odx_flag,
-                    jax_flag = excluded.jax_flag,
-                    nse_flag = excluded.nse_flag,
-                    fse_flag = excluded.fse_flag,
-                    sse_flag = excluded.sse_flag,
-                    fetched_at = excluded.fetched_at
                 """,
                 [row + [fetched_at] for row in master_rows],
             )
         if balance_rows:
+            conn.executemany(
+                """
+                DELETE FROM taisyaku_balance_daily
+                WHERE code = ? AND application_date = ?
+                  AND market_name IS NOT DISTINCT FROM ?
+                  AND report_type IS NOT DISTINCT FROM ?
+                """,
+                [[row[2], row[0], row[4], row[5]] for row in balance_rows],
+            )
             conn.executemany(
                 """
                 INSERT INTO taisyaku_balance_daily (
@@ -243,22 +246,18 @@ def _write_import_rows(
                     net_balance_shares, loan_ratio, fetched_at
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(code, application_date, market_name, report_type) DO UPDATE SET
-                    settlement_date = excluded.settlement_date,
-                    issue_name = excluded.issue_name,
-                    finance_new_shares = excluded.finance_new_shares,
-                    finance_repay_shares = excluded.finance_repay_shares,
-                    finance_balance_shares = excluded.finance_balance_shares,
-                    stock_new_shares = excluded.stock_new_shares,
-                    stock_repay_shares = excluded.stock_repay_shares,
-                    stock_balance_shares = excluded.stock_balance_shares,
-                    net_balance_shares = excluded.net_balance_shares,
-                    loan_ratio = excluded.loan_ratio,
-                    fetched_at = excluded.fetched_at
                 """,
                 [row + [fetched_at] for row in balance_rows],
             )
         if fee_rows:
+            conn.executemany(
+                """
+                DELETE FROM taisyaku_fee_daily
+                WHERE code = ? AND application_date = ?
+                  AND market_name IS NOT DISTINCT FROM ?
+                """,
+                [[row[2], row[0], row[4]] for row in fee_rows],
+            )
             conn.executemany(
                 """
                 INSERT INTO taisyaku_fee_daily (
@@ -267,22 +266,17 @@ def _write_import_rows(
                     max_fee_yen, current_fee_yen, fee_days, prior_fee_yen, fetched_at
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(code, application_date, market_name) DO UPDATE SET
-                    settlement_date = excluded.settlement_date,
-                    issue_name = excluded.issue_name,
-                    reason_type = excluded.reason_type,
-                    reason_value = excluded.reason_value,
-                    price_yen = excluded.price_yen,
-                    stock_excess_shares = excluded.stock_excess_shares,
-                    max_fee_yen = excluded.max_fee_yen,
-                    current_fee_yen = excluded.current_fee_yen,
-                    fee_days = excluded.fee_days,
-                    prior_fee_yen = excluded.prior_fee_yen,
-                    fetched_at = excluded.fetched_at
                 """,
                 [row + [fetched_at] for row in fee_rows],
             )
         if restriction_rows:
+            conn.executemany(
+                """
+                DELETE FROM taisyaku_restriction_notices
+                WHERE code = ? AND measure_type = ? AND measure_detail = ? AND notice_date = ?
+                """,
+                [[row[0], row[3], row[4], row[5]] for row in restriction_rows],
+            )
             conn.executemany(
                 """
                 INSERT INTO taisyaku_restriction_notices (
@@ -290,11 +284,6 @@ def _write_import_rows(
                     notice_date, afternoon_stop, fetched_at
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(code, measure_type, measure_detail, notice_date) DO UPDATE SET
-                    issue_name = excluded.issue_name,
-                    announcement_kind = excluded.announcement_kind,
-                    afternoon_stop = excluded.afternoon_stop,
-                    fetched_at = excluded.fetched_at
                 """,
                 [row + [fetched_at] for row in restriction_rows],
             )

@@ -1,12 +1,24 @@
 try:
-    from app.db.session import get_conn
+    from app.db.session import try_get_conn
 except ModuleNotFoundError:  # pragma: no cover - legacy tooling may import from app/backend on sys.path
-    from db import get_conn  # type: ignore
+    from db import try_get_conn  # type: ignore
 
 try:
     from app.backend.positions import TradeEvent, parse_rakuten_csv, parse_sbi_csv, rebuild_positions
 except ModuleNotFoundError:  # pragma: no cover - legacy tooling may import from app/backend on sys.path
     from positions import TradeEvent, parse_rakuten_csv, parse_sbi_csv, rebuild_positions  # type: ignore
+
+try:
+    from app.backend.services.operator_mutation_lock import OperatorMutationBusyError, operator_mutation_scope
+except ModuleNotFoundError:  # pragma: no cover - legacy tooling may import from app/backend on sys.path
+    OperatorMutationBusyError = RuntimeError  # type: ignore
+    operator_mutation_scope = None  # type: ignore
+
+
+class TradeImportBusyError(RuntimeError):
+    def __init__(self, message: str, *, retry_after_ms: int = 1000) -> None:
+        super().__init__(message)
+        self.retry_after_ms = retry_after_ms
 
 
 def _insert_events(conn, events: list[TradeEvent]) -> int:
@@ -84,11 +96,33 @@ def _process_import(
         }
 
     broker_key = str(broker or "").strip().lower()
-    with get_conn() as conn:
-        if replace_existing:
-            conn.execute("DELETE FROM trade_events WHERE lower(broker) = ?", [broker_key])
-        inserted = _insert_events(conn, events)
-        rebuild_summary = rebuild_positions(conn)
+    try:
+        scope = (
+            operator_mutation_scope("trade_history_import", timeout_sec=0.0)
+            if operator_mutation_scope is not None
+            else None
+        )
+        if scope is None:
+            conn_scope = try_get_conn(timeout_sec=2.5)
+            with conn_scope as conn:
+                if conn is None:
+                    raise TradeImportBusyError("database is temporarily busy")
+                if replace_existing:
+                    conn.execute("DELETE FROM trade_events WHERE lower(broker) = ?", [broker_key])
+                inserted = _insert_events(conn, events)
+                rebuild_summary = rebuild_positions(conn)
+        else:
+            with scope:
+                conn_scope = try_get_conn(timeout_sec=2.5)
+                with conn_scope as conn:
+                    if conn is None:
+                        raise TradeImportBusyError("database is temporarily busy")
+                    if replace_existing:
+                        conn.execute("DELETE FROM trade_events WHERE lower(broker) = ?", [broker_key])
+                    inserted = _insert_events(conn, events)
+                    rebuild_summary = rebuild_positions(conn)
+    except OperatorMutationBusyError as exc:
+        raise TradeImportBusyError("another import or update is already running") from exc
 
     affected_symbols = sorted({event.symbol for event in events})
     return {

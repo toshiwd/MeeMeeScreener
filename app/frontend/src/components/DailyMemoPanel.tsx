@@ -39,6 +39,7 @@ interface DailyMemoPanelProps {
   };
   title?: string;
   cursorMode?: boolean;
+  compact?: boolean;
   onToggleCursorMode?: () => void;
   onPrevDay: () => void;
   onNextDay: () => void;
@@ -69,6 +70,7 @@ export default function DailyMemoPanel({
   prevDayData,
   title = "日足情報",
   cursorMode = true,
+  compact = false,
   onPrevDay,
   onNextDay,
   onCopyForConsult,
@@ -238,7 +240,7 @@ export default function DailyMemoPanel({
   const remainingChars = MEMO_MAX_LENGTH - memo.length;
 
   return (
-    <div className="daily-memo-panel">
+    <div className={`daily-memo-panel ${compact ? "is-compact" : ""}`} data-testid="daily-memo-panel">
       <div className="memo-panel-header">
         <h3>{title}</h3>
       </div>
@@ -274,7 +276,7 @@ export default function DailyMemoPanel({
                 : "--"}
             </div>
           </div>
-          <div className="ohlc-grid">
+          <div className="ohlc-grid" aria-label="選択日の価格情報">
             <div className="ohlc-item">
               <span>O</span>
               <span>{formatNumber(selectedBarData.open, 0)}</span>
@@ -307,7 +309,7 @@ export default function DailyMemoPanel({
               </div>
             )}
             {position && (
-              <div className="memo-position-row">
+              <div className="memo-position-row" aria-label="選択日の建玉">
                 <span>建玉</span>
                 <span>買い {formatNumber(position.buy, 0)}</span>
                 <span>売り {formatNumber(position.sell, 0)}</span>

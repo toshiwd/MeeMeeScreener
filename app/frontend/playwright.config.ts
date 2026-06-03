@@ -3,7 +3,7 @@ import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: "./e2e",
   timeout: 60_000,
-  outputDir: "../../test-results/app-frontend-playwright",
+  outputDir: process.env.TRADEX_PLAYWRIGHT_OUTPUT_DIR ?? "../../test-results/app-frontend-playwright",
   expect: {
     timeout: 10_000
   },

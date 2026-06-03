@@ -152,6 +152,19 @@ def ensure_edinetdb_schema(conn: duckdb.DuckDBPyConnection) -> None:
         );
         """
     )
+    for index_name, table_name, columns in (
+        ("ux_edinetdb_company_map_sec_code", "edinetdb_company_map", "sec_code"),
+        ("ux_edinetdb_company_latest_edinet_code", "edinetdb_company_latest", "edinet_code"),
+        ("ux_edinetdb_financials_key", "edinetdb_financials", "edinet_code, fiscal_year, accounting_standard"),
+        ("ux_edinetdb_ratios_key", "edinetdb_ratios", "edinet_code, fiscal_year, accounting_standard"),
+        ("ux_edinetdb_text_blocks_key", "edinetdb_text_blocks", "edinet_code, fiscal_year, block_name"),
+        ("ux_edinetdb_analysis_key", "edinetdb_analysis", "edinet_code, asof_date"),
+        ("ux_edinetdb_official_documents_doc_id", "edinetdb_official_documents", "doc_id"),
+        ("ux_edinetdb_task_queue_task_key", "edinetdb_task_queue", "task_key"),
+        ("ux_edinetdb_unmapped_codes_sec_code", "edinetdb_unmapped_codes", "sec_code"),
+        ("ux_edinetdb_meta_key", "edinetdb_meta", "key"),
+    ):
+        conn.execute(f"CREATE UNIQUE INDEX IF NOT EXISTS {index_name} ON {table_name}({columns})")
 
 
 def ensure_edinetdb_schema_at_path(db_path: str | Path) -> None:

@@ -8,7 +8,9 @@ ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT_DIR not in sys.path:
     sys.path.append(ROOT_DIR)
 
-from app.db.session import get_conn_for_path
+import pytest
+
+from app.db.session import DatabaseAccessBusyError, get_conn_for_path
 
 
 class _FakeConn:
@@ -44,7 +46,7 @@ def test_same_db_path_access_is_serialized():
 
     def _worker_second():
         first_entered.wait(timeout=1.0)
-        with get_conn_for_path("C:/tmp/stocks.duckdb", timeout_sec=0.1, read_only=True):
+        with get_conn_for_path("C:/tmp/stocks.duckdb", timeout_sec=1.0, read_only=True):
             return None
 
     with (
@@ -65,3 +67,33 @@ def test_same_db_path_access_is_serialized():
 
     assert len(entered) == 2
     assert entered[0][2] <= entered[1][2]
+
+
+def test_get_conn_for_path_respects_access_lock_timeout():
+    lock = threading.RLock()
+    entered = threading.Event()
+    release = threading.Event()
+
+    def _hold_lock():
+        lock.acquire()
+        try:
+            entered.set()
+            release.wait(timeout=1.0)
+        finally:
+            lock.release()
+
+    worker = threading.Thread(target=_hold_lock)
+    worker.start()
+    entered.wait(timeout=1.0)
+    try:
+        with patch("app.db.session._get_db_access_lock", return_value=lock):
+            start = time.monotonic()
+            with pytest.raises(DatabaseAccessBusyError):
+                with get_conn_for_path("C:/tmp/stocks.duckdb", timeout_sec=0.05, read_only=True):
+                    pass
+            elapsed = time.monotonic() - start
+    finally:
+        release.set()
+        worker.join(timeout=1.0)
+
+    assert elapsed < 0.2

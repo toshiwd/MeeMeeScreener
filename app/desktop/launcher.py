@@ -100,8 +100,9 @@ def _apply_packaged_backend_defaults(env: dict[str, str]) -> None:
         return
     # packaged desktop は閲覧体験を最優先にする。
     # 重い/壊れている background job は env 明示 opt-in まで既定停止する。
-    env["MEEMEE_EDINET_AUTO_START_ENABLED"] = "0"
+    env["MEEMEE_EDINET_AUTO_START_ENABLED"] = "1"
     env["MEEMEE_EDINET_EMPTY_DB_BACKFILL_ENABLED"] = "0"
+    env["MEEMEE_MARKET_REFERENCE_REFRESH_ENABLED"] = "1"
     env["MEEMEE_YF_DAILY_INGEST_ENABLED"] = "0"
     env["MEEMEE_YF_DAILY_INGEST_INTRADAY_ENABLED"] = "0"
     env["MEEMEE_SCREENER_SNAPSHOT_ENABLED"] = "0"
@@ -1386,7 +1387,7 @@ def _start_backend_process(port: int, backend_log_path: str) -> tuple[subprocess
     _apply_packaged_backend_defaults(env)
     if getattr(sys, "frozen", False) and str(env.get("APP_ENV") or "").lower() in {"prod", "production"}:
         # packaged desktop では detail 操作を最優先し、壊れている auto-start job による DB 競合を避ける。
-        env.setdefault("MEEMEE_EDINET_AUTO_START_ENABLED", "0")
+        env.setdefault("MEEMEE_EDINET_AUTO_START_ENABLED", "1")
     creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     cmd = _backend_command()
     if _is_dev_mode() and not getattr(sys, "frozen", False):

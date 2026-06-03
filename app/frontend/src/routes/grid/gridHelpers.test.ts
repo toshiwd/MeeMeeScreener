@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildAvailableSectorOptions,
   buildVisibleRequestSignature,
+  canCommitGridDerivedSort,
   TERMINAL_JOB_STATUS,
   gridPresetOptions,
   mergeHealthStatus,
@@ -10,7 +11,6 @@ import {
   resolveGridPrimaryChangeValue,
   resolveGridFastSortValue,
   resolveGridChartPrefetchWindow,
-  resolveGridRefineWindow,
   resolveGridSignalSortScore,
   resolveGridRangeBars,
   resolveGridVolumeSurgeRatio
@@ -145,7 +145,19 @@ describe("isGridBarsDependentSortKey", () => {
   it("identifies bars-dependent sort keys", () => {
     expect(isGridBarsDependentSortKey("ma20Dev")).toBe(true);
     expect(isGridBarsDependentSortKey("volumeSurge")).toBe(true);
+    expect(isGridBarsDependentSortKey("chg1D")).toBe(false);
+    expect(isGridBarsDependentSortKey("buySignalLatest")).toBe(false);
+    expect(isGridBarsDependentSortKey("sellSignalLatest")).toBe(false);
     expect(isGridBarsDependentSortKey("code")).toBe(false);
+  });
+});
+
+describe("canCommitGridDerivedSort", () => {
+  it("waits until every target has a loaded bars payload", () => {
+    expect(canCommitGridDerivedSort(["7203", "9984"], { "7203": { bars: [] } })).toBe(false);
+    expect(
+      canCommitGridDerivedSort(["7203", "9984"], { "7203": { bars: [] }, "9984": { bars: [] } })
+    ).toBe(true);
   });
 });
 
@@ -198,12 +210,6 @@ describe("resolveGridFastSortValue", () => {
     expect(resolveGridFastSortValue(ticker, "sellSignalLatest", "1M")).toBe(12.5);
     expect(resolveGridFastSortValue(ticker, "ma20Dev", "1M")).toBeNull();
     expect(resolveGridFastSortValue(ticker, "performance", "1Q")).toBe(0.04);
-  });
-});
-
-describe("resolveGridRefineWindow", () => {
-  it("expands the visible window by one viewport", () => {
-    expect(resolveGridRefineWindow(10, 20, 100, 3, 3)).toEqual({ start: 1, stop: 29 });
   });
 });
 

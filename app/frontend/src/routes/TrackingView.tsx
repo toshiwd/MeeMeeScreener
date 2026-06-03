@@ -519,6 +519,9 @@ type TrackingRuntimeStatus = {
   ranking_latest_date: number | null;
   ranking_latest_date_iso: string | null;
   ranking_history_generated: boolean;
+  runtime_stock_db_contract?: {
+    latest_available_global_date_iso?: string | null;
+  } | null;
 };
 
 type SignalEvent = {
@@ -1104,6 +1107,8 @@ export default function TrackingView() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [refreshToken, setRefreshToken] = useState(0);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [refreshingTracking, setRefreshingTracking] = useState(false);
+  const [trackingRefreshRequested, setTrackingRefreshRequested] = useState(false);
 
   const resetListViewState = () => {
     setPageOffset(0);
@@ -1819,6 +1824,15 @@ export default function TrackingView() {
     return `${historyLabel} ${historyCount.toLocaleString("ja-JP")}件 / latest ${latestDate ? formatIsoDateLabel(latestDate) : "--"} / DB ${runtimeStatus.resolved_stocks_db_path}`;
   }, [runtimeStatus, view]);
 
+  const staleRuntimeNote = useMemo(() => {
+    if (!runtimeStatus) return null;
+    const historyLatestDate =
+      view === "signal" ? runtimeStatus.signal_latest_date_iso : runtimeStatus.ranking_latest_date_iso;
+    const marketLatestDate = runtimeStatus.runtime_stock_db_contract?.latest_available_global_date_iso ?? null;
+    if (!historyLatestDate || !marketLatestDate || historyLatestDate >= marketLatestDate) return null;
+    return `Tracking update required: history ${formatIsoDateLabel(historyLatestDate)} / market ${formatIsoDateLabel(marketLatestDate)}`;
+  }, [runtimeStatus, view]);
+
   const tableStyle = useMemo(
     () =>
       ({
@@ -2095,15 +2109,31 @@ export default function TrackingView() {
           <button
             type="button"
             className="tracking-refresh-button"
-            onClick={() => {
-              resetListViewState();
-              setRefreshToken((current) => current + 1);
+            onClick={async () => {
+              setRefreshingTracking(true);
+              setError(null);
+              try {
+                await api.post("/signal-tracking/refresh", undefined, { timeout: 600000 });
+                setTrackingRefreshRequested(true);
+                resetListViewState();
+                setRefreshToken((current) => current + 1);
+              } catch (refreshError) {
+                console.error("[tracking] refresh failed", refreshError);
+                setError(describeTrackingLoadError(refreshError));
+              } finally {
+                setRefreshingTracking(false);
+              }
             }}
+            disabled={refreshingTracking}
           >
             再取得
           </button>
         </section>
 
+        {staleRuntimeNote ? <div className="tracking-inline-error">{staleRuntimeNote}</div> : null}
+        {trackingRefreshRequested ? (
+          <div className="tracking-runtime-note">Tracking update job submitted. Reload after the background update completes.</div>
+        ) : null}
         {runtimeNote ? <div className="tracking-runtime-note">{runtimeNote}</div> : null}
         {error ? <div className="tracking-inline-error">{error}</div> : null}
         {loading ? <div className="tracking-empty">読み込み中...</div> : null}

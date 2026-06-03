@@ -16,6 +16,8 @@ import {
   buildDrawBoxShape,
   buildPriceBandShape,
   buildTimeZoneShape,
+  formatCandleRangeMeasurement,
+  resolveCandleRangeMeasurement,
   getHitKindsForTool
 } from "../utils/drawingInteraction";
 import { getDomTheme, type Theme } from "../utils/theme";
@@ -251,6 +253,7 @@ type DetailChartProps = {
   gapBands?: GapBand[];
   meeMeeDetailChromeTerminalDates?: Record<number, number> | null;
   drawingEnabled?: boolean;
+  selectionEnabled?: boolean;
   activeTool?: DrawTool | null;
   activeDrawColor?: string;
   activeLineOpacity?: number;
@@ -269,6 +272,7 @@ type DetailChartProps = {
   onDeletePriceBand?: (index: number) => void;
   onDeleteDrawBox?: (index: number) => void;
   onDeleteHorizontalLine?: (index: number) => void;
+  onDrawCommit?: (tool: DrawTool) => void;
   onCrosshairMove?: (time: number | null, point?: { x: number; y: number } | null) => void;
   onVisibleRangeChange?: (range: { from: number; to: number } | null) => void;
   onChartClick?: (time: number | null, point?: { x: number; y: number; price: number | null } | null) => void;
@@ -299,6 +303,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     gapBands,
     meeMeeDetailChromeTerminalDates,
     drawingEnabled,
+    selectionEnabled,
     activeTool,
     activeDrawColor,
     activeLineOpacity,
@@ -317,6 +322,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     onDeletePriceBand,
     onDeleteDrawBox,
     onDeleteHorizontalLine,
+    onDrawCommit,
     onCrosshairMove,
     onVisibleRangeChange,
     onChartClick,
@@ -377,6 +383,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
   const gapBandsRef = useRef<GapBand[]>(gapBands ?? []);
   const gapBandsPropRef = useRef<GapBand[] | undefined>(gapBands);
   const drawingEnabledRef = useRef<boolean>(drawingEnabled !== false);
+  const selectionEnabledRef = useRef<boolean>(selectionEnabled === true);
   const draftTimeZoneRef = useRef<TimeZone | null>(null);
   const draftPriceBandRef = useRef<PriceBand | null>(null);
   const draftDrawBoxRef = useRef<DrawBox | null>(null);
@@ -412,6 +419,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
   const onDeleteHorizontalLineRef = useRef<DetailChartProps["onDeleteHorizontalLine"]>(
     onDeleteHorizontalLine
   );
+  const onDrawCommitRef = useRef<DetailChartProps["onDrawCommit"]>(onDrawCommit);
   const suppressCrosshairRef = useRef(false);
   const suppressVisibleRangeUntilRef = useRef(0);
   const onCrosshairMoveRef = useRef<DetailChartProps["onCrosshairMove"]>(onCrosshairMove);
@@ -506,6 +514,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     onDeletePriceBandRef.current = onDeletePriceBand;
     onDeleteDrawBoxRef.current = onDeleteDrawBox;
     onDeleteHorizontalLineRef.current = onDeleteHorizontalLine;
+    onDrawCommitRef.current = onDrawCommit;
     onSelectShapeRef.current = onSelectShape;
     onSelectCalloutRef.current = onSelectCallout;
   }, [
@@ -521,6 +530,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     onDeletePriceBand,
     onDeleteDrawBox,
     onDeleteHorizontalLine,
+    onDrawCommit,
     onSelectShape,
     onSelectCallout
   ]);
@@ -535,7 +545,8 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
 
   useEffect(() => {
     drawingEnabledRef.current = drawingEnabled !== false;
-  }, [drawingEnabled]);
+    selectionEnabledRef.current = selectionEnabled === true;
+  }, [drawingEnabled, selectionEnabled]);
 
   useEffect(() => {
     detailChromeEnabledRef.current = detailChromeEnabled;
@@ -1087,8 +1098,9 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
         "buy",
         activeDrawColorRef.current ?? undefined
       );
-      if (zone) onAddTimeZoneRef.current?.(zone);
-      return;
+      if (!zone) return false;
+      onAddTimeZoneRef.current?.(zone);
+      return true;
     }
     if (tool === "priceBand") {
       const band = buildPriceBandShape(
@@ -1097,8 +1109,9 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
         resolveShapeFillOpacity(activeLineOpacityRef.current),
         resolveShapeLineWidth(activeLineWidthRef.current, 1)
       );
-      if (band) onAddPriceBandRef.current?.(band);
-      return;
+      if (!band) return false;
+      onAddPriceBandRef.current?.(band);
+      return true;
     }
     const box = buildDrawBoxShape(
       drawStartRef.current.time ?? null,
@@ -1111,7 +1124,9 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
         lineWidth: resolveShapeLineWidth(activeLineWidthRef.current)
       }
     );
-    if (box) onAddDrawBoxRef.current?.(expandDrawBoxForVisibility(box));
+    if (!box) return false;
+    onAddDrawBoxRef.current?.(expandDrawBoxForVisibility(box));
+    return true;
   };
 
   const formatChartDate = (value: any) => {
@@ -1420,6 +1435,50 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
 
     const timeScale = chart.timeScale();
     const series = candleSeriesRef.current;
+    const drawCandleRangeMeasurement = (
+      startX: number,
+      endX: number,
+      y: number,
+      startTime: number,
+      endTime: number
+    ) => {
+      const measurement = resolveCandleRangeMeasurement(
+        (candlesRef.current ?? []).map((candle) => candle.time),
+        startTime,
+        endTime
+      );
+      if (!measurement) return;
+      const left = Math.min(startX, endX);
+      const right = Math.max(startX, endX);
+      const center = left + (right - left) / 2;
+      const arrowSize = 6;
+      const label = formatCandleRangeMeasurement(measurement);
+      ctx.save();
+      ctx.strokeStyle = resolvedTheme === "light" ? "rgba(71, 85, 105, 0.86)" : "rgba(203, 213, 225, 0.88)";
+      ctx.fillStyle = resolvedTheme === "light" ? "#475569" : "#e2e8f0";
+      ctx.lineWidth = 1.25;
+      ctx.setLineDash([7, 5]);
+      ctx.beginPath();
+      ctx.moveTo(left, y);
+      ctx.lineTo(right, y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(left + arrowSize, y - arrowSize / 2);
+      ctx.lineTo(left, y);
+      ctx.lineTo(left + arrowSize, y + arrowSize / 2);
+      ctx.moveTo(right - arrowSize, y - arrowSize / 2);
+      ctx.lineTo(right, y);
+      ctx.lineTo(right - arrowSize, y + arrowSize / 2);
+      ctx.stroke();
+      ctx.font = "bold 12px sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "bottom";
+      ctx.shadowColor = resolvedTheme === "light" ? "white" : "black";
+      ctx.shadowBlur = 4;
+      ctx.fillText(label, center, y - 4);
+      ctx.restore();
+    };
 
     const timeZonesToDraw = timeZonesRef.current ?? [];
     if (timeZonesToDraw.length && typeof timeScale.timeToCoordinate === "function") {
@@ -1434,60 +1493,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
         ctx.fillStyle = zone.color ? applyAlpha(zone.color, 0.2) : baseColor;
         ctx.fillRect(rectX, 0, rectW, height);
 
-        // Draw Candle Count
-        const start = Math.min(zone.startTime, zone.endTime);
-        const end = Math.max(zone.startTime, zone.endTime);
-        const candleData = candlesRef.current;
-        let count = 0;
-
-        // Find indices using binary search or simple bounds check if sorted
-        if (candleData.length > 0) {
-          // Providing a rough count based on time range might be inaccurate due to gaps.
-          // Better to find exact visible candles within range.
-          // Since candles are sorted by time:
-          let startIndex = -1;
-          let endIndex = -1;
-
-          // Simple binary search for start
-          let l = 0, r = candleData.length - 1;
-          while (l <= r) {
-            const m = (l + r) >>> 1;
-            if (candleData[m].time >= start) {
-              startIndex = m;
-              r = m - 1;
-            } else {
-              l = m + 1;
-            }
-          }
-
-          // Simple binary search for end
-          l = 0; r = candleData.length - 1;
-          while (l <= r) {
-            const m = (l + r) >>> 1;
-            if (candleData[m].time <= end) {
-              endIndex = m;
-              l = m + 1;
-            } else {
-              r = m - 1;
-            }
-          }
-
-          if (startIndex !== -1 && endIndex !== -1 && startIndex <= endIndex) {
-            count = endIndex - startIndex + 1;
-          }
-        }
-
-        if (count > 0) {
-          ctx.save();
-          ctx.font = "bold 12px sans-serif";
-          ctx.fillStyle = resolvedTheme === "light" ? "#334155" : "#cbd5f5";
-          ctx.textAlign = "center";
-          ctx.textBaseline = "top";
-          ctx.shadowColor = resolvedTheme === "light" ? "white" : "black";
-          ctx.shadowBlur = 4;
-          ctx.fillText(`${count}本`, rectX + rectW / 2, 8);
-          ctx.restore();
-        }
+        drawCandleRangeMeasurement(rectX, rectX + rectW, 24, zone.startTime, zone.endTime);
       });
     }
 
@@ -1831,6 +1837,42 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
         ctx.strokeRect(x - size, y - size, size * 2, size * 2);
         ctx.restore();
       };
+      const drawBoxHandle = (x: number, y: number) => {
+        ctx.save();
+        ctx.fillStyle = "#ffffff";
+        ctx.strokeStyle = "#f97316";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(x, y, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+      };
+      const drawBoxMoveGuide = (left: number, right: number, y: number) => {
+        const center = left + (right - left) / 2;
+        ctx.save();
+        ctx.strokeStyle = "rgba(71, 85, 105, 0.72)";
+        ctx.lineWidth = 1.25;
+        ctx.setLineDash([8, 6]);
+        ctx.beginPath();
+        ctx.moveTo(left + 10, y);
+        ctx.lineTo(right - 10, y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.moveTo(center - 13, y);
+        ctx.lineTo(center + 13, y);
+        ctx.moveTo(center - 13, y);
+        ctx.lineTo(center - 7, y - 4);
+        ctx.moveTo(center - 13, y);
+        ctx.lineTo(center - 7, y + 4);
+        ctx.moveTo(center + 13, y);
+        ctx.lineTo(center + 7, y - 4);
+        ctx.moveTo(center + 13, y);
+        ctx.lineTo(center + 7, y + 4);
+        ctx.stroke();
+        ctx.restore();
+      };
       if (selected.kind === "timeZone") {
         const zone = timeZonesRef.current[selected.index];
         if (zone) {
@@ -1861,10 +1903,18 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
           const y1 = series.priceToCoordinate(box.topPrice);
           const y2 = series.priceToCoordinate(box.bottomPrice);
           if (x1 != null && x2 != null && y1 != null && y2 != null) {
-            drawHandle(x1, y1);
-            drawHandle(x1, y2);
-            drawHandle(x2, y1);
-            drawHandle(x2, y2);
+            const left = Math.min(x1, x2);
+            const right = Math.max(x1, x2);
+            const top = Math.min(y1, y2);
+            const bottom = Math.max(y1, y2);
+            const moveGuideY = top + (bottom - top) / 2;
+            const measurementY = Math.min(height - 14, Math.max(top + 18, bottom - 14));
+            drawBoxHandle(left, top);
+            drawBoxHandle(left, bottom);
+            drawBoxHandle(right, top);
+            drawBoxHandle(right, bottom);
+            drawBoxMoveGuide(left, right, moveGuideY);
+            drawCandleRangeMeasurement(left, right, measurementY, box.startTime, box.endTime);
           }
         }
       }
@@ -2946,7 +2996,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
           const isChartMode = !effectiveTool;
           const isSelected = selectedShapeRef.current?.kind === hit.kind && selectedShapeRef.current.index === hit.index;
 
-          if (isChartMode && !isRightClick && !isSelected) {
+          if (isChartMode && !selectionEnabledRef.current && !isRightClick && !isSelected) {
             // In Chart Mode, if we Left-Click something that isn't already selected,
             // we ignore the hit so the user can interact with the chart (pan/scroll).
           } else {
@@ -2955,12 +3005,6 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
             if (isSameAsSelected) {
               if (isRightClick) {
                 // Right click on same selection -> allow context menu (fallthrough to re-emit selection)
-              } else {
-                selectedShapeRef.current = null;
-                dragStateRef.current = null;
-                emitSelection(null);
-                drawOverlay();
-                return;
               }
             }
             selectedShapeRef.current = { kind: hit.kind, index: hit.index };
@@ -3199,10 +3243,13 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
         if (normalizedPrice == null && series && typeof series.coordinateToPrice === "function") {
           normalizedPrice = normalizeCoordinatePrice(series.coordinateToPrice(y));
         }
-        commitDraftForTool(tool, normalizedTime, normalizedPrice);
+        const committed = commitDraftForTool(tool, normalizedTime, normalizedPrice);
         clearDraftState();
         drawOverlay();
         lastDragAtRef.current = Date.now();
+        if (committed) {
+          onDrawCommitRef.current?.(tool);
+        }
       }}
       onMouseLeave={(_e) => {
         if (dragStateRef.current) {
@@ -3259,6 +3306,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
             color: activeDrawColorRef.current ?? undefined
           });
           drawOverlay();
+          onDrawCommitRef.current?.("horizontalLine");
           return;
         }
 

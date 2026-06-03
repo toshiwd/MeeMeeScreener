@@ -238,6 +238,40 @@ def test_yahoo_daily_ingest_triggers_refreshes_after_same_day_update() -> None:
     )
 
 
+def test_yahoo_daily_ingest_skips_when_operator_mutation_is_active() -> None:
+    updates = []
+
+    @contextlib.contextmanager
+    def _busy_scope(_action: str, *, timeout_sec: float = 0.0):
+        raise yahoo_daily_ingest_runtime.OperatorMutationBusyError(
+            _action,
+            holder_action="test_active_mutation",
+            holder_since="2026-03-12T00:00:00+00:00",
+        )
+        yield
+
+    with (
+        patch(
+            "app.backend.core.yahoo_daily_ingest_runtime.ingest_latest_provisional_daily_rows",
+            side_effect=AssertionError("should not ingest while operator mutation is active"),
+        ),
+        patch("app.backend.core.yahoo_daily_ingest_runtime.job_manager._update_db") as mock_update_db,
+        patch("app.backend.core.yahoo_daily_ingest_runtime.schedule_analysis_prewarm_if_needed") as mock_prewarm,
+        patch("app.backend.core.yahoo_daily_ingest_runtime.schedule_external_analysis_publish_latest") as mock_external_publish,
+        patch("app.backend.core.yahoo_daily_ingest_runtime.schedule_screener_snapshot_refresh") as mock_snapshot,
+        patch("app.backend.core.yahoo_daily_ingest_runtime.operator_mutation_scope", _busy_scope),
+    ):
+        mock_update_db.side_effect = lambda *args, **kwargs: updates.append((args, kwargs))
+        yahoo_daily_ingest_runtime.handle_yf_daily_ingest("job-busy", {})
+
+    statuses = [args[2] for args, _kwargs in updates if len(args) >= 3]
+    assert statuses[-1] == "skipped"
+    assert updates[-1][1]["error"] == "operator_mutation_busy"
+    mock_prewarm.assert_not_called()
+    mock_external_publish.assert_not_called()
+    mock_snapshot.assert_not_called()
+
+
 def test_insert_rows_updates_same_day_yahoo_without_overwriting_pan() -> None:
     conn = duckdb.connect(":memory:")
     try:

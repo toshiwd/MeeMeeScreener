@@ -7,6 +7,8 @@ from typing import Any
 import duckdb
 
 from app.services import position_calc, trade_events
+from app.backend.services.data.yahoo_provisional import get_provisional_daily_row_from_chart, normalize_date_key
+from app.backend.services.ma_role_readonly_review import build_ma_role_review_payload
 from app.utils.text_utils import _normalize_code
 
 _MA_WINDOWS = (7, 20, 60, 100, 200)
@@ -88,6 +90,7 @@ def _bar_payload(row: tuple, *, include_ma: bool = True) -> dict[str, Any]:
         "low": row[3],
         "close": row[4],
         "volume": row[5],
+        "source": row[11] if len(row) > 11 else None,
     }
     if include_ma:
         for index, window in enumerate(_MA_WINDOWS, start=6):
@@ -95,36 +98,7 @@ def _bar_payload(row: tuple, *, include_ma: bool = True) -> dict[str, Any]:
     return payload
 
 
-def _fetch_daily_context(conn: duckdb.DuckDBPyConnection, code: str, as_of_date: str) -> dict[str, Any]:
-    asof_epoch, asof_ymd = _as_of_compare_values(as_of_date)
-    rows = conn.execute(
-        """
-        WITH base AS (
-            SELECT
-                date,
-                o,
-                h,
-                l,
-                c,
-                v,
-                AVG(c) OVER (ORDER BY date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) AS ma7,
-                AVG(c) OVER (ORDER BY date ROWS BETWEEN 19 PRECEDING AND CURRENT ROW) AS ma20,
-                AVG(c) OVER (ORDER BY date ROWS BETWEEN 59 PRECEDING AND CURRENT ROW) AS ma60,
-                AVG(c) OVER (ORDER BY date ROWS BETWEEN 99 PRECEDING AND CURRENT ROW) AS ma100,
-                AVG(c) OVER (ORDER BY date ROWS BETWEEN 199 PRECEDING AND CURRENT ROW) AS ma200
-            FROM daily_bars
-            WHERE code = ?
-              AND date <= CASE WHEN date >= 1000000000 THEN ? ELSE ? END
-            ORDER BY date
-        )
-        SELECT *
-        FROM base
-        ORDER BY date DESC
-        LIMIT 260
-        """,
-        [code, asof_epoch, asof_ymd],
-    ).fetchall()
-    rows = list(reversed(rows))
+def _build_ma_counts(rows: list[tuple]) -> dict[str, int]:
     selected = rows[-1] if rows else None
     counts: dict[str, int] = {}
     if selected:
@@ -149,14 +123,100 @@ def _fetch_daily_context(conn: duckdb.DuckDBPyConnection, code: str, as_of_date:
                 else:
                     break
             counts[f"{direction}_ma{window}"] = streak
+    return counts
+
+
+def _fetch_daily_context(conn: duckdb.DuckDBPyConnection, code: str, as_of_date: str) -> dict[str, Any]:
+    asof_epoch, asof_ymd = _as_of_compare_values(as_of_date)
+    rows = conn.execute(
+        """
+        WITH base AS (
+            SELECT
+                date,
+                o,
+                h,
+                l,
+                c,
+                v,
+                AVG(c) OVER (ORDER BY date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) AS ma7,
+                AVG(c) OVER (ORDER BY date ROWS BETWEEN 19 PRECEDING AND CURRENT ROW) AS ma20,
+                AVG(c) OVER (ORDER BY date ROWS BETWEEN 59 PRECEDING AND CURRENT ROW) AS ma60,
+                AVG(c) OVER (ORDER BY date ROWS BETWEEN 99 PRECEDING AND CURRENT ROW) AS ma100,
+                AVG(c) OVER (ORDER BY date ROWS BETWEEN 199 PRECEDING AND CURRENT ROW) AS ma200,
+                COALESCE(NULLIF(TRIM(source), ''), 'pan') AS source
+            FROM daily_bars
+            WHERE code = ?
+              AND date <= CASE WHEN date >= 1000000000 THEN ? ELSE ? END
+            ORDER BY date
+        )
+        SELECT *
+        FROM base
+        ORDER BY date DESC
+        LIMIT 260
+        """,
+        [code, asof_epoch, asof_ymd],
+    ).fetchall()
+    rows = list(reversed(rows))
+    selected = rows[-1] if rows else None
     return {
         "timeframe": "D",
         "bar_count": len(rows),
         "selected_bar": _bar_payload(selected) if selected else None,
         "recent_bars": [_bar_payload(row, include_ma=False) for row in rows[-60:]],
-        "counts": counts,
+        "counts": _build_ma_counts(rows),
         "_raw_recent_rows": rows,
     }
+
+
+def _build_visual_evaluation(daily_rows: list[tuple], *, requested_date: str) -> dict[str, Any]:
+    confirmed_rows = [row for row in daily_rows if str(row[11] or "").strip().lower() != "yahoo"]
+    provisional_rows = [row for row in daily_rows if str(row[11] or "").strip().lower() == "yahoo"]
+    display_row = daily_rows[-1] if daily_rows else None
+    confirmed_row = confirmed_rows[-1] if confirmed_rows else None
+    provisional_row = provisional_rows[-1] if provisional_rows else None
+    has_provisional_overlay = bool(provisional_rows)
+    return {
+        "classification": "mixed" if confirmed_rows and provisional_rows else ("provisional" if provisional_rows else "confirmed"),
+        "display_basis": "confirmed_plus_yahoo_provisional" if has_provisional_overlay else "confirmed_only",
+        "display_evaluation_available": display_row is not None,
+        "confirmed_judgment_available": confirmed_row is not None,
+        "provisional_visual_evaluation_available": has_provisional_overlay,
+        "requested_date": requested_date,
+        "display_last_date": _date_to_iso(display_row[0]) if display_row else None,
+        "confirmed_last_date": _date_to_iso(confirmed_row[0]) if confirmed_row else None,
+        "yahoo_provisional_last_date": _date_to_iso(provisional_row[0]) if provisional_row else None,
+        "confirmed_judgment_basis": "non_yahoo_daily_bars_only",
+        "provisional_visual_evaluation_basis": "daily_bars_including_yahoo_overlay" if has_provisional_overlay else None,
+        "warnings": (
+            ["Yahoo overlay is provisional display data and must not be presented as confirmed judgment."]
+            if has_provisional_overlay
+            else []
+        ),
+    }
+
+
+def _append_yahoo_visual_overlay(daily: dict[str, Any], raw_rows: list[tuple], code: str) -> list[tuple]:
+    provisional = get_provisional_daily_row_from_chart(code)
+    if provisional is None:
+        return raw_rows
+    provisional_date = normalize_date_key(provisional[0])
+    last_date = normalize_date_key(raw_rows[-1][0]) if raw_rows else None
+    if provisional_date is None or (last_date is not None and provisional_date <= last_date):
+        return raw_rows
+    closes = [row[4] for row in raw_rows]
+    overlay_close = provisional[4]
+    ma_values = []
+    for window in _MA_WINDOWS:
+        window_closes = [*closes, overlay_close][-window:]
+        ma_values.append(sum(window_closes) / len(window_closes) if window_closes else None)
+    overlay = (*provisional, *ma_values, "yahoo")
+    rows = [*raw_rows, overlay]
+    daily["bar_count"] = len(rows)
+    daily["selected_bar"] = _bar_payload(overlay)
+    daily["recent_bars"] = [_bar_payload(row, include_ma=False) for row in rows[-60:]]
+    daily["counts"] = _build_ma_counts(rows)
+    daily["_raw_recent_rows"] = rows
+    return rows
 
 
 def _build_weekly_context(daily_rows: list[tuple]) -> dict[str, Any]:
@@ -443,13 +503,17 @@ def get_chart_reading_bundle(
     *,
     code: str,
     as_of_date: Any,
+    include_provisional_visual: bool = False,
 ) -> dict[str, Any]:
     normalized_code = _normalize_code(code)
     if not normalized_code:
         raise ValueError("invalid_code")
     normalized_date = _normalize_as_of_date(as_of_date)
     daily = _fetch_daily_context(conn, normalized_code, normalized_date)
-    raw_daily_rows = list(daily.pop("_raw_recent_rows", []))
+    raw_daily_rows = list(daily.get("_raw_recent_rows", []))
+    if include_provisional_visual:
+        raw_daily_rows = _append_yahoo_visual_overlay(daily, raw_daily_rows, normalized_code)
+    daily.pop("_raw_recent_rows", None)
     monthly = _fetch_monthly_context(conn, normalized_code, normalized_date)
     annotations = _fetch_annotations(conn, normalized_code, normalized_date)
     notes = _fetch_notes(conn, normalized_code, normalized_date)
@@ -468,6 +532,8 @@ def get_chart_reading_bundle(
             "weekly": _build_weekly_context(raw_daily_rows),
             "monthly": monthly,
         },
+        "visual_evaluation": _build_visual_evaluation(raw_daily_rows, requested_date=normalized_date),
+        "ma_role_review": build_ma_role_review_payload(raw_daily_rows),
         "selected_bar": daily.get("selected_bar"),
         "annotations": annotations,
         "visible_annotations": annotations,

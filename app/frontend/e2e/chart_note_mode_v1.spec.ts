@@ -144,7 +144,7 @@ test("creates paragraph linked_objects in チャートノート", async ({ page 
   await dailyChart.click({ button: "right", position: { x: chart.width * 0.48, y: chart.height * 0.44 } });
   await expect(page.getByTestId("annotation-region-type")).toBeVisible();
 
-  await page.getByRole("button", { name: "チャートノート" }).click();
+  await page.getByTestId("chart-note-toggle").click();
   await expect(page.getByTestId("chart-note-panel")).toBeVisible();
   await page.waitForTimeout(1000);
   await page.getByTestId("chart-note-title").fill("e2e chart note");
@@ -186,7 +186,8 @@ test("creates paragraph linked_objects in チャートノート", async ({ page 
     .toBe(true);
 
   await page.reload();
-  await page.getByRole("button", { name: "チャートノート" }).click();
+  await page.getByRole("button", { name: "注釈編集モード" }).click();
+  await page.getByTestId("chart-note-toggle").click();
   await expect(page.getByTestId("chart-note-paragraph-text").first()).toHaveValue(paragraphText);
   await expect(page.getByTestId("chart-note-linked-objects").first()).toContainText("移動平均:ma20");
 

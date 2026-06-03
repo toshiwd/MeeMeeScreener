@@ -30,10 +30,18 @@ _CONNECT_STATS: dict[str, Any] = {
     "open_success": 0,
     "open_failures": 0,
     "transient_retries": 0,
+    "access_lock_timeouts": 0,
     "ro_to_rw_fallbacks": 0,
     "last_error": None,
     "last_error_at_epoch_ms": None,
 }
+
+
+class DatabaseAccessBusyError(RuntimeError):
+    def __init__(self, db_path: str, *, timeout_sec: float) -> None:
+        self.db_path = db_path
+        self.timeout_sec = max(0.0, float(timeout_sec))
+        super().__init__(f"database access lock timeout after {self.timeout_sec:.3f}s: {db_path}")
 
 
 def _ensure_locks() -> None:
@@ -86,6 +94,8 @@ def _is_transient_duckdb_open_error(exc: Exception) -> bool:
 
 
 def is_transient_duckdb_error(exc: Exception) -> bool:
+    if isinstance(exc, DatabaseAccessBusyError):
+        return True
     return _is_transient_duckdb_open_error(exc)
 
 
@@ -303,8 +313,12 @@ class _PathConnContext:
 
     def __enter__(self) -> duckdb.DuckDBPyConnection:
         self._access_lock = _get_db_access_lock(self._db_path)
-        if self._access_lock is not None:
-            self._access_lock.acquire()
+        if not _try_acquire_access_lock(self._access_lock, self._timeout_sec):
+            self._access_lock = None
+            exc = DatabaseAccessBusyError(self._db_path, timeout_sec=self._timeout_sec)
+            _inc_connect_stat("access_lock_timeouts")
+            _set_last_connect_error(exc)
+            raise exc
         try:
             self._conn = _connect_with_retry_path(
                 db_path=self._db_path,

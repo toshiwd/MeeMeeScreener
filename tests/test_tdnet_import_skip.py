@@ -9,28 +9,28 @@ from app.backend.core import tdnet_import_job
 from app.backend.services.data import tdnet_mcp_import
 
 
-def test_tdnet_import_skips_when_fetch_command_is_missing(monkeypatch, caplog) -> None:
+def test_tdnet_import_uses_yanoshin_when_fetch_command_is_missing(monkeypatch) -> None:
     monkeypatch.delenv("TDNET_MCP_FETCH_COMMAND", raising=False)
+    monkeypatch.setattr(
+        tdnet_mcp_import,
+        "_fetch_yanoshin_items",
+        lambda **kwargs: [
+            {
+                "disclosure_id": "yanoshin:1",
+                "sec_code": "7203",
+                "title": "test",
+            }
+        ],
+    )
 
-    def _fail_run(*args, **kwargs):  # pragma: no cover - defensive guard
-        raise AssertionError("subprocess.run should not be called when the env var is missing")
+    result = tdnet_mcp_import.import_tdnet_from_mcp(code="7203", limit=25)
 
-    monkeypatch.setattr(tdnet_mcp_import.subprocess, "run", _fail_run)
-
-    with caplog.at_level("WARNING"):
-        result = tdnet_mcp_import.import_tdnet_from_mcp(code="7203", limit=25)
-
-    assert result == {
-        "status": "skipped",
-        "reason": "TDNET_MCP_FETCH_COMMAND is not set",
-        "summary": "tdnet_import=skipped(env_missing)",
-        "saved": 0,
-        "fetched": 0,
-        "code": "7203",
-        "limit": 25,
-        "command": None,
-    }
-    assert any("Skip tdnet_import" in record.message for record in caplog.records)
+    assert result["provider"] == "yanoshin"
+    assert result["saved"] == 1
+    assert result["fetched"] == 1
+    assert result["code"] == "7203"
+    assert result["limit"] == 25
+    assert result["command"] is None
 
 
 def test_tdnet_import_job_marks_skipped_as_terminal(monkeypatch) -> None:

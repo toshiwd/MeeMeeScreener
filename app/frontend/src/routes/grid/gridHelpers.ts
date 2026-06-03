@@ -67,9 +67,6 @@ const GRID_BARS_DEPENDENT_SORT_KEYS = [
   "ma60Dev",
   "ma20Slope",
   "ma60Slope",
-  "chg1D",
-  "buySignalLatest",
-  "sellSignalLatest",
   "volumeSurge"
 ] as const;
 
@@ -81,6 +78,11 @@ const normalizeVisibleCodes = (codes: string[]) =>
 export const isGridBarsDependentSortKey = (key: string) =>
   GRID_BARS_DEPENDENT_SORT_KEYS.includes(key as (typeof GRID_BARS_DEPENDENT_SORT_KEYS)[number]);
 
+export const canCommitGridDerivedSort = (
+  codes: string[],
+  timeframeBarsCache: Record<string, unknown>
+) => codes.every((code) => Object.prototype.hasOwnProperty.call(timeframeBarsCache, code));
+
 export const buildVisibleRequestSignature = (
   timeframe: Timeframe,
   rangeBars: number,
@@ -89,23 +91,6 @@ export const buildVisibleRequestSignature = (
 ) => {
   const normalizedCodes = normalizeVisibleCodes(codes);
   return `${timeframe}:${rangeBars}:${visibleMaSignature}:${normalizedCodes.join(",")}`;
-};
-
-export const resolveGridRefineWindow = (
-  visibleStart: number,
-  visibleStop: number,
-  totalCount: number,
-  rows: number,
-  columns: number
-) => {
-  if (!Number.isFinite(visibleStart) || !Number.isFinite(visibleStop) || totalCount <= 0) {
-    return null;
-  }
-  const viewportSize = Math.max(1, Math.floor(rows) * Math.floor(columns));
-  const start = Math.max(0, Math.floor(visibleStart) - viewportSize);
-  const stop = Math.min(totalCount - 1, Math.floor(visibleStop) + viewportSize);
-  if (start > stop) return null;
-  return { start, stop };
 };
 
 export const resolveGridChartPrefetchWindow = (

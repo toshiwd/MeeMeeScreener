@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 import app.backend.api.routers.bars as bars_module
 from app.backend.api.dependencies import get_stock_repo
+from app.db.session import DatabaseAccessBusyError
 
 
 class _FakeRepo:
@@ -508,6 +509,131 @@ def test_batch_bars_v3_uses_timeframe_specific_sources(monkeypatch) -> None:
         ("weekly", ("7203",), 40),
         ("monthly", ("7203",), 12),
     ]
+
+
+def test_batch_bars_v3_shares_daily_tail_for_weekly_monthly_request(monkeypatch) -> None:
+    calls: list[tuple[str, tuple[str, ...], int]] = []
+    daily_tail = [
+        (20260401, 100.0, 110.0, 95.0, 105.0, 1000.0, "pan"),
+        (20260402, 106.0, 112.0, 101.0, 111.0, 1200.0, "pan"),
+    ]
+
+    class _SharedTailRepo:
+        def get_daily_bars_batch(self, codes, limit, asof_dt=None):  # pragma: no cover - guardrail
+            raise AssertionError("shared source-aware daily tail should avoid a second daily batch")
+
+        def get_daily_bars_with_source_batch(self, codes, limit, asof_dt=None):
+            calls.append(("daily_source", tuple(codes), limit))
+            return {code: daily_tail[-limit:] for code in codes}
+
+        def get_weekly_bars_batch(self, codes, limit, asof_dt=None):
+            calls.append(("weekly", tuple(codes), limit))
+            return {code: [(1775433600, 100.0, 115.0, 95.0, 114.0, 3100.0)] for code in codes}
+
+        def get_monthly_bars_batch(self, codes, limit, asof_dt=None, recent_daily_rows_by_code=None):
+            calls.append(("monthly", tuple(codes), limit))
+            assert recent_daily_rows_by_code is not None
+            assert recent_daily_rows_by_code["7203"] == [tuple(row[:6]) for row in daily_tail]
+            return {code: [(202604, 100.0, 115.0, 95.0, 114.0, 12000.0)] for code in codes}
+
+    _clear_batch_bars_cache()
+    client = FastAPI()
+    client.include_router(bars_module.router)
+    client.dependency_overrides[get_stock_repo] = lambda: _SharedTailRepo()
+    test_client = TestClient(client)
+
+    response = test_client.post(
+        "/api/batch_bars_v3",
+        json={
+            "codes": ["7203"],
+            "timeframes": ["weekly", "monthly"],
+            "limit": 120,
+            "timeframeLimits": {"weekly": 40, "monthly": 12},
+            "includeProvisional": False,
+            "includeBoxes": False,
+        },
+    )
+
+    assert response.status_code == 200
+    meta = response.json()["meta"]
+    assert "timings_ms" in meta
+    assert "shared_daily_tail_ms" in meta["timings_ms"]
+    assert "weekly_ms" in meta["timings_ms"]
+    assert "monthly_ms" in meta["timings_ms"]
+    assert calls == [
+        ("daily_source", ("7203",), 45),
+        ("weekly", ("7203",), 40),
+        ("monthly", ("7203",), 12),
+    ]
+
+
+def test_batch_bars_v3_returns_503_when_chart_db_is_busy(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("MEEMEE_CHART_DISPLAY_CACHE_DIR", str(tmp_path / "chart_display_cache"))
+
+    class _BusyRepo:
+        def get_daily_bars_batch(self, codes, limit, asof_dt=None):
+            raise DatabaseAccessBusyError("C:/tmp/stocks.duckdb", timeout_sec=0.05)
+
+    _clear_batch_bars_cache()
+    client = FastAPI()
+    client.include_router(bars_module.router)
+    client.dependency_overrides[get_stock_repo] = lambda: _BusyRepo()
+    test_client = TestClient(client)
+
+    response = test_client.post(
+        "/api/batch_bars_v3",
+        json={
+            "codes": ["7203"],
+            "timeframes": ["daily"],
+            "limit": 120,
+            "includeProvisional": False,
+            "includeBoxes": False,
+        },
+    )
+
+    assert response.status_code == 503
+    detail = response.json()["detail"]
+    assert detail["error"] == "chart_db_busy"
+    assert detail["retry_after_ms"] == 1000
+    assert "db_busy_ms" in detail["timings_ms"]
+
+
+def test_batch_bars_v3_returns_stale_display_cache_when_chart_db_is_busy(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("MEEMEE_CHART_DISPLAY_CACHE_DIR", str(tmp_path / "chart_display_cache"))
+
+    class _BusyRepo:
+        def get_daily_bars_batch(self, codes, limit, asof_dt=None):
+            raise DatabaseAccessBusyError("C:/tmp/stocks.duckdb", timeout_sec=0.05)
+
+    _clear_batch_bars_cache()
+    client_app = FastAPI()
+    client_app.include_router(bars_module.router)
+    repo_ref = {"repo": _FakeRepo()}
+    client_app.dependency_overrides[get_stock_repo] = lambda: repo_ref["repo"]
+    test_client = TestClient(client_app)
+
+    request_json = {
+        "codes": ["7203"],
+        "timeframes": ["daily"],
+        "limit": 120,
+        "includeProvisional": False,
+        "includeBoxes": False,
+    }
+    initial = test_client.post("/api/batch_bars_v3", json=request_json)
+    assert initial.status_code == 200
+    assert initial.json()["meta"]["display_cache"]["stale"] is False
+
+    _clear_batch_bars_cache()
+    repo_ref["repo"] = _BusyRepo()
+    fallback = test_client.post("/api/batch_bars_v3", json=request_json)
+
+    assert fallback.status_code == 200
+    payload = fallback.json()
+    assert payload["items"] == initial.json()["items"]
+    assert payload["meta"]["display_cache"]["hit"] is True
+    assert payload["meta"]["display_cache"]["stale"] is True
+    assert payload["meta"]["display_cache"]["reason"] == "db_busy"
+    assert "db_busy_ms" in payload["meta"]["timings_ms"]
 
 
 def test_batch_bars_v3_omits_live_bucket_for_historical_asof(monkeypatch, tmp_path) -> None:

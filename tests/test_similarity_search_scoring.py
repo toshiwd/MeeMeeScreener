@@ -10,6 +10,9 @@ from app.backend.similarity import (
     RECENT_DAILY_FEATURE_COUNT,
     RECENT_DAILY_SHAPE_FEATURES,
     RECENT_DAILY_SHAPE_WINDOW,
+    RECENT_DAILY_WEIGHTING,
+    RECENT_DAILY_WEIGHT_MAX,
+    RECENT_DAILY_WEIGHT_MIN,
     SimilarityService,
 )
 
@@ -146,6 +149,15 @@ def test_recent_daily_shape_vector_uses_half_year_close_and_ma_features_without_
     assert bool(result.loc[0, "daily_shape_available"])
     assert result.loc[0, "daily_asof"] == pd.Timestamp(dates[-1]).normalize()
     assert len(result.loc[0, "vec_daily"]) == RECENT_DAILY_SHAPE_WINDOW * RECENT_DAILY_FEATURE_COUNT
+
+
+def test_recent_daily_shape_weights_prioritize_latest_bars_across_half_year_window() -> None:
+    weights = SimilarityService._recent_daily_shape_weights()
+
+    assert len(weights) == RECENT_DAILY_SHAPE_WINDOW
+    assert float(weights[0]) == RECENT_DAILY_WEIGHT_MAX
+    assert float(weights[-1]) == RECENT_DAILY_WEIGHT_MIN
+    assert np.all(np.diff(weights) < 0)
 
 
 def test_similarity_search_falls_back_to_recent_daily_shape_for_unindexed_ticker(monkeypatch) -> None:
@@ -527,6 +539,7 @@ def test_similarity_search_scores_same_shape_equally_across_price_scales() -> No
     assert scores["SAME_PRICE"] > 0.99
     assert results[0].tags["daily_shape_window_days"] == RECENT_DAILY_SHAPE_WINDOW
     assert results[0].tags["daily_shape_features"] == RECENT_DAILY_SHAPE_FEATURES
+    assert results[0].tags["daily_shape_weighting"] == RECENT_DAILY_WEIGHTING
 
 
 def test_similarity_search_uses_daily_shape_after_monthly_shape() -> None:

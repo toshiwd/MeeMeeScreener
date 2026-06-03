@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { MouseEvent as ReactMouseEvent, TouchEvent as ReactTouchEvent } from "react";
+import type { FormEvent, MouseEvent as ReactMouseEvent, TouchEvent as ReactTouchEvent } from "react";
 import { useCallback } from "react";
 import { startTransition } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
@@ -12,10 +12,6 @@ import {
   IconHeart,
   IconHeartFilled,
   IconInfoCircle,
-  IconNotes,
-  IconSparkles,
-  IconPointer,
-  IconPointerOff,
 } from "@tabler/icons-react";
 import { api } from "../api";
 import { useBackendReadyState } from "../backendReady";
@@ -223,6 +219,11 @@ import { formatDateTimeLabel } from "../utils/dateLabels";
 const DETAIL_DAILY_ROW_RATIO = 0.72;
 const DETAIL_DEFAULT_WEEKLY_RATIO = 0.64;
 const COMPARE_DETAIL_PREFETCH_TIMEFRAMES: Timeframe[] = ["daily", "monthly"];
+const DETAIL_ALL_TIMEFRAMES: Timeframe[] = ["daily", "weekly", "monthly"];
+const buildPriorityDetailTimeframeGroups = (focusPanel: Timeframe | null): Timeframe[][] => {
+  const primary = focusPanel ?? "daily";
+  return [[primary], DETAIL_ALL_TIMEFRAMES.filter((timeframe) => timeframe !== primary)];
+};
 const COMPARE_INITIAL_DAILY_LIMIT = 420;
 const DETAIL_CHROME_DAILY = { timeframe: "daily" as const };
 const DETAIL_CHROME_WEEKLY = { timeframe: "weekly" as const };
@@ -450,6 +451,35 @@ const getRetryDelayMs = (error: unknown) => {
   return 1000;
 };
 
+const describeDetailBarsFetchError = (error: unknown) => {
+  const response = (error as {
+    response?: {
+      status?: number;
+      data?: { detail?: unknown; message?: unknown; error?: unknown };
+    };
+    code?: string;
+    message?: string;
+  })?.response;
+  const detail = response?.data?.detail;
+  const detailPayload = detail && typeof detail === "object" ? (detail as { error?: unknown; message?: unknown }) : null;
+  const errorCode = String(detailPayload?.error ?? response?.data?.error ?? "").trim();
+  const detailMessage = String(detailPayload?.message ?? response?.data?.message ?? "").trim();
+  const rawMessage = String((error as { message?: string })?.message ?? "").trim();
+  const normalized = `${errorCode} ${detailMessage} ${rawMessage}`.toLowerCase();
+  if (
+    errorCode === "chart_db_busy" ||
+    response?.status === 503 ||
+    normalized.includes("database is temporarily busy") ||
+    normalized.includes("db_busy")
+  ) {
+    return "チャートDBが一時的に混み合っています。少し待ってから再読込してください。";
+  }
+  if ((error as { code?: string })?.code === "ECONNABORTED" || normalized.includes("timeout")) {
+    return "チャートデータの取得に時間がかかっています。少し待ってから再読込してください。";
+  }
+  return rawMessage || "Bars fetch failed";
+};
+
 const SECONDARY_FETCH_STABLE_DELAY_MS = 450;
 const QUALIFICATION_TRACE_DELAY_MS = 800;
 const DETAIL_MARKERS_DELAY_MS = 4000;
@@ -514,9 +544,9 @@ export default function DetailView() {
   const [boxes, setBoxes] = useState<Box[]>([]);
   const [compareBoxes, setCompareBoxes] = useState<Box[]>([]);
   const [headerMode, setHeaderMode] = useState<"chart" | "positions" | "analysis" | "financial">("chart");
+  const [tradexAnalysisDetailsOpen, setTradexAnalysisDetailsOpen] = useState(false);
   const prioritizeTradesFetch = headerMode === "positions";
   const [displayOpen, setDisplayOpen] = useState(false);
-  const [signalsOpen, setSignalsOpen] = useState(false);
   const [showGapBands, setShowGapBands] = useState(true);
   const [showVolumeEnabled, setShowVolumeEnabled] = useState(true);
   const showDecisionMarkers = true;
@@ -525,14 +555,22 @@ export default function DetailView() {
   const [showTradeMarkers, setShowTradeMarkers] = useState(true);
   const [showRankingMarkers, setShowRankingMarkers] = useState(true);
   const [activeDrawTool, setActiveDrawTool] = useState<DrawTool | null>(null);
+  const [drawingSelectionMode, setDrawingSelectionMode] = useState(false);
+  const [continuousDraw, setContinuousDraw] = useState(true);
   const [selectedDrawing, setSelectedDrawing] = useState<SelectedDrawingInfo | null>(null);
   const COLOR_PALETTE = ["#ef4444", "#22c55e", "#0ea5e9", "#f59e0b", "#64748b"];
   const [activeDrawColorIndex, setActiveDrawColorIndex] = useState(4);
   const activeDrawColor = COLOR_PALETTE[activeDrawColorIndex] ?? "#64748b";
   const [activeLineOpacity, setActiveLineOpacity] = useState(0.8);
   const [activeLineWidth, setActiveLineWidth] = useState(2);
-  const selectDrawTool = (tool: DrawTool) => {
-    setActiveDrawTool((current) => (current === tool ? null : tool));
+  const selectDrawTool = (tool: DrawTool | null) => {
+    setActiveDrawTool(tool);
+    setDrawingSelectionMode(tool === null);
+  };
+  const handleDrawCommit = () => {
+    if (annotationMode || continuousDraw) return;
+    setActiveDrawTool(null);
+    setDrawingSelectionMode(true);
   };
   const [trades, setTrades] = useState<TradeEvent[]>([]);
   const [compareTrades, setCompareTrades] = useState<TradeEvent[]>([]);
@@ -602,6 +640,7 @@ export default function DetailView() {
   const [financialBackgroundJobReady, setFinancialBackgroundJobReady] = useState(false);
   const [analysisNeighborPrefetchReady, setAnalysisNeighborPrefetchReady] = useState(false);
   const [positionLedgerExpanded, setPositionLedgerExpanded] = useState(false);
+  const [tickerCodeInput, setTickerCodeInput] = useState(code ?? "");
   const [ledgerViewMode, setLedgerViewMode] = useState<"iizuka" | "stock">(() => {
     try {
       const stored = window.localStorage.getItem("positionLedgerMode");
@@ -774,7 +813,7 @@ export default function DetailView() {
   const [analysisRiskMode, setAnalysisRiskMode] = useState<RankRiskMode>(() => resolveRiskModeFromSession());
   const [analysisAsOfTime, setAnalysisAsOfTime] = useState<number | null>(null);
   const [annotationMode, setAnnotationMode] = useState(false);
-  const [chartNoteMode, setChartNoteMode] = useState(false);
+  const [chartNoteExpanded, setChartNoteExpanded] = useState(false);
   const [annotationTool, setAnnotationTool] = useState<AnnotationTool>("select");
   const [annotationFilter, setAnnotationFilter] = useState<AnnotationFilter>("all");
   const [annotations, setAnnotations] = useState<ChartAnnotation[]>([]);
@@ -786,6 +825,7 @@ export default function DetailView() {
   const [readingNoteText, setReadingNoteText] = useState("");
   const [readingTagsText, setReadingTagsText] = useState("");
   const [readingSaving, setReadingSaving] = useState(false);
+  const [maRoleReview, setMaRoleReview] = useState<any>(null);
   const [chartNoteTitle, setChartNoteTitle] = useState("");
   const [chartNoteTimeframe, setChartNoteTimeframe] = useState<ChartNoteTimeframe>("mixed");
   const [chartNoteParagraphs, setChartNoteParagraphs] = useState<ChartNoteParagraph[]>([]);
@@ -801,7 +841,6 @@ export default function DetailView() {
     linkedObject?: Record<string, any> | null;
   } | null>(null);
   const displayRef = useRef<HTMLDivElement | null>(null);
-  const signalsRef = useRef<HTMLDivElement | null>(null);
   const {
     dailyDrawingKey,
     weeklyDrawingKey,
@@ -832,17 +871,15 @@ export default function DetailView() {
     onResetSelection: () => setSelectedDrawing(null),
   });
   useEffect(() => {
-    if (!displayOpen && !signalsOpen) return;
+    if (!displayOpen) return;
     const handleClick = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
       if (displayRef.current && displayRef.current.contains(target)) return;
-      if (signalsRef.current && signalsRef.current.contains(target)) return;
       setDisplayOpen(false);
-      setSignalsOpen(false);
     };
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
-  }, [displayOpen, signalsOpen]);
+  }, [displayOpen]);
 
   useEffect(() => {
     if (headerMode === "positions") {
@@ -2288,17 +2325,13 @@ export default function DetailView() {
       : "根拠不足: この銘柄のランキング判定なし";
   const rightRailKind = showReplayPanel
     ? "replay"
-    : chartNoteMode
-      ? "chart-note"
-    : annotationMode
+    : annotationMode || (cursorMode && !compareCode && headerMode === "chart" && selectedDate && selectedBarData)
       ? "annotation"
     : showAnalysisPanel
     ? "analysis"
     : showFinancialPanel
       ? "financial"
-      : cursorMode && !compareCode && headerMode === "chart" && selectedDate && selectedBarData
-        ? "cursor"
-        : null;
+      : null;
   const showRightPanel = rightRailKind !== null;
   const headerDrawToolControls = (
     <>
@@ -2310,23 +2343,16 @@ export default function DetailView() {
         onSelectTool={setAnnotationTool}
         onFilterChange={setAnnotationFilter}
       />
-      <IconButton
-        icon={<IconNotes size={18} />}
-        label={chartNoteMode ? "ノート ON" : "ノート"}
-        variant="iconLabel"
-        selected={chartNoteMode}
-        tooltip="チャートノート"
-        ariaLabel="チャートノート"
-        onClick={() => setChartNoteMode((current) => !current)}
-      />
       {!annotationMode && (
         <DetailDrawToolbar
           activeTool={activeDrawTool}
           activeDrawColor={activeDrawColor}
           activeLineOpacity={activeLineOpacity}
           activeLineWidth={activeLineWidth}
+          continuousDraw={continuousDraw}
           onSelectTool={selectDrawTool}
           onResetAll={resetAllDrawings}
+          onToggleContinuous={() => setContinuousDraw((current) => !current)}
           onCycleColor={() => setActiveDrawColorIndex((prev) => (prev + 1) % COLOR_PALETTE.length)}
           onLineOpacityChange={setActiveLineOpacity}
           onLineWidthChange={setActiveLineWidth}
@@ -2334,7 +2360,6 @@ export default function DetailView() {
       )}
     </>
   );
-
   useEffect(() => {
     if (!backendReady || !showAnalysisPanel) {
       return;
@@ -2464,6 +2489,7 @@ export default function DetailView() {
       let applied = false;
       if (Array.isArray(frames.daily?.rows)) {
         const dailyRows = frames.daily.rows;
+        setLoadingDaily(false);
         setDailyData(dailyRows);
         setHasMoreDaily(dailyRows.length >= dailyLimit);
         setDailyErrors([]);
@@ -2476,6 +2502,7 @@ export default function DetailView() {
       }
       if (Array.isArray(frames.weekly?.rows)) {
         const weeklyRows = frames.weekly.rows;
+        setLoadingDaily(false);
         setWeeklyData(weeklyRows);
         setWeeklyErrors([]);
         setWeeklyFetch({
@@ -2487,6 +2514,7 @@ export default function DetailView() {
       }
       if (Array.isArray(frames.monthly?.rows)) {
         const monthlyRows = frames.monthly.rows;
+        setLoadingMonthly(false);
         setMonthlyData(monthlyRows);
         setBoxes(Array.isArray(frames.monthly?.boxes) ? frames.monthly.boxes : []);
         setHasMoreMonthly(monthlyRows.length >= monthlyLimit);
@@ -2571,14 +2599,31 @@ export default function DetailView() {
       setWeeklyFetch((prev) => ({ ...prev, status: "loading", errorMessage: null }));
       setMonthlyFetch((prev) => ({ ...prev, status: "loading", errorMessage: null }));
     }
+    const runNetworkRefreshForTimeframes = async (timeframes: Timeframe[]) => {
+      if (!timeframes.length) return false;
+      const frames = await prefetchDetailChartFrames(requestParams, {
+        signal: controller.signal,
+        forceNetwork: true,
+        timeframes,
+      });
+      if (!active) return false;
+      const applied = applyAvailableFrames(frames);
+      setMainChartPendingSwap(false);
+      if (frames.dataFreshnessContract) {
+        setDetailDataFreshnessContract(frames.dataFreshnessContract);
+      }
+      return applied;
+    };
     const runNetworkRefresh = async () => {
       try {
-        const frames = await prefetchDetailChartFrames(requestParams, {
-          signal: controller.signal,
-          forceNetwork: true,
-        });
-        if (!active) return;
-        const applied = applyFrames(frames);
+        let applied = false;
+        for (const timeframes of buildPriorityDetailTimeframeGroups(focusPanel)) {
+          applied = (await runNetworkRefreshForTimeframes(timeframes)) || applied;
+          if (!active) return;
+        }
+        const frames = readDetailChartPrefetchSync(requestParams);
+        const appliedComplete = applyFrames(frames);
+        applied = appliedComplete || applied;
         if (!applied) {
           const dailyRows = Array.isArray(frames.daily?.rows) ? frames.daily.rows : [];
           const weeklyRows = Array.isArray(frames.weekly?.rows) ? frames.weekly.rows : [];
@@ -2615,7 +2660,7 @@ export default function DetailView() {
         }
       } catch (error) {
         if (!active || isCanceledRequestError(error)) return;
-        const message = error?.message || "Bars fetch failed";
+        const message = describeDetailBarsFetchError(error);
         setMainChartPendingSwap(false);
         setDailyErrors([message]);
         setWeeklyErrors([message]);
@@ -2669,7 +2714,7 @@ export default function DetailView() {
         window.clearTimeout(refreshTimerId);
       }
     };
-  }, [backendReady, code, dailyLimit, mainAsOf, monthlyLimit]);
+  }, [backendReady, code, dailyLimit, focusPanel, mainAsOf, monthlyLimit]);
 
   useEffect(() => {
     if (!analysisFetchEnabled) {
@@ -2960,6 +3005,22 @@ export default function DetailView() {
     () => filterCandlesByAsOf(dailyParse.candles, chartAsOfTime),
     [chartAsOfTime, dailyParse.candles]
   );
+  const maRoleChartMarkers = useMemo(() => {
+    const markers = Array.isArray(maRoleReview?.chart_markers) ? maRoleReview.chart_markers : [];
+    return markers
+      .map((marker: any) => {
+        const time = normalizeTime(marker.date);
+        if (!Number.isFinite(time)) return null;
+        const markerTime = findNearestCandleTime(dailyCandles, time);
+        if (markerTime == null || Math.abs(markerTime - time) > MAX_EVENT_OFFSET_SEC) return null;
+        return {
+          time: markerTime,
+          kind: "ranking-up" as const,
+          label: marker.label || "MA",
+        };
+      })
+      .filter(Boolean);
+  }, [dailyCandles, maRoleReview]);
   const dailyMaLines = useMemo(() => {
     return buildDetailMaLines(dailyCandles, maSettings.daily);
   }, [dailyCandles, maSettings.daily]);
@@ -3173,9 +3234,9 @@ export default function DetailView() {
   }, [annotationAsOfDate, code]);
 
   useEffect(() => {
-    if (!annotationMode && !chartNoteMode) return;
+    if (!annotationMode) return;
     void fetchAnnotations();
-  }, [annotationMode, chartNoteMode, fetchAnnotations]);
+  }, [annotationMode, fetchAnnotations]);
 
   const fetchChartReadingNote = useCallback(async () => {
     if (!code || !chartReadingNoteDate) return;
@@ -3185,6 +3246,7 @@ export default function DetailView() {
       })
     );
     const notes = Array.isArray(response.data?.notes) ? response.data.notes : [];
+    setMaRoleReview(response.data?.ma_role_review ?? null);
     const note =
       notes.find((item) => item.as_of_date === chartReadingNoteDate && item.timeframe === readingTimeframe) ??
       notes.find((item) => item.as_of_date === chartReadingNoteDate) ??
@@ -3197,6 +3259,31 @@ export default function DetailView() {
     if (!annotationMode) return;
     void fetchChartReadingNote();
   }, [annotationMode, fetchChartReadingNote]);
+
+  useEffect(() => {
+    if (!code || !annotationAsOfDate) return;
+    let cancelled = false;
+    api.get("/chart-reading/bundle", {
+      params: { code, as_of_date: annotationAsOfDate },
+    }).then((response) => {
+      if (!cancelled) setMaRoleReview(response.data?.ma_role_review ?? null);
+    }).catch(() => {
+      if (!cancelled) {
+        setMaRoleReview({
+          schema_version: "ma_role_readonly_review_v1",
+          available: false,
+          reason: "bundle_unavailable",
+          matches: [],
+          read_only: true,
+          ranking_effect: false,
+          automatic_trade_action: false,
+        });
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [annotationAsOfDate, code]);
 
   const fetchChartNote = useCallback(async () => {
     if (!code || !annotationAsOfDate) return;
@@ -3230,9 +3317,9 @@ export default function DetailView() {
   }, [annotationAsOfDate, code]);
 
   useEffect(() => {
-    if (!chartNoteMode) return;
+    if (!annotationMode || !chartNoteExpanded) return;
     void fetchChartNote();
-  }, [chartNoteMode, fetchChartNote]);
+  }, [annotationMode, chartNoteExpanded, fetchChartNote]);
 
   const persistAnnotation = useCallback(async (annotation: ChartAnnotation) => {
     const response = await withAnnotationApiRetry(() =>
@@ -5403,7 +5490,7 @@ export default function DetailView() {
     autoAnalysisBackfillRequest,
   ]);
   const mergedDailyEventMarkers = useMemo(() => {
-    const merged = [...dailyEventMarkers, ...annotationEventMarkers];
+    const merged = [...dailyEventMarkers, ...annotationEventMarkers, ...maRoleChartMarkers];
     if (annotationMode && readingTargetType === "bar" && selectedBarForChartReading) {
       merged.push({
         time: selectedBarForChartReading.time,
@@ -5482,6 +5569,7 @@ export default function DetailView() {
     code,
     chartRankingAppearances,
     annotationEventMarkers,
+    maRoleChartMarkers,
     annotationMode,
     dailyEventMarkers,
     dailyCandles,
@@ -6225,6 +6313,27 @@ export default function DetailView() {
   const listCodes = useMemo(() => {
     return readDetailListCodes();
   }, []);
+  useEffect(() => {
+    setTickerCodeInput(code ?? "");
+  }, [code]);
+  const handleTickerCodeSubmit = useCallback(
+    (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      const nextCode = tickerCodeInput.trim();
+      if (!nextCode || nextCode === code || !/^[0-9A-Za-z.-]+$/.test(nextCode)) return;
+      void openDetailWithPrefetch({
+        navigate,
+        code: nextCode,
+        listCodes,
+        backPath: listBackPath,
+        asof: mainAsOf,
+        backendReady,
+        prefetchWaitMs: 120,
+        targetRoute: detailRouteTarget,
+      });
+    },
+    [backendReady, code, detailRouteTarget, listBackPath, listCodes, mainAsOf, navigate, tickerCodeInput]
+  );
   const compareList = useMemo(() => {
     if (typeof window === "undefined") return null;
     try {
@@ -6382,17 +6491,6 @@ export default function DetailView() {
       }}
     />
   );
-  const headerCursorButton = annotationMode ? null : (
-    <IconButton
-      label={cursorMode ? "日付選択 ON" : "日付選択"}
-      icon={cursorMode ? <IconPointer size={18} /> : <IconPointerOff size={18} />}
-      variant="iconLabel"
-      selected={cursorMode}
-      tooltip="チャートの日付を選択"
-      className="cursor-button"
-      onClick={toggleCursorMode}
-    />
-  );
   const headerRangeControls = (
     <DetailTimeframeSwitcher presets={RANGE_PRESETS} rangeMonths={rangeMonths} onChange={toggleRange} />
   );
@@ -6541,37 +6639,17 @@ export default function DetailView() {
         }
         summaryMain={
           <div className="detail-summary-title">
-            <div className="detail-summary-code">{code}</div>
+            <form className="detail-summary-code-form" onSubmit={handleTickerCodeSubmit}>
+              <input
+                className="detail-summary-code"
+                aria-label="銘柄コードを入力"
+                inputMode="text"
+                value={tickerCodeInput}
+                onChange={(event) => setTickerCodeInput(event.target.value)}
+                onBlur={() => setTickerCodeInput(code ?? "")}
+              />
+            </form>
             {tickerName && <div className="detail-summary-name">{tickerName}</div>}
-            {dailySignals.length > 0 && (
-              <div className="popover-anchor detail-summary-signal-anchor" ref={signalsRef}>
-                <IconButton
-                  icon={<IconSparkles size={16} />}
-                  tooltip={`シグナル ${dailySignals.length}`}
-                  ariaLabel={`シグナル ${dailySignals.length}`}
-                  selected={signalsOpen}
-                  className="detail-summary-signal-button"
-                  onClick={() => setSignalsOpen((prev) => !prev)}
-                />
-                {signalsOpen && (
-                  <div className="popover-panel detail-signals-popover">
-                    <div className="popover-section">
-                      <div className="popover-title">シグナル</div>
-                      <div className="detail-signals-inline">
-                        {dailySignals.map((signal) => (
-                          <span
-                            key={signal.label}
-                            className={`signal-chip ${signal.kind === "warning" ? "warning" : "achieved"}`}
-                          >
-                            {signal.label}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
           </div>
         }
         summaryStatus={
@@ -6658,7 +6736,6 @@ export default function DetailView() {
           <>
             {headerDisplayMenu}
             {headerScreenshotButton}
-            {headerCursorButton}
             {headerDrawToolControls}
           </>
         }
@@ -6738,7 +6815,9 @@ export default function DetailView() {
                       showPriceBands
                       meeMeeDetailChrome={DETAIL_CHROME_MONTHLY}
                       meeMeeDetailChromeTerminalDates={monthlyChromeTerminalDates}
+                      selectionEnabled={!annotationMode && drawingSelectionMode}
                       activeTool={activeDrawTool}
+                      onDrawCommit={handleDrawCommit}
                       activeDrawColor={activeDrawColor}
                       activeLineOpacity={activeLineOpacity}
                       activeLineWidth={activeLineWidth}
@@ -6797,7 +6876,9 @@ export default function DetailView() {
                         showPriceBands
                         meeMeeDetailChrome={DETAIL_CHROME_MONTHLY}
                         meeMeeDetailChromeTerminalDates={compareMonthlyChromeTerminalDates}
+                        selectionEnabled={!annotationMode && drawingSelectionMode}
                         activeTool={activeDrawTool}
+                        onDrawCommit={handleDrawCommit}
                         activeDrawColor={activeDrawColor}
                         activeLineOpacity={activeLineOpacity}
                         activeLineWidth={activeLineWidth}
@@ -6861,7 +6942,9 @@ export default function DetailView() {
                         callouts={annotationCallouts}
                         showPriceBands
                         meeMeeDetailChrome={DETAIL_CHROME_DAILY}
+                        selectionEnabled={!annotationMode && drawingSelectionMode}
                         activeTool={dailyAnnotationDrawTool}
+                        onDrawCommit={handleDrawCommit}
                         activeDrawColor={activeDrawColor}
                         activeLineOpacity={activeLineOpacity}
                         activeLineWidth={activeLineWidth}
@@ -6937,7 +7020,9 @@ export default function DetailView() {
                         horizontalLines={compareDailyDrawings.horizontalLines}
                         showPriceBands
                         meeMeeDetailChrome={DETAIL_CHROME_DAILY}
+                        selectionEnabled={!annotationMode && drawingSelectionMode}
                         activeTool={activeDrawTool}
+                        onDrawCommit={handleDrawCommit}
                         activeDrawColor={activeDrawColor}
                         activeLineOpacity={activeLineOpacity}
                         activeLineWidth={activeLineWidth}
@@ -7013,7 +7098,9 @@ export default function DetailView() {
                       callouts={annotationCallouts}
                       showPriceBands
                       meeMeeDetailChrome={DETAIL_CHROME_DAILY}
+                      selectionEnabled={!annotationMode && drawingSelectionMode}
                       activeTool={dailyAnnotationDrawTool}
+                      onDrawCommit={handleDrawCommit}
                       activeDrawColor={activeDrawColor}
                       activeLineOpacity={activeLineOpacity}
                       activeLineWidth={activeLineWidth}
@@ -7069,7 +7156,9 @@ export default function DetailView() {
                     showPriceBands
                     meeMeeDetailChrome={DETAIL_CHROME_WEEKLY}
                     meeMeeDetailChromeTerminalDates={weeklyChromeTerminalDates}
+                    selectionEnabled={!annotationMode && drawingSelectionMode}
                     activeTool={activeDrawTool}
+                    onDrawCommit={handleDrawCommit}
                     activeDrawColor={activeDrawColor}
                     activeLineOpacity={activeLineOpacity}
                     activeLineWidth={activeLineWidth}
@@ -7122,7 +7211,9 @@ export default function DetailView() {
                     showPriceBands
                     meeMeeDetailChrome={DETAIL_CHROME_MONTHLY}
                     meeMeeDetailChromeTerminalDates={monthlyChromeTerminalDates}
+                    selectionEnabled={!annotationMode && drawingSelectionMode}
                     activeTool={activeDrawTool}
+                    onDrawCommit={handleDrawCommit}
                     activeDrawColor={activeDrawColor}
                     activeLineOpacity={activeLineOpacity}
                     activeLineWidth={activeLineWidth}
@@ -7222,7 +7313,9 @@ export default function DetailView() {
                       callouts={annotationCallouts}
                       showPriceBands
                       meeMeeDetailChrome={DETAIL_CHROME_DAILY}
+                      selectionEnabled={!annotationMode && drawingSelectionMode}
                       activeTool={dailyAnnotationDrawTool}
+                      onDrawCommit={handleDrawCommit}
                       activeDrawColor={activeDrawColor}
                       activeLineOpacity={activeLineOpacity}
                       activeLineWidth={activeLineWidth}
@@ -7301,7 +7394,9 @@ export default function DetailView() {
                         showPriceBands
                         meeMeeDetailChrome={DETAIL_CHROME_WEEKLY}
                         meeMeeDetailChromeTerminalDates={weeklyChromeTerminalDates}
+                        selectionEnabled={!annotationMode && drawingSelectionMode}
                         activeTool={activeDrawTool}
+                        onDrawCommit={handleDrawCommit}
                         activeDrawColor={activeDrawColor}
                         activeLineOpacity={activeLineOpacity}
                         activeLineWidth={activeLineWidth}
@@ -7369,7 +7464,9 @@ export default function DetailView() {
                         showPriceBands
                         meeMeeDetailChrome={DETAIL_CHROME_MONTHLY}
                         meeMeeDetailChromeTerminalDates={monthlyChromeTerminalDates}
+                        selectionEnabled={!annotationMode && drawingSelectionMode}
                         activeTool={activeDrawTool}
+                        onDrawCommit={handleDrawCommit}
                         activeDrawColor={activeDrawColor}
                         activeLineOpacity={activeLineOpacity}
                         activeLineWidth={activeLineWidth}
@@ -7459,6 +7556,8 @@ export default function DetailView() {
                     analysisMissingDataVisible={selectedDate != null && !persistedMarkersLoading && selectedRankingAppearancesForSummary.length === 0}
                     dailyChartShape={dailyChartShape}
                     dailyChartShapeLoading={dailyChartShapeLoading}
+                    maRoleReview={maRoleReview}
+                    dailyCandles={dailyCandles}
                     analysisDecision={selectedRankingJudgement.analysisDecision}
                     analysisGuidance={selectedRankingJudgement.analysisGuidance}
                     analysisEntryPolicy={selectedRankingJudgement.analysisEntryPolicy}
@@ -7469,75 +7568,121 @@ export default function DetailView() {
                     formatSignedPercentLabel={formatSignedPercentLabel}
                   />
                 </Suspense>
-                <Suspense fallback={null}>
-                  <LazyTradexAnalysisMount
-                    backendReady={backendReady}
-                    readyToFetch={analysisNetworkReady}
-                    analysisFetchEnabled={analysisFetchEnabled}
-                    code={code ?? null}
-                    asof={analysisAsOfTime}
-                    formatPercentLabel={formatPercentLabel}
-                    formatSignedPercentLabel={formatSignedPercentLabel}
-                    formatNumber={formatNumber}
-                  />
-                </Suspense>
+                <details
+                  className="detail-judgement-details"
+                  open={tradexAnalysisDetailsOpen}
+                  onToggle={(event) => setTradexAnalysisDetailsOpen((event.currentTarget as HTMLDetailsElement).open)}
+                >
+                  <summary>TRADEX詳細を開く</summary>
+                  {tradexAnalysisDetailsOpen && (
+                    <Suspense fallback={null}>
+                      <LazyTradexAnalysisMount
+                        backendReady={backendReady}
+                        readyToFetch={analysisNetworkReady}
+                        analysisFetchEnabled={analysisFetchEnabled}
+                        code={code ?? null}
+                        asof={analysisAsOfTime}
+                        formatPercentLabel={formatPercentLabel}
+                        formatSignedPercentLabel={formatSignedPercentLabel}
+                        formatNumber={formatNumber}
+                      />
+                    </Suspense>
+                  )}
+                </details>
               </>
             )}
-            {rightRailKind === "cursor" && (
-              <DailyMemoPanel
-                code={code || ""}
-                selectedDate={selectedDate}
-                selectedBarData={selectedBarData}
-                {...(memoPanelData || {})}
-                title="日足情報"
-                cursorMode={true}
-                onPrevDay={moveToPrevDay}
-                onNextDay={moveToNextDay}
-                onCopyForConsult={handleCopyForConsult}
-              />
-            )}
             {rightRailKind === "annotation" && (
-              <ScreenPanel title="チャート読解" className="detail-annotation-panel">
-                <ChartReadingPanel
-                  loading={annotationsLoading}
-                  timeframe={readingTimeframe}
-                  targetType={readingTargetType}
-                  commentType={readingCommentType}
-                  noteText={readingNoteText}
-                  tagsText={readingTagsText}
-                  saving={readingSaving}
-                  selectedDrawing={selectedDrawing}
-                  selectedAnnotation={selectedAnnotation}
-                  selectedBar={selectedBarForChartReading}
-                  noteDate={chartReadingNoteDate}
-                  onTimeframeChange={setReadingTimeframe}
-                  onTargetTypeChange={setReadingTargetType}
-                  onCommentTypeChange={setReadingCommentType}
-                  onNoteTextChange={setReadingNoteText}
-                  onTagsTextChange={setReadingTagsText}
-                  onClearNote={handleClearChartReadingNote}
-                  onAnnotateDrawing={handleAnnotateSelectedDrawing}
-                  onAnnotationChange={handleAnnotationChange}
-                  onAnnotationDelete={handleAnnotationDelete}
-                />
-              </ScreenPanel>
-            )}
-            {rightRailKind === "chart-note" && (
-              <ScreenPanel title="チャートノート" className="detail-annotation-panel">
-                <ChartNotePanel
-                  title={chartNoteTitle}
-                  timeframe={chartNoteTimeframe}
-                  paragraphs={chartNoteParagraphs}
-                  selectedAnnotation={selectedAnnotation}
-                  saving={chartNoteSaving}
-                  onTitleChange={setChartNoteTitle}
-                  onTimeframeChange={setChartNoteTimeframe}
-                  onAddParagraph={handleAddChartNoteParagraph}
-                  onParagraphChange={handleChartNoteParagraphChange}
-                  onLinkSelectedAnnotation={handleLinkSelectedAnnotationToParagraph}
-                  onLinkMa20={handleLinkMa20ToParagraph}
-                  onSave={handleSaveChartNote}
-                />
+              <ScreenPanel title="注釈・日付情報" className="detail-annotation-panel">
+                {selectedDate && selectedBarData && (
+                  <DailyMemoPanel
+                    code={code || ""}
+                    selectedDate={selectedDate}
+                    selectedBarData={selectedBarData}
+                    {...(memoPanelData || {})}
+                    title="選択日の情報"
+                    cursorMode={cursorMode}
+                    compact
+                    onPrevDay={moveToPrevDay}
+                    onNextDay={moveToNextDay}
+                    onCopyForConsult={handleCopyForConsult}
+                  />
+                )}
+                {annotationMode && (
+                  <>
+                    {maRoleReview && (
+                      <section className="annotation-panel ma-role-review-panel" data-testid="ma-role-review-panel">
+                        <div className="annotation-panel-header">
+                          <div>
+                            <div className="annotation-panel-title">MA/Candle Review</div>
+                            <div className="annotation-panel-meta">
+                              chart markers only / read-only / no ranking effect
+                            </div>
+                          </div>
+                          <span className={`ma-role-review-status ${maRoleReview.available ? "is-available" : "is-missing"}`}>
+                            {maRoleReview.available ? "available" : maRoleReview.reason || "unavailable"}
+                          </span>
+                        </div>
+                        <div className="annotation-panel-meta" data-testid="ma-role-review-marker-summary">
+                          {Array.isArray(maRoleReview.chart_markers) && maRoleReview.chart_markers.length > 0
+                            ? `Showing ${maRoleReview.chart_markers.length} important historical MA/candle markers on the chart.`
+                            : "No important historical MA/candle marker is visible for this chart window."}
+                        </div>
+                        <div className="annotation-panel-empty">
+                          Only high-priority historical markers are shown on the chart. Research evidence stays out of the main UI.
+                        </div>
+                      </section>
+                    )}
+                    <ChartReadingPanel
+                      loading={annotationsLoading}
+                      timeframe={readingTimeframe}
+                      targetType={readingTargetType}
+                      commentType={readingCommentType}
+                      noteText={readingNoteText}
+                      tagsText={readingTagsText}
+                      saving={readingSaving}
+                      selectedDrawing={selectedDrawing}
+                      selectedAnnotation={selectedAnnotation}
+                      selectedBar={selectedBarForChartReading}
+                      noteDate={chartReadingNoteDate}
+                      onTimeframeChange={setReadingTimeframe}
+                      onTargetTypeChange={setReadingTargetType}
+                      onCommentTypeChange={setReadingCommentType}
+                      onNoteTextChange={setReadingNoteText}
+                      onTagsTextChange={setReadingTagsText}
+                      onClearNote={handleClearChartReadingNote}
+                      onAnnotateDrawing={handleAnnotateSelectedDrawing}
+                      onAnnotationChange={handleAnnotationChange}
+                      onAnnotationDelete={handleAnnotationDelete}
+                    />
+                    <section className="annotation-panel chart-note-disclosure">
+                      <button
+                        type="button"
+                        className="annotation-save"
+                        data-testid="chart-note-toggle"
+                        aria-expanded={chartNoteExpanded}
+                        onClick={() => setChartNoteExpanded((current) => !current)}
+                      >
+                        詳細ノート{chartNoteParagraphs.length ? ` (${chartNoteParagraphs.length})` : ""}
+                      </button>
+                    </section>
+                    {chartNoteExpanded && (
+                      <ChartNotePanel
+                        title={chartNoteTitle}
+                        timeframe={chartNoteTimeframe}
+                        paragraphs={chartNoteParagraphs}
+                        selectedAnnotation={selectedAnnotation}
+                        saving={chartNoteSaving}
+                        onTitleChange={setChartNoteTitle}
+                        onTimeframeChange={setChartNoteTimeframe}
+                        onAddParagraph={handleAddChartNoteParagraph}
+                        onParagraphChange={handleChartNoteParagraphChange}
+                        onLinkSelectedAnnotation={handleLinkSelectedAnnotationToParagraph}
+                        onLinkMa20={handleLinkMa20ToParagraph}
+                        onSave={handleSaveChartNote}
+                      />
+                    )}
+                  </>
+                )}
               </ScreenPanel>
             )}
             {rightRailKind === "financial" && (

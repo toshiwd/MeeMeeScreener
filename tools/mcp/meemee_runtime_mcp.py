@@ -480,10 +480,15 @@ def _call_screening_review_bundle(arguments: dict[str, Any]) -> dict[str, Any]:
 
 
 def _call_chart_reading_bundle(arguments: dict[str, Any]) -> dict[str, Any]:
-    args = _strict_arguments(arguments, allowed={"code", "as_of_date"}, required={"code", "as_of_date"})
+    args = _strict_arguments(arguments, allowed={"code", "as_of_date", "include_provisional_visual"}, required={"code", "as_of_date"})
     conn = duckdb.connect(str(app_config.DB_PATH), read_only=True)
     try:
-        return get_chart_reading_bundle(conn, code=args["code"], as_of_date=args["as_of_date"])
+        return get_chart_reading_bundle(
+            conn,
+            code=args["code"],
+            as_of_date=args["as_of_date"],
+            include_provisional_visual=bool(args.get("include_provisional_visual", True)),
+        )
     finally:
         conn.close()
 
@@ -556,6 +561,7 @@ TOOLS: dict[str, ToolDefinition] = {
             properties={
                 "code": {"type": "string"},
                 "as_of_date": {"type": "string", "description": "YYYY-MM-DD or YYYYMMDD"},
+                "include_provisional_visual": {"type": "boolean", "description": "Fetch and merge the read-only Yahoo chart overlay for visual evaluation."},
             },
             required=["code", "as_of_date"],
         ),

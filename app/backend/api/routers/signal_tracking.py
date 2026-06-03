@@ -7,6 +7,7 @@ from app.backend.core.signal_tracking_job import (
     RANKING_APPEARANCE_REBUILD_JOB_TYPE,
     SIGNAL_TRACKING_BASIS_BACKFILL_JOB_TYPE,
     SIGNAL_TRACKING_CAMPAIGN_REBUILD_JOB_TYPE,
+    SIGNAL_TRACKING_DAILY_REFRESH_JOB_TYPE,
     SIGNAL_TRACKING_DECISION_REBUILD_JOB_TYPE,
 )
 from app.backend.services import signal_tracking_service
@@ -241,9 +242,13 @@ def get_signal_tracking_leakage_audit(
 
 @router.post("/refresh")
 def post_signal_tracking_refresh(
-    as_of: int | None = Query(None),
+    market_day_window: int | None = Query(None, ge=1, le=500),
 ):
-    return signal_tracking_service.refresh_signal_tracking(as_of=as_of)
+    payload = {"market_day_window": market_day_window}
+    job_id = job_manager.submit(SIGNAL_TRACKING_DAILY_REFRESH_JOB_TYPE, payload)
+    if not job_id:
+        raise HTTPException(status_code=409, detail="failed to submit tracking refresh job")
+    return {"ok": True, "job_id": job_id}
 
 
 @router.post("/basis/backfill")

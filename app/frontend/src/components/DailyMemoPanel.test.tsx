@@ -57,6 +57,35 @@ describe("DailyMemoPanel", () => {
     expect(markup).toContain("出来高");
   });
 
+  it("renders a compact annotation-rail summary with price and position labels", () => {
+    const markup = renderToStaticMarkup(
+      <DailyMemoPanel
+        code="7203"
+        selectedDate="2026-03-19"
+        selectedBarData={{
+          time: 1773878400,
+          open: 100,
+          high: 110,
+          low: 95,
+          close: 108,
+          volume: 12345,
+        }}
+        position={{ buy: 2, sell: 1 }}
+        title="選択日の情報"
+        compact
+        cursorMode={true}
+        onPrevDay={() => {}}
+        onNextDay={() => {}}
+        onCopyForConsult={() => {}}
+      />
+    );
+
+    expect(markup).toContain("daily-memo-panel is-compact");
+    expect(markup).toContain("選択日の情報");
+    expect(markup).toContain('aria-label="選択日の価格情報"');
+    expect(markup).toContain('aria-label="選択日の建玉"');
+  });
+
   it("hides day info when cursor mode is off", () => {
     const markup = renderToStaticMarkup(
       <DailyMemoPanel

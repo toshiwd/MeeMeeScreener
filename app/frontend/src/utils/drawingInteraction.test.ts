@@ -3,6 +3,8 @@ import {
   buildDrawBoxShape,
   buildPriceBandShape,
   buildTimeZoneShape,
+  formatCandleRangeMeasurement,
+  resolveCandleRangeMeasurement,
   getHitKindsForTool
 } from "./drawingInteraction";
 
@@ -16,6 +18,23 @@ describe("getHitKindsForTool", () => {
     expect(getHitKindsForTool("priceBand")).toEqual(["priceBand"]);
     expect(getHitKindsForTool("drawBox")).toEqual(["drawBox"]);
     expect(getHitKindsForTool("horizontalLine")).toEqual(["horizontalLine"]);
+  });
+});
+
+describe("candle range measurement", () => {
+  it("counts chart bars and calendar-day span inside a selected range", () => {
+    const measurement = resolveCandleRangeMeasurement([100, 200, 300, 400], 150, 350);
+
+    expect(measurement).toEqual({ bars: 2, days: 0 });
+    expect(formatCandleRangeMeasurement({ bars: 60, days: 95 })).toBe("60bars,95d");
+  });
+
+  it("normalizes reversed edges and ignores invalid candle times", () => {
+    expect(resolveCandleRangeMeasurement([100, Number.NaN, 300], 300, 100)).toEqual({
+      bars: 2,
+      days: 0
+    });
+    expect(resolveCandleRangeMeasurement([100, 200], 300, 400)).toBeNull();
   });
 });
 
