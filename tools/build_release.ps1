@@ -341,7 +341,16 @@ function Invoke-SmokeRun {
         $proc = Start-Process -FilePath $ExePath -WorkingDirectory (Split-Path -Parent $ExePath) -PassThru
         Start-Sleep -Seconds 10
         if ($proc.HasExited) {
-            throw "Smoke launch failed with exit code $($proc.ExitCode)"
+            if ($proc.ExitCode -ne 0) {
+                throw "Smoke launch failed with exit code $($proc.ExitCode)"
+            }
+            if (-not (Test-PackagedHealth -Port 28888 -TimeoutSeconds 30)) {
+                throw "Smoke launch exited before backend became healthy"
+            }
+            return
+        }
+        if (-not (Test-PackagedHealth -Port 28888 -TimeoutSeconds 30)) {
+            throw "Smoke launch did not reach healthy backend"
         }
     } finally {
         if ($proc -and -not $proc.HasExited) {
@@ -351,6 +360,29 @@ function Invoke-SmokeRun {
         # Ensure smoke verification never leaves a packaged instance holding runtime files.
         Stop-LockProcesses
     }
+}
+
+function Test-PackagedHealth {
+    param(
+        [int]$Port,
+        [int]$TimeoutSeconds
+    )
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $url = "http://127.0.0.1:$Port/api/health"
+    while ((Get-Date) -lt $deadline) {
+        try {
+            $response = Invoke-RestMethod -Uri $url -TimeoutSec 5
+            if ($response.ok -eq $true -and $response.ready -eq $true) {
+                return $true
+            }
+        } catch {
+            Start-Sleep -Seconds 1
+            continue
+        }
+        Start-Sleep -Seconds 1
+    }
+    return $false
 }
 
 if (-not (Test-Path $artifactsDir)) {
