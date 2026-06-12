@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import os
+import json
 from copy import deepcopy
-from datetime import datetime
+from datetime import datetime, timezone
+from pathlib import Path
 from threading import Lock
 from time import time
 from typing import Any, Iterable
@@ -15,6 +17,11 @@ from app.backend.services.tradex_analysis_service import (
 )
 
 _LIST_SUMMARY_FLAG = "MEEMEE_ENABLE_TRADEX_LIST_SUMMARY"
+_SHORT_LIFECYCLE_OVERLAY_FLAG = "MEEMEE_ENABLE_TRADEX_SHORT_LIFECYCLE_OVERLAY"
+_SHORT_LIFECYCLE_ROOT = Path(
+    os.getenv("TRADEX_SHORT_LIFECYCLE_BOARD_ROOT", r"G:\Tradex\current_short_lifecycle_rank_board_v1")
+)
+_SHORT_LIFECYCLE_MAX_AGE_DAYS = 7
 try:
     _LIST_SUMMARY_CACHE_TTL_SEC = max(
         30.0,
@@ -29,9 +36,10 @@ _ITEM_CACHE: dict[tuple[str, int | None], tuple[float, dict[str, Any]]] = {}
 
 def is_tradex_list_summary_enabled(flag: str | None = None, detail_flag: str | None = None) -> bool:
     raw = str(flag if flag is not None else os.getenv(_LIST_SUMMARY_FLAG, "")).strip().lower()
-    if raw not in {"1", "true", "yes", "on"}:
-        return False
-    return is_tradex_detail_analysis_enabled(detail_flag)
+    lifecycle_raw = str(os.getenv(_SHORT_LIFECYCLE_OVERLAY_FLAG, "")).strip().lower()
+    return (
+        raw in {"1", "true", "yes", "on"} and is_tradex_detail_analysis_enabled(detail_flag)
+    ) or lifecycle_raw in {"1", "true", "yes", "on"}
 
 
 def _normalize_code(value: Any) -> str:
@@ -75,6 +83,76 @@ def _format_asof_dt(value: int | None) -> str | None:
     if len(text) == 8 and text.isdigit():
         return f"{text[:4]}-{text[4:6]}-{text[6:8]}"
     return text or None
+
+
+def _latest_short_lifecycle_board_path() -> Path | None:
+    if not _SHORT_LIFECYCLE_ROOT.exists() or not _SHORT_LIFECYCLE_ROOT.is_dir():
+        return None
+    candidates = [
+        directory / "current_short_lifecycle_rank_board.json"
+        for directory in _SHORT_LIFECYCLE_ROOT.iterdir()
+        if directory.is_dir() and (directory / "current_short_lifecycle_rank_board.json").exists()
+    ]
+    return max(candidates, key=lambda path: (path.stat().st_mtime, path.parent.name)) if candidates else None
+
+
+def _load_short_lifecycle_by_code() -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
+    path = _latest_short_lifecycle_board_path()
+    if path is None:
+        return {}, {"available": False, "reason": "short_lifecycle_board_not_found"}
+    age_days = max(0.0, (datetime.now(timezone.utc).timestamp() - path.stat().st_mtime) / 86400.0)
+    if age_days > _SHORT_LIFECYCLE_MAX_AGE_DAYS:
+        return {}, {
+            "available": False,
+            "reason": "short_lifecycle_board_stale",
+            "artifact_path": str(path),
+            "age_days": age_days,
+        }
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}, {"available": False, "reason": "short_lifecycle_board_read_failed", "artifact_path": str(path)}
+    rows = payload.get("candidates") if isinstance(payload.get("candidates"), list) else []
+    by_code: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        code = _normalize_code(row.get("code"))
+        if not code:
+            continue
+        current = by_code.get(code)
+        row_rank = row.get("lifecycle_rank") if isinstance(row.get("lifecycle_rank"), int) else 999999
+        current_rank = current.get("lifecycle_rank") if current and isinstance(current.get("lifecycle_rank"), int) else 999999
+        if current is None or row_rank < current_rank:
+            by_code[code] = row
+    return by_code, {
+        "available": True,
+        "reason": None,
+        "artifact_path": str(path),
+        "run_id": payload.get("run_id"),
+        "created_at": payload.get("created_at"),
+        "authoritative_decision": payload.get("authoritative_decision"),
+        "age_days": age_days,
+    }
+
+
+def _build_short_lifecycle_overlay(row: dict[str, Any] | None, board_meta: dict[str, Any]) -> dict[str, Any] | None:
+    if not row or not board_meta.get("available"):
+        return None
+    return {
+        "state": row.get("lifecycle_state"),
+        "rank": row.get("lifecycle_rank"),
+        "signal_ymd": row.get("signal_ymd"),
+        "expected_downside_pct": row.get("expected_downside_pct"),
+        "risk_reward_to_sl8": row.get("risk_reward_to_sl8"),
+        "setup_state": row.get("setup_state"),
+        "continuation_status": row.get("continuation_status"),
+        "final_review_status": row.get("final_review_status"),
+        "reasons": list(row.get("lifecycle_reasons") or [])[:3],
+        "review_only": True,
+        "artifact_created_at": board_meta.get("created_at"),
+        "artifact_path": board_meta.get("artifact_path"),
+    }
 
 
 def _normalize_request_items(items: Iterable[dict[str, Any]] | None) -> tuple[tuple[str, int | None], ...]:
@@ -140,6 +218,7 @@ def _build_list_summary_item(
     code: str,
     asof_dt: int | None,
     detail_result: dict[str, Any],
+    short_lifecycle: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     available = bool(detail_result.get("available"))
     reason = detail_result.get("reason")
@@ -148,12 +227,13 @@ def _build_list_summary_item(
         return {
             "code": code,
             "asof": _format_asof_dt(asof_dt),
-            "available": False,
-            "reason": str(reason or "analysis unavailable"),
+            "available": short_lifecycle is not None,
+            "reason": None if short_lifecycle is not None else str(reason or "analysis unavailable"),
             "dominant_tone": None,
             "confidence": None,
             "publish_readiness": None,
             "reasons": [],
+            "short_lifecycle": short_lifecycle,
         }
 
     reasons = analysis.get("reasons")
@@ -173,6 +253,7 @@ def _build_list_summary_item(
         "confidence": analysis.get("confidence"),
         "publish_readiness": publish_readiness,
         "reasons": reasons,
+        "short_lifecycle": short_lifecycle,
     }
 
 
@@ -181,6 +262,7 @@ def build_tradex_list_summary_snapshot(
     items: Iterable[dict[str, Any]] | None,
     repo: StockRepository,
     enabled: bool | None = None,
+    detail_enabled: bool | None = None,
     scope: str | None = None,
 ) -> dict[str, Any]:
     normalized_items = _normalize_request_items(items)
@@ -190,6 +272,9 @@ def build_tradex_list_summary_snapshot(
         return {"available": False, "reason": "feature flag disabled", "scope": scope or "list", "items": []}
     if not normalized_items:
         return {"available": False, "reason": "items required", "scope": scope or "list", "items": []}
+    if detail_enabled is None:
+        detail_enabled = enabled
+    lifecycle_by_code, lifecycle_board = _load_short_lifecycle_by_code()
 
     summary_items: list[dict[str, Any]] = []
     available_count = 0
@@ -202,13 +287,17 @@ def build_tradex_list_summary_snapshot(
                 available_count += 1
             continue
 
-        detail_result = build_tradex_detail_analysis_snapshot(
+        detail_result = (
+            build_tradex_detail_analysis_snapshot(code=code, asof_dt=asof_dt, repo=repo, enabled=True)
+            if detail_enabled
+            else {"available": False, "reason": "analysis unavailable", "analysis": None}
+        )
+        summary_item = _build_list_summary_item(
             code=code,
             asof_dt=asof_dt,
-            repo=repo,
-            enabled=enabled,
+            detail_result=detail_result,
+            short_lifecycle=_build_short_lifecycle_overlay(lifecycle_by_code.get(code), lifecycle_board),
         )
-        summary_item = _build_list_summary_item(code=code, asof_dt=asof_dt, detail_result=detail_result)
         summary_items.append(summary_item)
         if summary_item.get("available"):
             available_count += 1
@@ -227,6 +316,7 @@ def build_tradex_list_summary_snapshot(
         "available": available_count > 0,
         "reason": top_reason,
         "scope": scope or "list",
+        "short_lifecycle_board": lifecycle_board,
         "items": summary_items,
     }
 

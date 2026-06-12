@@ -46,6 +46,7 @@ def test_build_rankings_response_falls_back_to_rule_when_legacy_analysis_disable
 
 def test_build_rankings_response_keeps_trade_mode_when_legacy_analysis_disabled(monkeypatch):
     monkeypatch.setenv("MEEMEE_DISABLE_LEGACY_ANALYSIS", "1")
+    monkeypatch.setenv("MEEMEE_RANK_READONLY_ML_WHEN_LEGACY_DISABLED", "0")
 
     source_items = [{"code": "2301", "asOf": "2026-03-13"}]
 
@@ -60,6 +61,9 @@ def test_build_rankings_response_keeps_trade_mode_when_legacy_analysis_disabled(
                 "entryQualified": True,
                 "setupType": "breakout",
                 "monthlyBoxState": "box_upper",
+                "mlEv5Net": 0.10,
+                "mlEv10Net": 0.10,
+                "mlEv20Net": 0.10,
             }
         ],
     )
@@ -82,10 +86,211 @@ def test_build_rankings_response_keeps_trade_mode_when_legacy_analysis_disabled(
     assert payload["legacy_analysis_disabled"] is True
     assert payload["candidate_source"] == "current_features"
     assert [item["code"] for item in payload["items"]] == ["2301"]
+    assert "cnt60up_shadow" not in payload
+
+
+def test_build_rankings_response_uses_readonly_ml_when_legacy_jobs_disabled(monkeypatch):
+    monkeypatch.setenv("MEEMEE_DISABLE_LEGACY_ANALYSIS", "1")
+
+    source_items = [{"code": "2301", "asOf": "2026-03-13"}]
+    ml_items = [
+        {
+            "code": "2301",
+            "asOf": "2026-03-13",
+            "entryQualified": True,
+            "setupType": "breakout",
+            "monthlyBoxState": "box_upper",
+            "mlEv20Net": 0.10,
+        }
+    ]
+
+    monkeypatch.setattr(rankings_cache, "_load_live_cache_items", lambda cache_key, **kwargs: (source_items, None, None))
+    monkeypatch.setattr(
+        rankings_cache,
+        "_call_apply_ml_mode",
+        lambda items, **kwargs: ([dict(item) for item in ml_items], 20260313, "readonly-ml"),
+    )
+    monkeypatch.setattr(
+        rankings_cache,
+        "_fallback_down_ml_items_when_empty",
+        lambda **kwargs: (kwargs["out_items"], kwargs["pred_dt"], kwargs["model_version"]),
+    )
+    monkeypatch.setattr(rankings_cache, "_attach_quality_flags", lambda items, mode, direction, now_ymd=None: items)
+    monkeypatch.setattr(rankings_cache, "_attach_swing_fields", lambda items, direction: items)
+
+    payload = rankings_cache._build_rankings_response(  # type: ignore[attr-defined]
+        "D",
+        "latest",
+        "up",
+        10,
+        mode="trade",
+        risk_mode="balanced",
+        cache_generation=1,
+    )
+
+    assert payload["legacy_analysis_disabled"] is True
+    assert payload["candidate_source"] == "ml_plus_features_readonly"
+    assert payload["pred_dt"] == 20260313
+    assert payload["model_version"] == "readonly-ml"
+    assert [item["code"] for item in payload["items"]] == ["2301"]
+
+
+def test_build_rankings_response_exposes_cnt60up_shadow_only_when_flag_enabled(monkeypatch):
+    monkeypatch.setenv("MEEMEE_DISABLE_LEGACY_ANALYSIS", "1")
+    monkeypatch.setenv("MEEMEE_RANK_READONLY_ML_WHEN_LEGACY_DISABLED", "0")
+    monkeypatch.setenv("MEEMEE_RANK_CNT60UP_SHADOW_RESPONSE", "1")
+
+    source_items = [{"code": "4825", "asOf": "2026-06-05"}, {"code": "9338", "asOf": "2026-06-05"}]
+    actionable = [
+        {"code": "4825", "asOf": "2026-06-05", "tradePriorityScore": 0.43, "cnt60Up": 22.0},
+        {"code": "9338", "asOf": "2026-06-05", "tradePriorityScore": 0.08, "cnt60Up": 4.0},
+    ]
+
+    monkeypatch.setattr(rankings_cache, "_load_live_cache_items", lambda cache_key, **kwargs: (source_items, None, None))
+    monkeypatch.setattr(rankings_cache, "_decorate_rule_items_with_entry_gate", lambda items, direction, risk_mode: [dict(item) for item in items])
+    monkeypatch.setattr(rankings_cache, "_fallback_down_ml_items_when_empty", lambda **kwargs: (kwargs["out_items"], kwargs["pred_dt"], kwargs["model_version"]))
+    monkeypatch.setattr(rankings_cache, "_attach_quality_flags", lambda items, mode, direction, now_ymd=None: items)
+    monkeypatch.setattr(rankings_cache, "_attach_swing_fields", lambda items, direction: items)
+    monkeypatch.setattr(
+        rankings_cache,
+        "_build_trade_candidate_buckets",
+        lambda items: {"actionable_buy_candidates": [dict(item) for item in actionable], "actionable_short_candidates": [], "caution_watch_candidates": []},
+    )
+    monkeypatch.setattr(rankings_cache, "_call_apply_ml_mode", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("trade should not use ml path when legacy analysis is disabled")))
+
+    payload = rankings_cache._build_rankings_response(  # type: ignore[attr-defined]
+        "D",
+        "latest",
+        "up",
+        10,
+        mode="trade",
+        risk_mode="balanced",
+        cache_generation=1,
+    )
+
+    assert [item["code"] for item in payload["items"]] == ["4825", "9338"]
+    shadow = payload["cnt60up_shadow"]
+    assert shadow["integration_mode"] == "inactive_shadow_dry_run_only"
+    assert shadow["summary"]["changed_rank_count"] == 2
+    by_symbol = {row["symbol"]: row for row in shadow["shadow_rows"]}
+    assert by_symbol["9338"]["shadow_adjusted_rank"] == 1
+    assert by_symbol["4825"]["shadow_adjusted_rank"] == 2
+    assert shadow["audit"]["active_ranking_invariance_pass"] is True
+    assert shadow["audit"]["runtime_duckdb_write_attempted"] is False
+    assert shadow["audit"]["production_registry_write_attempted"] is False
+
+
+def test_build_rankings_response_applies_cnt60up_active_rerank_only_when_flag_enabled(monkeypatch):
+    monkeypatch.setenv("MEEMEE_DISABLE_LEGACY_ANALYSIS", "1")
+    monkeypatch.setenv("MEEMEE_RANK_READONLY_ML_WHEN_LEGACY_DISABLED", "0")
+    monkeypatch.setenv("MEEMEE_RANK_CNT60UP_ACTIVE_RERANK", "1")
+
+    source_items = [{"code": "4825", "asOf": "2026-06-05"}, {"code": "9338", "asOf": "2026-06-05"}]
+    actionable = [
+        {"code": "4825", "asOf": "2026-06-05", "tradePriorityScore": 0.43, "cnt60Up": 22.0},
+        {"code": "9338", "asOf": "2026-06-05", "tradePriorityScore": 0.08, "cnt60Up": 4.0},
+    ]
+
+    monkeypatch.setattr(rankings_cache, "_load_live_cache_items", lambda cache_key, **kwargs: (source_items, None, None))
+    monkeypatch.setattr(rankings_cache, "_decorate_rule_items_with_entry_gate", lambda items, direction, risk_mode: [dict(item) for item in items])
+    monkeypatch.setattr(rankings_cache, "_fallback_down_ml_items_when_empty", lambda **kwargs: (kwargs["out_items"], kwargs["pred_dt"], kwargs["model_version"]))
+    monkeypatch.setattr(rankings_cache, "_attach_quality_flags", lambda items, mode, direction, now_ymd=None: items)
+    monkeypatch.setattr(rankings_cache, "_attach_swing_fields", lambda items, direction: items)
+    monkeypatch.setattr(
+        rankings_cache,
+        "_build_trade_candidate_buckets",
+        lambda items: {"actionable_buy_candidates": [dict(item) for item in actionable], "actionable_short_candidates": [], "caution_watch_candidates": []},
+    )
+    monkeypatch.setattr(rankings_cache, "_call_apply_ml_mode", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("trade should not use ml path when legacy analysis is disabled")))
+
+    payload = rankings_cache._build_rankings_response(  # type: ignore[attr-defined]
+        "D",
+        "latest",
+        "up",
+        10,
+        mode="trade",
+        risk_mode="balanced",
+        cache_generation=1,
+    )
+
+    assert [item["code"] for item in payload["items"]] == ["9338", "4825"]
+    assert [item["code"] for item in payload["actionable_buy_candidates"]] == ["4825", "9338"]
+    assert payload["cnt60up_active_rerank"]["integration_mode"] == "active_env_flag_only"
+    assert payload["cnt60up_active_rerank"]["shadow_summary"]["changed_rank_count"] == 2
+    assert payload["cnt60up_active_rerank"]["audit"]["runtime_duckdb_write_attempted"] is False
+    assert payload["cnt60up_active_rerank"]["audit"]["production_registry_write_attempted"] is False
+
+
+def test_cnt60up_active_rerank_supports_hybrid_mode(monkeypatch):
+    monkeypatch.setenv("MEEMEE_RANK_CNT60UP_ACTIVE_RERANK", "1")
+
+    source_items = [
+        {"code": "4825", "asOf": "2026-06-05", "displayScore": 0.43, "cnt60Up": 22.0},
+        {"code": "9338", "asOf": "2026-06-05", "displayScore": 0.08, "cnt60Up": 4.0},
+    ]
+
+    items, meta = rankings_cache._apply_cnt60up_active_rerank_if_enabled(  # type: ignore[attr-defined]
+        tf="D",
+        direction="up",
+        mode="hybrid",
+        snapshot_as_of="2026-06-05",
+        items=source_items,
+    )
+
+    assert [item["code"] for item in items] == ["9338", "4825"]
+    assert meta is not None
+    assert meta["cnt60up_active_rerank"]["integration_mode"] == "active_env_flag_only"
+    assert meta["cnt60up_active_rerank"]["shadow_summary"]["changed_rank_count"] == 2
+
+
+def test_liquidity_active_rerank_supports_hybrid_mode(monkeypatch):
+    monkeypatch.setenv("MEEMEE_RANK_LIQUIDITY_ACTIVE_RERANK", "1")
+
+    source_items = [
+        {"code": "7794", "asOf": "2026-06-05", "displayScore": 0.99, "liquidity20d": 868580.2},
+        {"code": "7776", "asOf": "2026-06-05", "displayScore": 0.97, "liquidity20d": 90155.9},
+    ]
+
+    items, meta = rankings_cache._apply_liquidity_active_rerank_if_enabled(  # type: ignore[attr-defined]
+        tf="D",
+        direction="up",
+        mode="hybrid",
+        snapshot_as_of="2026-06-05",
+        items=source_items,
+    )
+
+    assert [item["code"] for item in items] == ["7776", "7794"]
+    assert meta is not None
+    assert meta["liquidity_active_rerank"]["integration_mode"] == "active_env_flag_only"
+    assert meta["liquidity_active_rerank"]["shadow_summary"]["changed_rank_count"] == 2
+
+
+def test_monthly_range_active_rerank_supports_hybrid_mode(monkeypatch):
+    monkeypatch.setenv("MEEMEE_RANK_MONTHLY_RANGE_ACTIVE_RERANK", "1")
+
+    source_items = [
+        {"code": "4825", "asOf": "2026-06-05", "displayScore": 0.43, "monthlyRangeProb": 0.6746114162581928},
+        {"code": "9338", "asOf": "2026-06-05", "displayScore": 0.08, "monthlyRangeProb": 0.0},
+    ]
+
+    items, meta = rankings_cache._apply_monthly_range_active_rerank_if_enabled(  # type: ignore[attr-defined]
+        tf="D",
+        direction="up",
+        mode="hybrid",
+        snapshot_as_of="2026-06-05",
+        items=source_items,
+    )
+
+    assert [item["code"] for item in items] == ["9338", "4825"]
+    assert meta is not None
+    assert meta["monthly_range_active_rerank"]["integration_mode"] == "active_env_flag_only"
+    assert meta["monthly_range_active_rerank"]["env_flag"] == "MEEMEE_RANK_MONTHLY_RANGE_ACTIVE_RERANK"
+    assert meta["monthly_range_active_rerank"]["shadow_summary"]["changed_rank_count"] == 2
 
 
 def test_build_rankings_response_exposes_explicit_trade_buckets(monkeypatch):
     monkeypatch.setenv("MEEMEE_DISABLE_LEGACY_ANALYSIS", "1")
+    monkeypatch.setenv("MEEMEE_RANK_READONLY_ML_WHEN_LEGACY_DISABLED", "0")
 
     source_items = [
         {"code": "2301", "asOf": "2026-03-13", "setupType": "breakout", "monthlyBoxState": "box_upper"},
@@ -104,6 +309,9 @@ def test_build_rankings_response_exposes_explicit_trade_buckets(monkeypatch):
                 "setupType": "breakout",
                 "monthlyBoxState": "box_upper",
                 "tradeEntryClass": "box_upper_breakout",
+                "mlEv5Net": 0.10,
+                "mlEv10Net": 0.10,
+                "mlEv20Net": 0.10,
             },
             {
                 "code": "9999",
@@ -271,9 +479,9 @@ def test_provisional_result_cache_key_is_distinct(monkeypatch):
     confirmed_variant = rankings_cache._current_result_cache_variant(include_provisional=False)  # type: ignore[attr-defined]
     provisional_variant = rankings_cache._current_result_cache_variant(include_provisional=True)  # type: ignore[attr-defined]
     assert confirmed_variant != provisional_variant
-    assert confirmed_variant[-2] is False
-    assert provisional_variant[-2] is True
-    assert provisional_variant[-1]
+    assert confirmed_variant[5] is False
+    assert provisional_variant[5] is True
+    assert provisional_variant[6]
 
 
 def test_load_analysis_provisional_overlay_reports_partial_coverage(monkeypatch):
@@ -298,6 +506,23 @@ def test_load_analysis_provisional_overlay_reports_partial_coverage(monkeypatch)
 
     monkeypatch.setattr(yp, "get_provisional_daily_rows_from_spark", _fake_provisional_rows)
 
+    class _FakeResult:
+        def fetchall(self):
+            return []
+
+    class _FakeConn:
+        def execute(self, sql, params):
+            return _FakeResult()
+
+    class _FakeReadConn:
+        def __enter__(self):
+            return _FakeConn()
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(rankings_cache, "_get_read_conn", lambda: _FakeReadConn())
+
     provisional_map, meta = rankings_cache._load_analysis_provisional_overlay(["1111", "2222", "3333"])  # type: ignore[attr-defined]
 
     assert list(provisional_map.keys()) == ["1111", "2222"]
@@ -312,7 +537,53 @@ def test_load_analysis_provisional_overlay_reports_partial_coverage(monkeypatch)
     assert meta["provisional_coverage_ratio"] == 0.666667
     assert meta["provisional_snapshot_as_of"] == rankings_cache._ymd_int_to_iso_date(today_jst)  # type: ignore[attr-defined]
     assert meta["provisional_missing_reason_summary"] == {"fetch_none": 1}
-    assert calls == [{"codes": ["1111", "2222", "3333"], "prefer_chart_ohlc": False, "allow_chart_fallback": False}]
+    assert calls == [{"codes": ["1111", "2222", "3333"], "prefer_chart_ohlc": False, "allow_chart_fallback": True}]
+
+
+def test_load_analysis_provisional_overlay_supplements_partial_fetch_from_db(monkeypatch):
+    import app.backend.services.data.yahoo_provisional as yp
+
+    monkeypatch.setattr(rankings_cache, "_PROVISIONAL_MIN_COVERAGE_RATIO", 0.6)
+    monkeypatch.setattr(rankings_cache, "_PROVISIONAL_ALLOW_PARTIAL", True)
+
+    today_jst = int(datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=9))).strftime("%Y%m%d"))
+    live_row = (today_jst, 100.0, 101.0, 99.0, 100.5, 123.0)
+    db_row = ("2222", today_jst, 200.0, 202.0, 198.0, 201.0, 456.0)
+
+    monkeypatch.setattr(
+        yp,
+        "get_provisional_daily_rows_from_spark",
+        lambda codes, *, prefer_chart_ohlc=False, allow_chart_fallback=True: {"1111": live_row},
+    )
+
+    class _FakeResult:
+        def fetchall(self):
+            return [db_row]
+
+    class _FakeConn:
+        def execute(self, sql, params):
+            assert params == ["2222", "3333"]
+            return _FakeResult()
+
+    class _FakeReadConn:
+        def __enter__(self):
+            return _FakeConn()
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(rankings_cache, "_get_read_conn", lambda: _FakeReadConn())
+
+    provisional_map, meta = rankings_cache._load_analysis_provisional_overlay(["1111", "2222", "3333"])  # type: ignore[attr-defined]
+
+    assert list(provisional_map.keys()) == ["1111", "2222"]
+    assert provisional_map["1111"] == live_row
+    assert provisional_map["2222"] == db_row[1:]
+    assert meta["provisional_freshness_state"] == "partial"
+    assert meta["is_provisional"] is True
+    assert meta["provisional_covered_symbols"] == 2
+    assert meta["provisional_missing_symbols"] == 1
+    assert meta["provisional_coverage_ratio"] == 0.666667
 
 
 def test_get_rankings_session_bundle_preserves_partial_item_flags(monkeypatch):
@@ -397,6 +668,7 @@ def test_mark_provisional_items_by_snapshot_uses_covered_codes():
 
 def test_get_rankings_asof_uses_rule_gate_when_trade_and_legacy_analysis_disabled(monkeypatch):
     monkeypatch.setenv("MEEMEE_DISABLE_LEGACY_ANALYSIS", "1")
+    monkeypatch.setenv("MEEMEE_RANK_READONLY_ML_WHEN_LEGACY_DISABLED", "0")
 
     monkeypatch.setattr(rankings_cache, "_ensure_cache_fresh_stale_ok", lambda key: None)
     monkeypatch.setattr(
@@ -416,6 +688,9 @@ def test_get_rankings_asof_uses_rule_gate_when_trade_and_legacy_analysis_disable
                 "entryQualified": True,
                 "setupType": "breakout",
                 "monthlyBoxState": "box_upper",
+                "mlEv5Net": 0.10,
+                "mlEv10Net": 0.10,
+                "mlEv20Net": 0.10,
             }
         ],
     )
@@ -463,7 +738,7 @@ def test_fetch_recent_asof_dates_uses_daily_bars_when_legacy_analysis_disabled(m
             return False
 
     fake_conn = _FakeConn()
-    monkeypatch.setattr(rankings_cache, "get_conn", lambda: fake_conn)
+    monkeypatch.setattr(rankings_cache, "_get_read_conn", lambda: fake_conn)
 
     result = rankings_cache._fetch_recent_asof_dates(as_of_int=20260313, lookback_days=20)  # type: ignore[attr-defined]
 

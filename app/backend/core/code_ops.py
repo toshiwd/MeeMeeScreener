@@ -24,8 +24,9 @@ def normalize_code_txt(path: str) -> bool:
             lines = [line.strip() for line in f.readlines()]
 
     # 2. Parse (Code vs Non-Code)
-    # Lax pattern for tickers: 4 digits, optional suffix.
-    code_pattern = re.compile(r"^\d{4}[A-Z]?$")
+    # Lax pattern for tickers: 4 digits with optional suffix, plus
+    # current exchange-style 3-digit-plus-letter codes such as 285A/543A.
+    code_pattern = re.compile(r"^(?:\d{4}[A-Z]?|\d{3}[A-Z])$")
     
     codes = set()
     others = []

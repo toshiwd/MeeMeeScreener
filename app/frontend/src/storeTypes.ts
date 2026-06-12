@@ -5,6 +5,7 @@ export type Ticker = {
   name: string;
   sector33Code?: string | null;
   sector33Name?: string | null;
+  watchlistTags?: string[] | null;
   stage: string;
   score: number | null;
   displayScore?: number | null;
@@ -285,6 +286,7 @@ export type Settings = {
   listTimeframe: GridTimeframe;
   listRangeBars: 30 | 45 | 60 | 80 | 90 | 120 | 180 | 240 | 360;
   showBoxes: boolean;
+  showBattleZones: boolean;
   showIndicators: boolean;
   // Legacy sort key (for backward compatibility during migration)
   sortKey: SortKey;
@@ -364,6 +366,7 @@ export type StoreState = {
   setGridScrollTop: (value: number) => void;
   setGridTimeframe: (value: GridTimeframe) => void;
   setShowBoxes: (value: boolean) => void;
+  setShowBattleZones: (value: boolean) => void;
   setSortKey: (value: SortKey) => void;
   setSortDir: (value: SortDir) => void;
   toggleKeep: (code: string) => void;

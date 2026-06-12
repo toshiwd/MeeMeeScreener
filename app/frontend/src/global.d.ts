@@ -8,6 +8,7 @@ interface ImportMetaEnv {
   readonly VITE_SHOW_OPERATOR_CONSOLE?: string;
   readonly VITE_ENABLE_TRADEX_DETAIL_ANALYSIS?: string;
   readonly VITE_ENABLE_TRADEX_LIST_SUMMARY?: string;
+  readonly VITE_ENABLE_TRADEX_SHORT_LIFECYCLE_OVERLAY?: string;
   readonly VITE_ENABLE_DETAIL_V2_NAV?: string;
 }
 

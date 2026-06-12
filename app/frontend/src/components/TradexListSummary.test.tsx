@@ -52,4 +52,40 @@ describe("TradexListSummary", () => {
     expect(markup).toContain("分析を確認できません");
     expect(markup).toContain("分析データ未準備");
   });
+
+  it("renders the short lifecycle overlay as review-only support", () => {
+    const markup = renderToStaticMarkup(
+      <TradexListSummary
+        summary={{
+          code: "5016",
+          asof: "2026-06-05",
+          available: true,
+          reason: null,
+          dominantTone: null,
+          confidence: null,
+          publishReadiness: null,
+          reasons: [],
+          shortLifecycle: {
+            state: "Probe",
+            rank: 1,
+            signalYmd: "20260526",
+            expectedDownsidePct: 0.1378,
+            riskRewardToSl8: 1.51,
+            setupState: "SetupReady",
+            continuationStatus: "ContinuationPermit",
+            finalReviewStatus: "BlockShort",
+            reasons: ["setup_ready_confirmed_continuation"],
+            reviewOnly: true,
+            artifactCreatedAt: "2026-06-05T02:48:15+00:00",
+          },
+        }}
+      />
+    );
+
+    expect(markup).toContain("TRADEX売り監視: 打診");
+    expect(markup).toContain("期待下げ 13.8%");
+    expect(markup).toContain("RR 1.51");
+    expect(markup).toContain("signal 20260526");
+    expect(markup).not.toContain("信頼度");
+  });
 });

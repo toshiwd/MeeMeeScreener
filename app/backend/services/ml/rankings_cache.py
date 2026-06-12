@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter, OrderedDict
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 import json
 import math
@@ -9,13 +10,13 @@ import os
 import time
 from pathlib import Path
 from threading import Condition, Lock
-from typing import Any, Literal
+from typing import Any, Literal, Mapping, Sequence
 
 import duckdb
 
 from app.backend.core.legacy_analysis_control import is_legacy_analysis_disabled
 from app.core.config import config as core_config
-from app.db.session import get_conn, is_transient_duckdb_error
+from app.db.session import get_conn, get_conn_for_path, is_transient_duckdb_error
 from app.backend.core.text_encoding import repair_cp932_mojibake
 from app.backend.domain.screening.metrics import _calc_liquidity_20d
 from app.backend.services.market_baskets import get_market_basket_defs
@@ -47,6 +48,12 @@ RankResultCacheKey = tuple[
     int,
     bool,
     str,
+    bool,
+    bool,
+    bool,
+    bool,
+    bool,
+    bool,
 ]
 RefreshSignature = tuple[Any, ...]
 
@@ -85,6 +92,12 @@ _TRADE_PREBREAKOUT_RESIDUE_EMPHASIS = 0.15
 _TRADE_PREBREAKOUT_RESIDUE_WEIGHT = 0.05
 
 
+@contextmanager
+def _get_read_conn():
+    with get_conn_for_path(str(core_config.DB_PATH), timeout_sec=2.5, read_only=True) as conn:
+        yield conn
+
+
 def _log_rankings_timing(tag: str, payload: dict[str, Any]) -> None:
     try:
         logger.debug("%s %s", tag, json.dumps(payload, ensure_ascii=False, default=str))
@@ -96,6 +109,11 @@ def _analysis_provisional_enabled() -> bool:
     raw = os.getenv("MEEMEE_ANALYSIS_PROVISIONAL_ENABLED")
     if raw is None:
         return False
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _readonly_ml_ranking_enabled_when_legacy_disabled() -> bool:
+    raw = os.getenv("MEEMEE_RANK_READONLY_ML_WHEN_LEGACY_DISABLED", "1")
     return str(raw).strip().lower() in {"1", "true", "yes", "on"}
 
 
@@ -171,16 +189,17 @@ def _load_analysis_provisional_overlay(
         provisional_map = get_provisional_daily_rows_from_spark(
             codes,
             prefer_chart_ohlc=False,
-            allow_chart_fallback=False,
+            allow_chart_fallback=True,
         )
     except Exception as exc:
         logger.debug("rankings provisional overlay fetch failed: %s", exc)
         provisional_map = {}
 
-    if not provisional_map:
+    missing_for_db = [code for code in codes if code not in provisional_map]
+    if missing_for_db:
         try:
-            placeholders = ",".join(["?"] * len(codes))
-            with get_conn() as conn:
+            placeholders = ",".join(["?"] * len(missing_for_db))
+            with _get_read_conn() as conn:
                 rows = conn.execute(
                     f"""
                     SELECT code, date, o, h, l, c, v
@@ -200,16 +219,16 @@ def _load_analysis_provisional_overlay(
                     )
                     WHERE rn = 1
                     """,
-                    codes,
+                    missing_for_db,
                 ).fetchall()
-            provisional_map = {
+            db_provisional_map = {
                 str(row[0]): (int(row[1]), float(row[2]), float(row[3]), float(row[4]), float(row[5]), float(row[6] or 0.0))
                 for row in rows
                 if row and row[0] is not None and row[1] is not None
             }
+            provisional_map.update(db_provisional_map)
         except Exception as exc:
             logger.debug("rankings DB provisional overlay fetch failed: %s", exc)
-            provisional_map = {}
 
     covered = 0
     complete_ohlcv = 0
@@ -460,7 +479,12 @@ _STRICT_RULE_TRADE_UP_MIN_MONTHLY = 0.64
 _STRICT_RULE_TRADE_DOWN_MIN_MONTHLY = 0.58
 _STRICT_RULE_TRADE_UP_MIN_PROB = 0.60
 _STRICT_RULE_TRADE_DOWN_MIN_PROB = 0.58
-_STRICT_TRADE_DOWN_ENTRY_CLASSES = {"upper_rejection_primary", "strict_breakdown_secondary", "failed_high_retest_short"}
+_STRICT_TRADE_DOWN_ENTRY_CLASSES = {
+    "upper_rejection_primary",
+    "strict_breakdown_secondary",
+    "failed_high_retest_short",
+    "short_momentum_follow_through",
+}
 _TRADE_UP_ENTRY_WEAK_CLOSE_FLOOR = -0.0075
 _TRADE_UP_ENTRY_UPPER_WICK_MAX = 0.45
 _TRADE_UP_ENTRY_OVEREXTENDED_CHANGE = 0.035
@@ -477,6 +501,7 @@ _TRADE_UP_ENTRY_DIFF20_MAX = 0.22
 _TRADE_DOWN_ENTRY_BREAKDOWN_CHASE = -0.035
 _TRADE_DOWN_ENTRY_LOWER_WICK_MAX = 0.45
 _TRADE_DOWN_ENTRY_DIST_MA20_MIN = -0.10
+_TRADE_DOWN_MOMENTUM_PROFITABLE_ENTRY_DIST_MA20_MIN = -0.075
 _TRADE_DOWN_ENTRY_RETEST_RATIO_MIN = 0.96
 _TRADE_DOWN_ENTRY_RETEST_RATIO_SECONDARY_MIN = 0.94
 _TRADE_DOWN_ENTRY_UPPER_REJECTION_MIN = 0.35
@@ -518,11 +543,15 @@ def _is_strict_trade_rank_item(item: dict[str, Any], *, direction: RankDir) -> b
     if direction == "up":
         return monthly_box_state in _STRICT_TRADE_UP_BOX_STATES
     entry_class = str(item.get("tradeEntryClass") or "").strip()
+    if entry_class == "short_momentum_follow_through" and bool(item.get("shortMomentumFollowThroughV1")):
+        return monthly_box_state in _STRICT_TRADE_DOWN_BOX_STATES or monthly_box_state == "no_box"
     return monthly_box_state in _STRICT_TRADE_DOWN_BOX_STATES and entry_class in _STRICT_TRADE_DOWN_ENTRY_CLASSES
 
 
 def _trade_up_entry_block_reasons(item: dict[str, Any]) -> list[str]:
     reasons: list[str] = []
+    if _trade_direction_adjusted_profit_raw(item, direction="up") is None:
+        reasons.append("missing_long_profit_expectancy")
     change_pct = _first_finite(item.get("changePct"))
     if change_pct is not None and change_pct <= _TRADE_UP_ENTRY_WEAK_CLOSE_FLOOR:
         reasons.append("current_weak_close")
@@ -568,6 +597,7 @@ def _trade_up_entry_block_reasons(item: dict[str, Any]) -> list[str]:
     diff20_pct = _first_finite(item.get("diff20_pct"), item.get("diff20Pct"))
     if diff20_pct is not None and diff20_pct >= _TRADE_UP_ENTRY_DIFF20_MAX:
         reasons.append("already_large_20d_run")
+    reasons.extend(_trade_buy_quality_block_reasons(item))
     return reasons
 
 
@@ -592,6 +622,14 @@ def _trade_down_positive_entry_block_reasons(item: dict[str, Any]) -> list[str]:
     change_pct = _first_finite(item.get("changePct"))
     upper_wick = _first_finite(item.get("candleUpperWickRatio"))
     failed_retest = bool(item.get("failedHighRetestShort")) or entry_class == "failed_high_retest_short" or setup_type == "failed_high_retest"
+    short_momentum_follow_through = bool(item.get("shortMomentumFollowThroughV1"))
+
+    if short_momentum_follow_through:
+        if _trade_direction_adjusted_profit_raw(item, direction="down") is None:
+            return ["missing_short_profit_expectancy"]
+        dist_ma20 = _first_finite(item.get("distMa20Signed"), item.get("dist_ma20_signed"))
+        if dist_ma20 is not None and dist_ma20 <= _TRADE_DOWN_MOMENTUM_PROFITABLE_ENTRY_DIST_MA20_MIN:
+            return ["extended_below_ma20_profit_risk"]
 
     if failed_retest:
         retest_ratio = _first_finite(item.get("failedHighRetestRetestRatio"))
@@ -631,6 +669,8 @@ def _trade_down_positive_entry_block_reasons(item: dict[str, Any]) -> list[str]:
         return []
 
     if entry_class == "strict_breakdown_secondary" or setup_type == "breakdown":
+        if entry_class == "short_momentum_follow_through" and bool(item.get("shortMomentumFollowThroughV1")):
+            return []
         return ["momentum_down_but_not_actionable_entry"]
 
     return ["no_failed_rebound_short_setup"]
@@ -742,6 +782,46 @@ def _coerce_as_of_int(value: str | int | None) -> int | None:
     return _iso_date_to_int(text)
 
 
+def _trade_buy_prediction_age_days(item: dict[str, Any]) -> int | None:
+    pred_dt = _first_finite(item.get("mlPredDt"), item.get("predDt"))
+    as_of = _coerce_as_of_int(item.get("asOf") or item.get("snapshot_as_of"))
+    if pred_dt is None or as_of is None:
+        return None
+    pred_ymd = _to_yyyymmdd_int(int(pred_dt))
+    try:
+        pred_date = datetime.strptime(str(pred_ymd), "%Y%m%d")
+        as_of_date = datetime.strptime(str(int(as_of)), "%Y%m%d")
+    except ValueError:
+        return None
+    return int((as_of_date - pred_date).days)
+
+
+def _trade_buy_quality_block_reasons(item: dict[str, Any]) -> list[str]:
+    reasons: list[str] = []
+    has_ml_prediction_context = item.get("mlPredDt") is not None or bool(item.get("modelVersion"))
+    priority_score = _first_finite(item.get("tradePriorityScore"))
+    if has_ml_prediction_context:
+        if priority_score is None:
+            reasons.append("missing_trade_priority_score")
+        elif priority_score < _TRADE_BUY_MIN_PRIORITY_SCORE:
+            reasons.append("low_trade_priority_score")
+
+    if has_ml_prediction_context:
+        pred_age_days = _trade_buy_prediction_age_days(item)
+        if pred_age_days is None:
+            reasons.append("missing_prediction_freshness")
+        elif pred_age_days < 0 or pred_age_days > _TRADE_BUY_MAX_PRED_FRESHNESS_DAYS:
+            reasons.append("stale_profit_expectancy")
+
+    ev5 = _first_finite(item.get("mlEv5Net"))
+    ev10 = _first_finite(item.get("mlEv10Net"))
+    if ev5 is not None and ev5 <= _TRADE_BUY_MIN_SHORT_EV_NET:
+        reasons.append("weak_5d_profit_expectancy")
+    if ev10 is not None and ev10 <= _TRADE_BUY_MIN_SHORT_EV_NET:
+        reasons.append("weak_10d_profit_expectancy")
+    return reasons
+
+
 def _is_edinet_bonus_enabled() -> bool:
     return str(os.getenv("MEEMEE_RANK_EDINET_BONUS_ENABLED", "0")).strip().lower() in {
         "1",
@@ -771,12 +851,27 @@ def _env_float(name: str, default: float, minimum: float, maximum: float | None 
     return value
 
 
+def _env_int(name: str, default: int, minimum: int, maximum: int | None = None) -> int:
+    raw = os.getenv(name)
+    try:
+        value = int(raw) if raw is not None else int(default)
+    except (TypeError, ValueError):
+        value = int(default)
+    value = max(minimum, value)
+    if maximum is not None:
+        value = min(maximum, value)
+    return value
+
+
 _PROVISIONAL_MIN_COVERAGE_RATIO = _env_float("MEEMEE_YF_PROVISIONAL_MIN_COVERAGE_RATIO", 0.95, 0.0, 1.0)
 _PROVISIONAL_MIN_SAME_DAY_RATIO = _env_float("MEEMEE_YF_PROVISIONAL_MIN_SAME_DAY_RATIO", 0.95, 0.0, 1.0)
 _PROVISIONAL_ALLOW_PARTIAL = os.getenv("MEEMEE_YF_PROVISIONAL_ALLOW_PARTIAL", "1").strip().lower() in {"1", "true", "yes", "on"}
+_TRADE_BUY_MIN_PRIORITY_SCORE = _env_float("MEEMEE_TRADE_BUY_MIN_PRIORITY_SCORE", 0.45, 0.0, 1.0)
+_TRADE_BUY_MAX_PRED_FRESHNESS_DAYS = _env_int("MEEMEE_TRADE_BUY_MAX_PRED_FRESHNESS_DAYS", 5, 0)
+_TRADE_BUY_MIN_SHORT_EV_NET = _env_float("MEEMEE_TRADE_BUY_MIN_SHORT_EV_NET", 0.0, -1.0, 1.0)
 
 
-def _current_result_cache_variant(*, include_provisional: bool = False) -> tuple[str | None, str, bool, bool, int, bool, str]:
+def _current_result_cache_variant(*, include_provisional: bool = False) -> tuple[str | None, str, bool, bool, int, bool, str, bool, bool, bool, bool, bool, bool]:
     with _LOCK:
         last_updated = _LAST_UPDATED.isoformat() if _LAST_UPDATED is not None else None
     db_path = str(os.getenv("STOCKS_DB_PATH", "") or "")
@@ -789,6 +884,12 @@ def _current_result_cache_variant(*, include_provisional: bool = False) -> tuple
         _current_jst_ymd_int(),
         bool(include_provisional),
         provisional_bucket,
+        _cnt60up_shadow_response_enabled(),
+        _cnt60up_active_rerank_enabled(),
+        _liquidity_shadow_response_enabled(),
+        _liquidity_active_rerank_enabled(),
+        _monthly_range_shadow_response_enabled(),
+        _monthly_range_active_rerank_enabled(),
     )
 
 
@@ -812,7 +913,7 @@ def _get_asof_base_cache(as_of_int: int) -> dict[RankBaseCacheKey, list[dict]]:
             _ASOF_BASE_CACHE.move_to_end(as_of_int)
             return cached
 
-    with get_conn() as conn:
+    with _get_read_conn() as conn:
         built = _build_cache_asof(conn, as_of_int)
 
     with _ASOF_BASE_CACHE_LOCK:
@@ -895,7 +996,7 @@ def _build_refresh_signature(
 
 def _resolve_refresh_signature() -> tuple[RefreshSignature, float | None, int | None]:
     db_mtime = _db_mtime()
-    with get_conn() as conn:
+    with _get_read_conn() as conn:
         latest_pan_daily_asof_int = _resolve_latest_pan_daily_asof_int(conn)
     signature = _build_refresh_signature(
         latest_pan_daily_asof_int=latest_pan_daily_asof_int,
@@ -1784,7 +1885,7 @@ def _load_trade_market_code_map(codes: list[str]) -> dict[str, str | None]:
     if not normalized_codes:
         return {}
     try:
-        with get_conn() as conn:
+        with _get_read_conn() as conn:
             if not _table_exists(conn, "industry_master"):
                 return {}
             placeholders = ",".join("?" for _ in normalized_codes)
@@ -1882,7 +1983,7 @@ def _load_trade_event_block_map(codes: list[str]) -> dict[str, dict[str, Any]]:
         return {}
     manual_blocked = _manual_trade_event_block_map(normalized_codes)
     try:
-        with get_conn() as conn:
+        with _get_read_conn() as conn:
             if not _table_exists(conn, "tdnet_disclosures"):
                 return manual_blocked
             placeholders = ",".join("?" for _ in normalized_codes)
@@ -2274,7 +2375,7 @@ def get_edinet_monitor(
         },
     }
     try:
-        with get_conn() as conn:
+        with _get_read_conn() as conn:
             if not _table_exists(conn, "ranking_edinet_audit_daily"):
                 return {
                     "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -3338,7 +3439,7 @@ def _resolve_rule_snapshot_map(items: list[dict]) -> dict[str, dict]:
     if anchor_ymd is None:
         return {}
     try:
-        with get_conn() as conn:
+        with _get_read_conn() as conn:
             return _load_daily_snapshot_map(conn, anchor_ymd)
     except Exception as exc:
         logger.debug("rule snapshot map skipped: as_of=%s err=%s", anchor_ymd, exc)
@@ -3927,7 +4028,7 @@ def _build_cache(
     float | None,
     dict[str, Any] | None,
 ]:
-    with get_conn() as conn:
+    with _get_read_conn() as conn:
         latest_pan_daily_asof_int = _resolve_latest_pan_daily_asof_int(conn)
         codes = [
             row[0]
@@ -4903,7 +5004,7 @@ def _apply_monthly_ml_mode(
     if anchor_asof_ymd is None:
         anchor_asof_ymd = int(datetime.now(timezone.utc).strftime("%Y%m%d"))
     try:
-        with get_conn() as conn:
+        with _get_read_conn() as conn:
             pred_dt = _resolve_monthly_prediction_dt(conn, items)
             if pred_dt is not None:
                 pred_map, model_version = _load_monthly_pred_map(conn, pred_dt)
@@ -4917,7 +5018,7 @@ def _apply_monthly_ml_mode(
     if pred_dt is None or not pred_map:
         _try_repair_monthly_prediction(pred_dt=pred_dt, items=items)
         try:
-            with get_conn() as conn:
+            with _get_read_conn() as conn:
                 pred_dt = _resolve_monthly_prediction_dt(conn, items)
                 if pred_dt is not None:
                     pred_map, model_version = _load_monthly_pred_map(conn, pred_dt)
@@ -5618,6 +5719,8 @@ def _decorate_items_with_ml(
     items: list[dict],
     pred_map: dict[str, dict],
     snapshot_map: dict[str, dict],
+    *,
+    pred_dt: int | None = None,
 ) -> list[dict]:
     enriched: list[dict] = []
     for item in items:
@@ -5660,6 +5763,8 @@ def _decorate_items_with_ml(
                 "mlEv10Net": pred.get("ev10_net"),
                 "mlEvShortNet": ev_short_net,
                 "modelVersion": pred.get("model_version"),
+                "mlPredDt": pred_dt,
+                "mlPredDtIso": _ymd_int_to_iso(_to_yyyymmdd_int(int(pred_dt))) if pred_dt is not None else None,
                 "hybridScore": None,
                 "entryScore": None,
                 "trendUp": snap.get("trend_up"),
@@ -5948,7 +6053,10 @@ def _apply_trade_priority_scores(items: list[dict], *, direction: RankDir) -> No
         safety_score = safety_rank.get(code, 0.5)
         if direction == "down":
             short_entry_actionability_score = _calc_trade_short_entry_actionability_score(item)
+            short_momentum_follow_through_score = _calc_short_momentum_follow_through_score(item)
             item["shortEntryActionabilityScore"] = float(short_entry_actionability_score)
+            item["shortMomentumFollowThroughScore"] = float(short_momentum_follow_through_score)
+            item["shortMomentumFollowThroughV1"] = short_momentum_follow_through_score >= 0.62
             trade_priority_score = (
                 0.30 * hit_score
                 + 0.50 * profit_score
@@ -5956,6 +6064,7 @@ def _apply_trade_priority_scores(items: list[dict], *, direction: RankDir) -> No
                 + 0.10 * safety_score
             )
             trade_priority_score += 0.18 * (2.0 * short_entry_actionability_score - 1.0)
+            trade_priority_score += 0.24 * (2.0 * short_momentum_follow_through_score - 1.0)
         else:
             trade_priority_score = (
                 0.45 * hit_score
@@ -5993,6 +6102,7 @@ def _trade_priority_sort_key(item: dict[str, Any]) -> tuple[Any, ...]:
         item.get("tradePriorityScore") is None,
         -(item.get("tradePriorityScore") or 0.0),
         -(item.get("shortEntryActionabilityScore") or 0.0),
+        -(item.get("shortMomentumFollowThroughScore") or 0.0),
         -(item.get("momentumFollowThroughScore") or 0.0),
         -(item.get("tradePriorityProfitScore") or 0.0),
         -(item.get("tradePriorityHitScore") or 0.0),
@@ -6064,6 +6174,34 @@ def _calc_momentum_follow_through_score(item: dict[str, Any]) -> float:
         parts.append(0.10 * _centered_score(dist_ma20_signed, center=0.045, width=0.06))
     if market_ret20 is not None and market_ret20 > 0:
         parts.append(0.04 * _unit_score(market_ret20, lower=0.01, upper=0.08))
+    if not parts:
+        return 0.5
+    score = 0.50 + sum(parts)
+    return float(max(0.0, min(1.0, score)))
+
+
+def _calc_short_momentum_follow_through_score(item: dict[str, Any]) -> float:
+    diff20_pct = _first_finite(item.get("diff20_pct"), item.get("diff20Pct"))
+    breakout20_down = _first_finite(item.get("breakout20_down"), item.get("breakout20Down"))
+    dist_ma20_signed = _first_finite(item.get("distMa20Signed"), item.get("dist_ma20_signed"))
+    market_ret20 = _first_finite(item.get("market_ret20"), item.get("marketRet20"))
+
+    parts: list[float] = []
+    if diff20_pct is not None:
+        parts.append(0.44 * _unit_score(-diff20_pct, lower=0.03, upper=0.16))
+        parts.append(-0.10 * _unit_score(-diff20_pct, lower=0.22, upper=0.36))
+    if breakout20_down is not None:
+        parts.append(0.24 * _unit_score(breakout20_down, lower=0.01, upper=0.08))
+        parts.append(-0.06 * _unit_score(breakout20_down, lower=0.14, upper=0.28))
+    if dist_ma20_signed is not None:
+        parts.append(0.14 * _centered_score(dist_ma20_signed, center=-0.045, width=0.07))
+        parts.append(-0.06 * _unit_score(-dist_ma20_signed, lower=0.13, upper=0.24))
+    if item.get("trendDownStrict"):
+        parts.append(0.12)
+    elif item.get("trendDown"):
+        parts.append(0.06)
+    if market_ret20 is not None and market_ret20 < 0:
+        parts.append(0.04 * _unit_score(-market_ret20, lower=0.01, upper=0.08))
     if not parts:
         return 0.5
     score = 0.50 + sum(parts)
@@ -6236,7 +6374,7 @@ def _load_failed_high_retest_short_candidates(items: list[dict[str, Any]]) -> li
     codes = sorted(by_code)
     market_code_map = _load_trade_market_code_map(codes)
     try:
-        with get_conn() as conn:
+        with _get_read_conn() as conn:
             rows = conn.execute(
                 """
                 SELECT code, date, o, h, l, c, v
@@ -6349,6 +6487,40 @@ def _merge_failed_high_retest_short_candidates(
     return merged
 
 
+def _build_short_momentum_follow_through_candidates(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    for source in items:
+        score = _first_finite(source.get("shortMomentumFollowThroughScore"))
+        diff20_pct = _first_finite(source.get("diff20_pct"), source.get("diff20Pct"))
+        if (
+            score is None
+            or score < 0.62
+            or not bool(source.get("shortMomentumFollowThroughV1"))
+            or not bool(source.get("trendDownStrict"))
+            or diff20_pct is None
+            or diff20_pct > -0.03
+        ):
+            continue
+        item = dict(source)
+        item["setupType"] = "breakdown"
+        item["tradeEntryClass"] = "short_momentum_follow_through"
+        item["entryQualified"] = True
+        item["entryQualifiedByFallback"] = False
+        item["entryQualifiedFallbackStage"] = None
+        item["shortEntryActionabilityScore"] = max(
+            float(item.get("shortEntryActionabilityScore") or 0.0),
+            min(1.0, max(0.0, 0.45 + 0.35 * (2.0 * float(score) - 1.0))),
+        )
+        item["tradePriorityScore"] = max(
+            float(item.get("tradePriorityScore") or 0.0),
+            min(1.0, 0.56 + 0.34 * float(score)),
+        )
+        _annotate_trade_entry_fit(item, direction="down")
+        candidates.append(item)
+    candidates.sort(key=_trade_priority_sort_key)
+    return candidates
+
+
 def _build_trade_candidate_buckets(items: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
     eligible_items = _filter_trade_event_blocked_items(items)
     buy_scored = _copy_rank_items(eligible_items)
@@ -6358,6 +6530,15 @@ def _build_trade_candidate_buckets(items: list[dict[str, Any]]) -> dict[str, lis
 
     actionable_buy_candidates = [dict(item) for item in buy_scored if _is_trade_buy_candidate(item)]
     actionable_short_candidates = [dict(item) for item in short_scored if _is_trade_short_candidate(item)]
+    short_momentum_candidates = _build_short_momentum_follow_through_candidates(short_scored)
+    short_codes_seen = {str(item.get("code") or "").strip() for item in actionable_short_candidates}
+    for item in short_momentum_candidates:
+        code = str(item.get("code") or "").strip()
+        if not code or code in short_codes_seen:
+            continue
+        if _is_trade_short_candidate(item):
+            actionable_short_candidates.append(dict(item))
+            short_codes_seen.add(code)
     buy_codes = {str(item.get("code") or "").strip() for item in actionable_buy_candidates}
     short_codes = {str(item.get("code") or "").strip() for item in actionable_short_candidates}
     short_scored_by_code = {str(item.get("code") or "").strip(): item for item in short_scored if str(item.get("code") or "").strip()}
@@ -6372,7 +6553,9 @@ def _build_trade_candidate_buckets(items: list[dict[str, Any]]) -> dict[str, lis
         buy_reasons = item.get("tradeEntryBlockReasons")
         short_reasons = short_item.get("tradeEntryBlockReasons") if isinstance(short_item, dict) else None
         setup_type = str(item.get("setupType") or "").strip().lower()
-        prefer_short_context = setup_type in {"breakdown", "pressure", "failed_high_retest"}
+        prefer_short_context = setup_type in {"breakdown", "pressure", "failed_high_retest"} or bool(
+            short_item.get("shortMomentumFollowThroughV1") if isinstance(short_item, dict) else False
+        )
         if prefer_short_context and isinstance(short_reasons, list) and short_reasons:
             caution_watch_candidates.append(dict(short_item))
         elif isinstance(buy_reasons, list) and buy_reasons:
@@ -6385,15 +6568,309 @@ def _build_trade_candidate_buckets(items: list[dict[str, Any]]) -> dict[str, lis
     actionable_buy_candidates.sort(key=_trade_priority_sort_key)
     actionable_short_candidates.sort(key=_trade_priority_sort_key)
     caution_watch_candidates.sort(key=_trade_priority_sort_key)
+    long_watch_buckets = _build_long_watch_buckets(caution_watch_candidates)
+    momentum_entry_candidates = _build_momentum_entry_candidates(long_watch_buckets.get("momentum_watch_candidates") or [])
 
     return {
         "actionable_buy_candidates": actionable_buy_candidates,
         "actionable_short_candidates": actionable_short_candidates,
         "caution_watch_candidates": caution_watch_candidates,
+        "momentum_entry_candidates": momentum_entry_candidates,
+        **long_watch_buckets,
+    }
+
+
+def _build_momentum_entry_candidates(momentum_watch_candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    hard_block_reasons = {
+        "already_large_20d_run",
+        "box_top_no_pullback_chase_risk",
+        "breakout_chase_risk",
+        "current_weak_close",
+        "extended_above_ma20",
+        "high_zone_extension_risk",
+        "late_buy_chase_risk",
+        "overextended_chase_risk",
+        "upper_wick_rejection",
+        "weak_10d_profit_expectancy",
+        "weak_5d_profit_expectancy",
+    }
+    allowed_soft_reasons = {
+        "low_trade_priority_score",
+        "stale_profit_expectancy",
+    }
+    for source in momentum_watch_candidates:
+        reasons_raw = source.get("tradeEntryBlockReasons")
+        reasons = {str(reason or "").strip() for reason in reasons_raw if str(reason or "").strip()} if isinstance(reasons_raw, list) else set()
+        if not reasons or reasons & hard_block_reasons or not reasons.issubset(allowed_soft_reasons):
+            continue
+        if "low_trade_priority_score" not in reasons:
+            continue
+        monthly_box_state = str(source.get("monthlyBoxState") or "").strip().lower()
+        if monthly_box_state == "box_lower":
+            continue
+        momentum_score = _first_finite(source.get("momentumFollowThroughScore"))
+        change_pct = _first_finite(source.get("changePct"))
+        ev_short = _trade_direction_adjusted_profit_raw(source, direction="up")
+        if momentum_score is None or momentum_score < 0.90:
+            continue
+        if change_pct is None or change_pct <= 0.0:
+            continue
+        if ev_short is None or ev_short <= 0.0:
+            continue
+        candidate = dict(source)
+        candidate["momentumEntryState"] = "entry_candidate"
+        candidate["momentumEntryReason"] = "momentum_watch_soft_block_only"
+        candidate["momentumEntryScore"] = float(
+            max(
+                0.0,
+                min(
+                    1.0,
+                    0.50
+                    + 0.35 * (float(momentum_score) - 0.58) / 0.42
+                    + 0.10 * min(max(float(change_pct), 0.0), 0.08) / 0.08
+                    + 0.05 * min(max(float(ev_short), 0.0), 0.08) / 0.08,
+                ),
+            )
+        )
+        candidates.append(candidate)
+    candidates.sort(
+        key=lambda item: (
+            -(item.get("momentumEntryScore") or 0.0),
+            _trade_priority_sort_key(item),
+        )
+    )
+    return candidates
+
+
+def _long_watch_class(item: dict[str, Any]) -> str | None:
+    reasons_raw = item.get("tradeEntryBlockReasons")
+    if not isinstance(reasons_raw, list):
+        return None
+    reasons = {str(reason or "").strip() for reason in reasons_raw if str(reason or "").strip()}
+    long_quality_reasons = {
+        "low_trade_priority_score",
+        "missing_long_profit_expectancy",
+        "missing_prediction_freshness",
+        "missing_trade_priority_score",
+        "stale_profit_expectancy",
+        "weak_10d_profit_expectancy",
+        "weak_5d_profit_expectancy",
+    }
+    if not (reasons & long_quality_reasons):
+        return None
+    short_only_reasons = {
+        "extended_below_ma20",
+        "extended_below_ma20_profit_risk",
+        "late_breakdown_chase_risk",
+        "lower_wick_rebound_risk",
+        "missing_short_profit_expectancy",
+        "momentum_down_but_not_actionable_entry",
+        "no_failed_rebound_short_setup",
+        "not_near_retest_or_resistance",
+    }
+    non_missing_reasons = reasons - long_quality_reasons
+    if non_missing_reasons and non_missing_reasons.issubset(short_only_reasons):
+        return None
+    chase_reasons = {
+        "already_large_20d_run",
+        "box_top_no_pullback_chase_risk",
+        "breakout_chase_risk",
+        "extended_above_ma20",
+        "high_zone_extension_risk",
+        "late_buy_chase_risk",
+        "overextended_chase_risk",
+    }
+    if reasons & chase_reasons:
+        return "pullback_watch"
+    if bool(item.get("entryQualified")) or str(item.get("setupType") or "").strip().lower() == "breakout":
+        return "setup_watch"
+    change_pct = _first_finite(item.get("changePct"))
+    if change_pct is not None and change_pct > 0:
+        return "momentum_watch"
+    return "setup_watch"
+
+
+def _build_long_watch_buckets(caution_watch_candidates: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    bucket_key_by_class = {
+        "momentum_watch": "momentum_watch_candidates",
+        "pullback_watch": "pullback_watch_candidates",
+        "setup_watch": "setup_watch_candidates",
+    }
+    buckets: dict[str, list[dict[str, Any]]] = {
+        "momentum_watch_candidates": [],
+        "pullback_watch_candidates": [],
+        "setup_watch_candidates": [],
+    }
+    seen_by_bucket: dict[str, set[str]] = {key: set() for key in buckets}
+    for item in caution_watch_candidates:
+        bucket = _long_watch_class(item)
+        if bucket is None:
+            continue
+        bucket_key = bucket_key_by_class.get(bucket)
+        if bucket_key is None:
+            continue
+        code = str(item.get("code") or "").strip()
+        if not code or code in seen_by_bucket[bucket_key]:
+            continue
+        clone = dict(item)
+        clone["longWatchClass"] = bucket
+        buckets[bucket_key].append(clone)
+        seen_by_bucket[bucket_key].add(code)
+    for bucket_items in buckets.values():
+        bucket_items.sort(key=_trade_priority_sort_key)
+    return buckets
+
+
+def _has_long_watch_candidates(trade_candidate_buckets: dict[str, list[dict[str, Any]]] | None) -> bool:
+    buckets = trade_candidate_buckets or {}
+    return any(
+        bool(buckets.get(key))
+        for key in (
+            "momentum_watch_candidates",
+            "pullback_watch_candidates",
+            "setup_watch_candidates",
+        )
+    )
+
+
+def _fill_long_watch_candidates_from_source(
+    trade_candidate_buckets: dict[str, list[dict[str, Any]]] | None,
+    source_items: list[dict[str, Any]],
+    *,
+    direction: RankDir,
+    risk_mode: RankRiskMode,
+) -> dict[str, list[dict[str, Any]]] | None:
+    if direction != "up" or trade_candidate_buckets is None or _has_long_watch_candidates(trade_candidate_buckets):
+        return trade_candidate_buckets
+    fallback_source_items = _copy_rank_items(source_items)
+    try:
+        ml_fallback_items, _, _ = _apply_ml_mode(
+            fallback_source_items,
+            direction="up",
+            mode="trade",
+            limit=max(200, len(fallback_source_items)),
+            risk_mode=risk_mode,
+        )
+        if ml_fallback_items:
+            fallback_source_items = ml_fallback_items
+    except Exception as exc:
+        logger.debug("long watch ML fallback enrichment skipped: %s", exc)
+    fallback_items = _decorate_rule_items_with_entry_gate(
+        fallback_source_items,
+        direction="up",
+        risk_mode=risk_mode,
+    )
+    fallback_buckets = _build_trade_candidate_buckets(fallback_items)
+    return {
+        **trade_candidate_buckets,
+        "momentum_watch_candidates": fallback_buckets.get("momentum_watch_candidates") or [],
+        "pullback_watch_candidates": fallback_buckets.get("pullback_watch_candidates") or [],
+        "setup_watch_candidates": fallback_buckets.get("setup_watch_candidates") or [],
+    }
+
+
+def _build_short_entry_decision_contract(
+    trade_candidate_buckets: dict[str, list[dict[str, Any]]] | None,
+) -> dict[str, Any]:
+    buckets = trade_candidate_buckets or {}
+    actionable = list(buckets.get("actionable_short_candidates") or [])
+    caution = list(buckets.get("caution_watch_candidates") or [])
+    short_reason_codes = {
+        "extended_below_ma20",
+        "extended_below_ma20_profit_risk",
+        "late_breakdown_chase_risk",
+        "lower_wick_rebound_risk",
+        "missing_short_profit_expectancy",
+        "momentum_down_but_not_actionable_entry",
+        "no_failed_rebound_short_setup",
+        "not_near_retest_or_resistance",
+    }
+    reason_counts: dict[str, int] = {}
+    excluded_short_codes: set[str] = set()
+    for item in caution:
+        reasons = item.get("tradeEntryBlockReasons")
+        if not isinstance(reasons, list):
+            continue
+        for reason in reasons:
+            reason_text = str(reason or "").strip()
+            if reason_text in short_reason_codes:
+                reason_counts[reason_text] = reason_counts.get(reason_text, 0) + 1
+                code = str(item.get("code") or "").strip()
+                if code:
+                    excluded_short_codes.add(code)
+    return {
+        "status": "eligible_short_available" if actionable else "no_eligible_short",
+        "actionable_short_count": len(actionable),
+        "excluded_short_count": len(excluded_short_codes),
+        "exclusion_reason_counts": dict(
+            sorted(reason_counts.items(), key=lambda pair: (-pair[1], pair[0]))
+        ),
+        "message": (
+            "現在価格から利益期待値を確認できる短期売り候補があります。"
+            if actionable
+            else "現在価格から利益期待値を確認できる短期売り候補はありません。"
+        ),
+    }
+
+
+def _build_long_entry_decision_contract(
+    trade_candidate_buckets: dict[str, list[dict[str, Any]]] | None,
+) -> dict[str, Any]:
+    buckets = trade_candidate_buckets or {}
+    actionable = list(buckets.get("actionable_buy_candidates") or [])
+    caution = list(buckets.get("caution_watch_candidates") or [])
+    long_reason_codes = {
+        "already_large_20d_run",
+        "box_top_no_pullback_chase_risk",
+        "breakout_chase_risk",
+        "current_weak_close",
+        "extended_above_ma20",
+        "high_zone_extension_risk",
+        "late_buy_chase_risk",
+        "low_trade_priority_score",
+        "missing_long_profit_expectancy",
+        "missing_prediction_freshness",
+        "missing_trade_priority_score",
+        "stale_profit_expectancy",
+        "weak_10d_profit_expectancy",
+        "weak_5d_profit_expectancy",
+    }
+    reason_counts: dict[str, int] = {}
+    excluded_long_codes: set[str] = set()
+    for item in caution:
+        reasons = item.get("tradeEntryBlockReasons")
+        if not isinstance(reasons, list):
+            continue
+        for reason in reasons:
+            reason_text = str(reason or "").strip()
+            if reason_text in long_reason_codes:
+                reason_counts[reason_text] = reason_counts.get(reason_text, 0) + 1
+                code = str(item.get("code") or "").strip()
+                if code:
+                    excluded_long_codes.add(code)
+    return {
+        "status": "eligible_long_available" if actionable else "no_eligible_long",
+        "actionable_long_count": len(actionable),
+        "excluded_long_count": len(excluded_long_codes),
+        "exclusion_reason_counts": dict(
+            sorted(reason_counts.items(), key=lambda pair: (-pair[1], pair[0]))
+        ),
+        "message": (
+            "現在価格から利益期待値を確認できる買い候補があります。"
+            if actionable
+            else "現在価格から利益期待値を確認できる買い候補はありません。"
+        ),
     }
 
 
 def _candidate_source_for_mode(*, effective_mode: RankMode, legacy_analysis_disabled: bool) -> str:
+    if (
+        effective_mode == "trade"
+        and legacy_analysis_disabled
+        and _readonly_ml_ranking_enabled_when_legacy_disabled()
+    ):
+        return "ml_plus_features_readonly"
     if effective_mode == "trade" and legacy_analysis_disabled:
         return "current_features"
     if effective_mode == "rule":
@@ -6686,7 +7163,7 @@ def _apply_ml_mode(
 ) -> tuple[list[dict], int | None, str | None]:
     daily_prob_lookup = _default_daily_prob_lookup()
     try:
-        with get_conn() as conn:
+        with _get_read_conn() as conn:
             pred_dt = _resolve_prediction_dt(conn, items)
             if pred_dt is None:
                 return items[:limit], None, None
@@ -6697,7 +7174,7 @@ def _apply_ml_mode(
         return items[:limit], None, None
 
     cfg = load_ml_config()
-    enriched = _decorate_items_with_ml(items, pred_map, snapshot_map)
+    enriched = _decorate_items_with_ml(items, pred_map, snapshot_map, pred_dt=pred_dt)
     dynamic_up_gates = get_latest_prob_up_gates() if direction == "up" else None
 
     def _resolve_up_gate(base_value: float) -> float:
@@ -7795,6 +8272,277 @@ def _copy_rank_items(items: list[dict]) -> list[dict]:
     return [dict(item) for item in items]
 
 
+def _cnt60up_shadow_response_enabled() -> bool:
+    raw = os.getenv("MEEMEE_RANK_CNT60UP_SHADOW_RESPONSE")
+    return str(raw or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _cnt60up_active_rerank_enabled() -> bool:
+    raw = os.getenv("MEEMEE_RANK_CNT60UP_ACTIVE_RERANK")
+    return str(raw or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _liquidity_shadow_response_enabled() -> bool:
+    raw = os.getenv("MEEMEE_RANK_LIQUIDITY_SHADOW_RESPONSE")
+    return str(raw or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _liquidity_active_rerank_enabled() -> bool:
+    raw = os.getenv("MEEMEE_RANK_LIQUIDITY_ACTIVE_RERANK")
+    return str(raw or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _monthly_range_shadow_response_enabled() -> bool:
+    raw = os.getenv("MEEMEE_RANK_MONTHLY_RANGE_SHADOW_RESPONSE")
+    return str(raw or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _monthly_range_active_rerank_enabled() -> bool:
+    raw = os.getenv("MEEMEE_RANK_MONTHLY_RANGE_ACTIVE_RERANK")
+    return str(raw or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _cnt60up_rank_window_mode_supported(*, tf: RankTimeframe, direction: RankDir, mode: RankMode) -> bool:
+    return tf == "D" and direction == "up" and mode in {"hybrid", "trade"}
+
+
+def _build_cnt60up_shadow_response(
+    *,
+    tf: RankTimeframe,
+    direction: RankDir,
+    mode: RankMode,
+    snapshot_as_of: Any,
+    items: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    if not _cnt60up_shadow_response_enabled():
+        return {}
+    if not _cnt60up_rank_window_mode_supported(tf=tf, direction=direction, mode=mode):
+        return {}
+
+    from app.backend.services.noncandle_rank_window_shadow_adapter import compute_cnt60up_rank_window_shadow_ranking
+
+    active_rows = [
+        {
+            "anchor_date": item.get("asOf") or snapshot_as_of,
+            "symbol": item.get("code"),
+            "side": "long",
+            "rank": idx,
+            "display_score": item.get("tradePriorityScore") or item.get("display_score") or item.get("displayScore") or 0.0,
+            "cnt60Up": item.get("cnt60Up"),
+        }
+        for idx, item in enumerate(items, start=1)
+    ]
+    return {
+        "cnt60up_shadow": compute_cnt60up_rank_window_shadow_ranking(active_rows),
+    }
+
+
+def _build_liquidity_shadow_response(
+    *,
+    tf: RankTimeframe,
+    direction: RankDir,
+    mode: RankMode,
+    snapshot_as_of: Any,
+    items: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    if not _liquidity_shadow_response_enabled():
+        return {}
+    if not _cnt60up_rank_window_mode_supported(tf=tf, direction=direction, mode=mode):
+        return {}
+
+    from app.backend.services.noncandle_rank_window_shadow_adapter import compute_liquidity_rank_window_shadow_ranking
+
+    active_rows = [
+        {
+            "anchor_date": item.get("asOf") or snapshot_as_of,
+            "symbol": item.get("code"),
+            "side": "long",
+            "rank": idx,
+            "display_score": item.get("tradePriorityScore") or item.get("display_score") or item.get("displayScore") or 0.0,
+            "liquidity20d": item.get("liquidity20d"),
+        }
+        for idx, item in enumerate(items, start=1)
+    ]
+    return {
+        "liquidity_shadow": compute_liquidity_rank_window_shadow_ranking(active_rows),
+    }
+
+
+def _build_monthly_range_shadow_response(
+    *,
+    tf: RankTimeframe,
+    direction: RankDir,
+    mode: RankMode,
+    snapshot_as_of: Any,
+    items: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    if not _monthly_range_shadow_response_enabled():
+        return {}
+    if not _cnt60up_rank_window_mode_supported(tf=tf, direction=direction, mode=mode):
+        return {}
+
+    from app.backend.services.noncandle_rank_window_shadow_adapter import compute_monthly_range_rank_window_shadow_ranking
+
+    active_rows = [
+        {
+            "anchor_date": item.get("asOf") or snapshot_as_of,
+            "symbol": item.get("code"),
+            "side": "long",
+            "rank": idx,
+            "display_score": item.get("tradePriorityScore") or item.get("display_score") or item.get("displayScore") or 0.0,
+            "monthlyRangeProb": item.get("monthlyRangeProb"),
+        }
+        for idx, item in enumerate(items, start=1)
+    ]
+    return {
+        "monthly_range_shadow": compute_monthly_range_rank_window_shadow_ranking(active_rows),
+    }
+
+
+def _apply_cnt60up_active_rerank_if_enabled(
+    *,
+    tf: RankTimeframe,
+    direction: RankDir,
+    mode: RankMode,
+    snapshot_as_of: Any,
+    items: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    if not _cnt60up_active_rerank_enabled():
+        return items, None
+    if not _cnt60up_rank_window_mode_supported(tf=tf, direction=direction, mode=mode):
+        return items, None
+
+    from app.backend.services.noncandle_rank_window_shadow_adapter import compute_cnt60up_rank_window_shadow_ranking
+
+    active_rows = [
+        {
+            "anchor_date": item.get("asOf") or snapshot_as_of,
+            "symbol": item.get("code"),
+            "side": "long",
+            "rank": idx,
+            "display_score": item.get("tradePriorityScore") or item.get("display_score") or item.get("displayScore") or 0.0,
+            "cnt60Up": item.get("cnt60Up"),
+        }
+        for idx, item in enumerate(items, start=1)
+    ]
+    shadow_payload = compute_cnt60up_rank_window_shadow_ranking(active_rows)
+    adjusted_by_code = {
+        str(row.get("symbol") or ""): int(row.get("shadow_adjusted_rank") or 0)
+        for row in shadow_payload.get("shadow_rows") or []
+    }
+    reranked = sorted(
+        [dict(item) for item in items],
+        key=lambda item: (
+            adjusted_by_code.get(str(item.get("code") or ""), 10**9),
+            str(item.get("code") or ""),
+        ),
+    )
+    return reranked, {
+        "cnt60up_active_rerank": {
+            "integration_mode": "active_env_flag_only",
+            "env_flag": "MEEMEE_RANK_CNT60UP_ACTIVE_RERANK",
+            "shadow_summary": shadow_payload.get("summary"),
+            "audit": shadow_payload.get("audit"),
+        }
+    }
+
+
+def _apply_monthly_range_active_rerank_if_enabled(
+    *,
+    tf: RankTimeframe,
+    direction: RankDir,
+    mode: RankMode,
+    snapshot_as_of: Any,
+    items: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    if not _monthly_range_active_rerank_enabled():
+        return items, None
+    if not _cnt60up_rank_window_mode_supported(tf=tf, direction=direction, mode=mode):
+        return items, None
+
+    from app.backend.services.noncandle_rank_window_shadow_adapter import compute_monthly_range_rank_window_shadow_ranking
+
+    active_rows = [
+        {
+            "anchor_date": item.get("asOf") or snapshot_as_of,
+            "symbol": item.get("code"),
+            "side": "long",
+            "rank": idx,
+            "display_score": item.get("tradePriorityScore") or item.get("display_score") or item.get("displayScore") or 0.0,
+            "monthlyRangeProb": item.get("monthlyRangeProb"),
+        }
+        for idx, item in enumerate(items, start=1)
+    ]
+    shadow_payload = compute_monthly_range_rank_window_shadow_ranking(active_rows)
+    adjusted_by_code = {
+        str(row.get("symbol") or ""): int(row.get("shadow_adjusted_rank") or 0)
+        for row in shadow_payload.get("shadow_rows") or []
+    }
+    reranked = sorted(
+        [dict(item) for item in items],
+        key=lambda item: (
+            adjusted_by_code.get(str(item.get("code") or ""), 10**9),
+            str(item.get("code") or ""),
+        ),
+    )
+    return reranked, {
+        "monthly_range_active_rerank": {
+            "integration_mode": "active_env_flag_only",
+            "env_flag": "MEEMEE_RANK_MONTHLY_RANGE_ACTIVE_RERANK",
+            "shadow_summary": shadow_payload.get("summary"),
+            "audit": shadow_payload.get("audit"),
+        }
+    }
+
+
+def _apply_liquidity_active_rerank_if_enabled(
+    *,
+    tf: RankTimeframe,
+    direction: RankDir,
+    mode: RankMode,
+    snapshot_as_of: Any,
+    items: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    if not _liquidity_active_rerank_enabled():
+        return items, None
+    if not _cnt60up_rank_window_mode_supported(tf=tf, direction=direction, mode=mode):
+        return items, None
+
+    from app.backend.services.noncandle_rank_window_shadow_adapter import compute_liquidity_rank_window_shadow_ranking
+
+    active_rows = [
+        {
+            "anchor_date": item.get("asOf") or snapshot_as_of,
+            "symbol": item.get("code"),
+            "side": "long",
+            "rank": idx,
+            "display_score": item.get("tradePriorityScore") or item.get("display_score") or item.get("displayScore") or 0.0,
+            "liquidity20d": item.get("liquidity20d"),
+        }
+        for idx, item in enumerate(items, start=1)
+    ]
+    shadow_payload = compute_liquidity_rank_window_shadow_ranking(active_rows)
+    adjusted_by_code = {
+        str(row.get("symbol") or ""): int(row.get("shadow_adjusted_rank") or 0)
+        for row in shadow_payload.get("shadow_rows") or []
+    }
+    reranked = sorted(
+        [dict(item) for item in items],
+        key=lambda item: (
+            adjusted_by_code.get(str(item.get("code") or ""), 10**9),
+            str(item.get("code") or ""),
+        ),
+    )
+    return reranked, {
+        "liquidity_active_rerank": {
+            "integration_mode": "active_env_flag_only",
+            "env_flag": "MEEMEE_RANK_LIQUIDITY_ACTIVE_RERANK",
+            "shadow_summary": shadow_payload.get("summary"),
+            "audit": shadow_payload.get("audit"),
+        }
+    }
+
+
 def _load_live_cache_items(
     cache_key: RankBaseCacheKey,
     *,
@@ -7854,7 +8602,11 @@ def _build_rankings_response(
             direction=direction,
             risk_mode=risk_mode,
         )
-    elif effective_mode == "trade" and legacy_analysis_disabled:
+    elif (
+        effective_mode == "trade"
+        and legacy_analysis_disabled
+        and not _readonly_ml_ranking_enabled_when_legacy_disabled()
+    ):
         out_items = _decorate_rule_items_with_entry_gate(
             source_items,
             direction=direction,
@@ -7924,8 +8676,15 @@ def _build_rankings_response(
     phase_started_at = time.perf_counter()
     trade_priority_ms = 0.0
     trade_candidate_buckets: dict[str, list[dict[str, Any]]] | None = None
+    trade_candidate_buckets: dict[str, list[dict[str, Any]]] | None = None
     if effective_mode == "trade":
         trade_candidate_buckets = _build_trade_candidate_buckets(out_items)
+        trade_candidate_buckets = _fill_long_watch_candidates_from_source(
+            trade_candidate_buckets,
+            source_items,
+            direction=direction,
+            risk_mode=risk_mode,
+        )
         if direction == "down":
             trade_candidate_buckets = _merge_failed_high_retest_short_candidates(trade_candidate_buckets, source_items)
             out_items = [dict(item) for item in trade_candidate_buckets.get("actionable_short_candidates") or []]
@@ -7939,6 +8698,10 @@ def _build_rankings_response(
                 "actionable_buy_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("actionable_buy_candidates") or []),
                 "actionable_short_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("actionable_short_candidates") or []),
                 "caution_watch_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("caution_watch_candidates") or []),
+                "momentum_entry_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("momentum_entry_candidates") or []),
+                "momentum_watch_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("momentum_watch_candidates") or []),
+                "pullback_watch_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("pullback_watch_candidates") or []),
+                "setup_watch_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("setup_watch_candidates") or []),
             }
             phase_timings["sanitize_ms"] = round((time.perf_counter() - phase_started_at) * 1000.0, 3)
             total_ms = round((time.perf_counter() - build_started_at) * 1000.0, 3)
@@ -7960,6 +8723,7 @@ def _build_rankings_response(
                 **freshness_meta,
                 "items": out_items,
                 **trade_candidate_buckets,
+                "short_entry_decision": _build_short_entry_decision_contract(trade_candidate_buckets),
                 "confirmed_snapshot_as_of": freshness_meta.get("snapshot_as_of") if not include_provisional else None,
                 "confirmed_actionable_buy_candidates": trade_candidate_buckets.get("actionable_buy_candidates") if not include_provisional else [],
                 "confirmed_actionable_short_candidates": trade_candidate_buckets.get("actionable_short_candidates") if not include_provisional else [],
@@ -8010,12 +8774,39 @@ def _build_rankings_response(
             "actionable_buy_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("actionable_buy_candidates") or []),
             "actionable_short_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("actionable_short_candidates") or []),
             "caution_watch_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("caution_watch_candidates") or []),
+            "momentum_watch_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("momentum_watch_candidates") or []),
+            "pullback_watch_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("pullback_watch_candidates") or []),
+            "setup_watch_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("setup_watch_candidates") or []),
         }
     phase_timings["sanitize_ms"] = round((time.perf_counter() - phase_started_at) * 1000.0, 3)
     total_ms = round((time.perf_counter() - build_started_at) * 1000.0, 3)
     with _LOCK:
         latest_daily_asof_int = _LAST_CACHE_DAILY_ASOF_INT
     freshness_meta = _build_rankings_freshness_meta(latest_daily_asof_int=latest_daily_asof_int)
+    cnt60up_active_meta: dict[str, Any] | None = None
+    out_items, cnt60up_active_meta = _apply_cnt60up_active_rerank_if_enabled(
+        tf=tf,
+        direction=direction,
+        mode=effective_mode,
+        snapshot_as_of=freshness_meta.get("snapshot_as_of"),
+        items=out_items,
+    )
+    monthly_range_active_meta: dict[str, Any] | None = None
+    out_items, monthly_range_active_meta = _apply_monthly_range_active_rerank_if_enabled(
+        tf=tf,
+        direction=direction,
+        mode=effective_mode,
+        snapshot_as_of=freshness_meta.get("snapshot_as_of"),
+        items=out_items,
+    )
+    liquidity_active_meta: dict[str, Any] | None = None
+    out_items, liquidity_active_meta = _apply_liquidity_active_rerank_if_enabled(
+        tf=tf,
+        direction=direction,
+        mode=effective_mode,
+        snapshot_as_of=freshness_meta.get("snapshot_as_of"),
+        items=out_items,
+    )
     if include_provisional:
         provisional_meta = provisional_meta or {}
         provisional_freshness_state = str(provisional_meta.get("provisional_freshness_state") or "unavailable")
@@ -8048,6 +8839,11 @@ def _build_rankings_response(
                     provisional_snapshot_as_of=provisional_snapshot_as_of,
                     provisional_covered_codes=provisional_covered_codes,
                 ),
+                "momentum_entry_candidates": _mark_provisional_items_by_snapshot(
+                    trade_candidate_buckets.get("momentum_entry_candidates") or [],
+                    provisional_snapshot_as_of=provisional_snapshot_as_of,
+                    provisional_covered_codes=provisional_covered_codes,
+                ),
                 "actionable_short_candidates": _mark_provisional_items_by_snapshot(
                     trade_candidate_buckets.get("actionable_short_candidates") or [],
                     provisional_snapshot_as_of=provisional_snapshot_as_of,
@@ -8055,6 +8851,21 @@ def _build_rankings_response(
                 ),
                 "caution_watch_candidates": _mark_provisional_items_by_snapshot(
                     trade_candidate_buckets.get("caution_watch_candidates") or [],
+                    provisional_snapshot_as_of=provisional_snapshot_as_of,
+                    provisional_covered_codes=provisional_covered_codes,
+                ),
+                "momentum_watch_candidates": _mark_provisional_items_by_snapshot(
+                    trade_candidate_buckets.get("momentum_watch_candidates") or [],
+                    provisional_snapshot_as_of=provisional_snapshot_as_of,
+                    provisional_covered_codes=provisional_covered_codes,
+                ),
+                "pullback_watch_candidates": _mark_provisional_items_by_snapshot(
+                    trade_candidate_buckets.get("pullback_watch_candidates") or [],
+                    provisional_snapshot_as_of=provisional_snapshot_as_of,
+                    provisional_covered_codes=provisional_covered_codes,
+                ),
+                "setup_watch_candidates": _mark_provisional_items_by_snapshot(
+                    trade_candidate_buckets.get("setup_watch_candidates") or [],
                     provisional_snapshot_as_of=provisional_snapshot_as_of,
                     provisional_covered_codes=provisional_covered_codes,
                 ),
@@ -8146,7 +8957,37 @@ def _build_rankings_response(
         "last_updated": last_updated.isoformat() if last_updated else None,
         **freshness_meta,
         "items": out_items,
+        **(cnt60up_active_meta or {}),
+        **(monthly_range_active_meta or {}),
+        **(liquidity_active_meta or {}),
+        **_build_cnt60up_shadow_response(
+            tf=tf,
+            direction=direction,
+            mode=effective_mode,
+            snapshot_as_of=freshness_meta.get("snapshot_as_of"),
+            items=out_items,
+        ),
+        **_build_liquidity_shadow_response(
+            tf=tf,
+            direction=direction,
+            mode=effective_mode,
+            snapshot_as_of=freshness_meta.get("snapshot_as_of"),
+            items=out_items,
+        ),
+        **_build_monthly_range_shadow_response(
+            tf=tf,
+            direction=direction,
+            mode=effective_mode,
+            snapshot_as_of=freshness_meta.get("snapshot_as_of"),
+            items=out_items,
+        ),
         **(trade_candidate_buckets or {}),
+        "long_entry_decision": _build_long_entry_decision_contract(trade_candidate_buckets)
+        if effective_mode == "trade" and direction == "up"
+        else None,
+        "short_entry_decision": _build_short_entry_decision_contract(trade_candidate_buckets)
+        if effective_mode == "trade" and direction == "down"
+        else None,
         "confirmed_snapshot_as_of": freshness_meta.get("snapshot_as_of") if not include_provisional else None,
         "confirmed_actionable_buy_candidates": trade_candidate_buckets.get("actionable_buy_candidates") if trade_candidate_buckets and not include_provisional else [],
         "confirmed_actionable_short_candidates": trade_candidate_buckets.get("actionable_short_candidates") if trade_candidate_buckets and not include_provisional else [],
@@ -8196,6 +9037,12 @@ def _get_cached_rankings_response(
             current_ymd_key,
             provisional_key,
             provisional_bucket_key,
+            cnt60up_shadow_key,
+            cnt60up_active_key,
+            liquidity_shadow_key,
+            liquidity_active_key,
+            monthly_range_shadow_key,
+            monthly_range_active_key,
         ) = _current_result_cache_variant(include_provisional=include_provisional)
         result_key: RankResultCacheKey = (
             tf,
@@ -8211,6 +9058,12 @@ def _get_cached_rankings_response(
             current_ymd_key,
             provisional_key,
             provisional_bucket_key,
+            cnt60up_shadow_key,
+            cnt60up_active_key,
+            liquidity_shadow_key,
+            liquidity_active_key,
+            monthly_range_shadow_key,
+            monthly_range_active_key,
         )
         with _LOCK:
             cached = _RESULT_CACHE.get(result_key)
@@ -8392,6 +9245,7 @@ def get_rankings_asof(
     items = cache.get((tf, which, direction), [])
     source_items = _filter_trade_event_blocked_items(_copy_rank_items(items))
     limit = max(1, min(int(limit or 50), 200))
+    mode_apply_limit = max(limit, 50) if effective_mode == "trade" else limit
 
     pred_dt = None
     model_version = None
@@ -8401,7 +9255,11 @@ def get_rankings_asof(
             direction=direction,
             risk_mode=risk_mode,
         )
-    elif effective_mode == "trade" and legacy_analysis_disabled:
+    elif (
+        effective_mode == "trade"
+        and legacy_analysis_disabled
+        and not _readonly_ml_ranking_enabled_when_legacy_disabled()
+    ):
         out_items = _decorate_rule_items_with_entry_gate(
             source_items,
             direction=direction,
@@ -8411,7 +9269,7 @@ def get_rankings_asof(
         out_items, pred_dt, model_version = _call_apply_monthly_ml_mode(
             source_items,
             direction=direction,
-            limit=limit,
+            limit=mode_apply_limit,
             risk_mode=risk_mode,
         )
     else:
@@ -8419,7 +9277,7 @@ def get_rankings_asof(
             source_items,
             direction=direction,
             mode=effective_mode,
-            limit=limit,
+            limit=mode_apply_limit,
             risk_mode=risk_mode,
         )
     out_items, pred_dt, model_version = _fallback_down_ml_items_when_empty(
@@ -8437,8 +9295,6 @@ def get_rankings_asof(
     if tf == "M" and effective_mode in {"hybrid", "trade"}:
         flag_applied = _is_edinet_bonus_enabled()
         out_items = [_apply_edinet_defaults(dict(item), flag_applied=flag_applied) for item in out_items]
-    if effective_mode == "trade":
-        out_items = _filter_tradable_rank_items(out_items, direction=direction)
     out_items = _attach_quality_flags(
         out_items,
         mode=effective_mode,
@@ -8480,6 +9336,12 @@ def get_rankings_asof(
             )
     if effective_mode == "trade":
         trade_candidate_buckets = _build_trade_candidate_buckets(out_items)
+        trade_candidate_buckets = _fill_long_watch_candidates_from_source(
+            trade_candidate_buckets,
+            source_items,
+            direction=direction,
+            risk_mode=risk_mode,
+        )
         if direction == "down":
             trade_candidate_buckets = _merge_failed_high_retest_short_candidates(trade_candidate_buckets, source_items)
             out_items = [dict(item) for item in trade_candidate_buckets.get("actionable_short_candidates") or []]
@@ -8508,6 +9370,19 @@ def get_rankings_asof(
         "model_version": model_version,
         "last_updated": datetime.now(timezone.utc).isoformat(),
         "items": filtered[:limit],
+        **(
+            {
+                "actionable_buy_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("actionable_buy_candidates") or []),
+                "actionable_short_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("actionable_short_candidates") or []),
+                "caution_watch_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("caution_watch_candidates") or []),
+                "momentum_entry_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("momentum_entry_candidates") or []),
+                "momentum_watch_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("momentum_watch_candidates") or []),
+                "pullback_watch_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("pullback_watch_candidates") or []),
+                "setup_watch_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("setup_watch_candidates") or []),
+            }
+            if trade_candidate_buckets is not None
+            else {}
+        ),
     }
 
 
@@ -8541,7 +9416,7 @@ def _fetch_recent_asof_dates(
             LIMIT ?
         """
         params.append(int(max(1, lookback_days)))
-        with get_conn() as conn:
+        with _get_read_conn() as conn:
             rows = conn.execute(query, params).fetchall()
         return [int(row[0]) for row in rows if row and row[0] is not None]
     where_parts = ["ymd IS NOT NULL"]
@@ -8568,7 +9443,7 @@ def _fetch_recent_asof_dates(
         LIMIT ?
     """
     params.append(int(max(1, lookback_days)))
-    with get_conn() as conn:
+    with _get_read_conn() as conn:
         rows = conn.execute(query, params).fetchall()
     return [int(row[0]) for row in rows if row and row[0] is not None]
 
@@ -8814,13 +9689,25 @@ def get_rankings_session_bundle(
         "confirmed_actionable_buy_candidates": list(confirmed.get("actionable_buy_candidates") or []),
         "confirmed_actionable_short_candidates": list(confirmed.get("actionable_short_candidates") or []),
         "confirmed_caution_watch_candidates": list(confirmed.get("caution_watch_candidates") or []),
+        "confirmed_momentum_entry_candidates": list(confirmed.get("momentum_entry_candidates") or []),
+        "confirmed_momentum_watch_candidates": list(confirmed.get("momentum_watch_candidates") or []),
+        "confirmed_pullback_watch_candidates": list(confirmed.get("pullback_watch_candidates") or []),
+        "confirmed_setup_watch_candidates": list(confirmed.get("setup_watch_candidates") or []),
         "provisional_actionable_buy_candidates": list(provisional.get("actionable_buy_candidates") or []) if provisional_available else [],
         "provisional_actionable_short_candidates": list(provisional.get("actionable_short_candidates") or []) if provisional_available else [],
         "provisional_caution_watch_candidates": list(provisional.get("caution_watch_candidates") or []) if provisional_available else [],
+        "provisional_momentum_entry_candidates": list(provisional.get("momentum_entry_candidates") or []) if provisional_available else [],
+        "provisional_momentum_watch_candidates": list(provisional.get("momentum_watch_candidates") or []) if provisional_available else [],
+        "provisional_pullback_watch_candidates": list(provisional.get("pullback_watch_candidates") or []) if provisional_available else [],
+        "provisional_setup_watch_candidates": list(provisional.get("setup_watch_candidates") or []) if provisional_available else [],
         "confirmed_trade_summary": confirmed_summary,
         "provisional_trade_summary": provisional_summary,
         "confirmed_items": confirmed_items,
         "provisional_items": provisional_items,
+        "confirmed_long_entry_decision": confirmed.get("long_entry_decision"),
+        "provisional_long_entry_decision": provisional.get("long_entry_decision") if provisional_available else None,
+        "confirmed_short_entry_decision": confirmed.get("short_entry_decision"),
+        "provisional_short_entry_decision": provisional.get("short_entry_decision") if provisional_available else None,
     }
 
 

@@ -417,6 +417,414 @@ def test_trade_short_entry_actionability_lifts_better_failed_retest(monkeypatch)
     assert items[0]["tradePriorityScore"] > items[1]["tradePriorityScore"]
 
 
+def test_trade_short_momentum_follow_through_lifts_downside_continuation(monkeypatch) -> None:
+    monkeypatch.setattr(
+        rankings_cache,
+        "_load_trade_market_code_map",
+        lambda codes: {str(code): "PRIME" for code in codes},
+    )
+
+    def item(code: str, *, diff20: float, breakout_down: float, dist_ma20: float, trend_down: bool) -> dict[str, object]:
+        return {
+            "code": code,
+            "setupType": "failed_high_retest",
+            "tradeEntryClass": "failed_high_retest_short",
+            "monthlyBoxState": "box_mid",
+            "entryQualified": True,
+            "probSideCalib": 0.80,
+            "entryScore": 0.72,
+            "hybridScore": 0.72,
+            "downsideRisk": 0.18,
+            "swingScore": 0.60,
+            "mlEv5Net": -0.12,
+            "mlEv10Net": -0.12,
+            "mlEv20Net": -0.12,
+            "changePct": -0.004,
+            "candleUpperWickRatio": 0.62,
+            "candleLowerWickRatio": 0.10,
+            "failedHighRetestShort": True,
+            "failedHighRetestRetestRatio": 0.98,
+            "failedHighRetestAnchorDropPct": 0.006,
+            "diff20_pct": diff20,
+            "breakout20_down": breakout_down,
+            "distMa20Signed": dist_ma20,
+            "trendDown": trend_down,
+            "trendDownStrict": trend_down,
+            "market_ret20": -0.03,
+        }
+
+    items = [
+        item("3151", diff20=-0.08, breakout_down=0.045, dist_ma20=-0.045, trend_down=True),
+        item("3152", diff20=0.01, breakout_down=0.00, dist_ma20=0.015, trend_down=False),
+    ]
+
+    rankings_cache._apply_trade_priority_scores(items, direction="down")  # type: ignore[attr-defined]
+    items.sort(key=rankings_cache._trade_priority_sort_key)  # type: ignore[attr-defined]
+
+    assert items[0]["code"] == "3151"
+    assert items[0]["shortMomentumFollowThroughV1"] is True
+    assert items[0]["shortMomentumFollowThroughScore"] > items[1]["shortMomentumFollowThroughScore"]
+    assert items[0]["tradePriorityScore"] > items[1]["tradePriorityScore"]
+
+
+def test_trade_short_momentum_follow_through_creates_actionable_short_family(monkeypatch) -> None:
+    monkeypatch.setattr(
+        rankings_cache,
+        "_load_trade_market_code_map",
+        lambda codes: {str(code): "PRIME" for code in codes},
+    )
+
+    def item(code: str, **overrides: object) -> dict[str, object]:
+        base: dict[str, object] = {
+            "code": code,
+            "setupType": "reject",
+            "monthlyBoxState": "no_box",
+            "entryQualified": False,
+            "probSideCalib": 0.80,
+            "entryScore": 0.72,
+            "hybridScore": 0.72,
+            "downsideRisk": 0.18,
+            "swingScore": 0.60,
+            "mlEv5Net": -0.12,
+            "mlEv10Net": -0.12,
+            "mlEv20Net": -0.12,
+            "changePct": -0.004,
+            "candleUpperWickRatio": 0.20,
+            "candleLowerWickRatio": 0.10,
+            "diff20_pct": -0.08,
+            "breakout20_down": 0.045,
+            "distMa20Signed": -0.045,
+            "trendDown": True,
+            "trendDownStrict": True,
+            "market_ret20": -0.03,
+        }
+        base.update(overrides)
+        return base
+
+    buckets = rankings_cache._build_trade_candidate_buckets(  # type: ignore[attr-defined]
+        [
+            item("3161"),
+            item("3162", candleLowerWickRatio=0.58),
+            item("3163", distMa20Signed=-0.13),
+            item("3164", changePct=-0.052),
+            item("3165", mlEv5Net=None, mlEv10Net=None, mlEv20Net=None),
+            item("3166", distMa20Signed=-0.08),
+        ]
+    )
+
+    short_by_code = {item["code"]: item for item in buckets["actionable_short_candidates"]}
+    caution_by_code = {item["code"]: item for item in buckets["caution_watch_candidates"]}
+
+    assert short_by_code["3161"]["setupType"] == "breakdown"
+    assert short_by_code["3161"]["tradeEntryClass"] == "short_momentum_follow_through"
+    assert short_by_code["3161"]["shortMomentumFollowThroughV1"] is True
+    assert "3162" not in short_by_code
+    assert "3163" not in short_by_code
+    assert "3164" not in short_by_code
+    assert "3165" not in short_by_code
+    assert "3166" not in short_by_code
+    assert "lower_wick_rebound_risk" in caution_by_code["3162"]["tradeEntryBlockReasons"]
+    assert "extended_below_ma20" in caution_by_code["3163"]["tradeEntryBlockReasons"]
+    assert "late_breakdown_chase_risk" in caution_by_code["3164"]["tradeEntryBlockReasons"]
+    assert "missing_short_profit_expectancy" in caution_by_code["3165"]["tradeEntryBlockReasons"]
+    assert "extended_below_ma20_profit_risk" in caution_by_code["3166"]["tradeEntryBlockReasons"]
+
+
+def test_short_entry_decision_contract_explains_zero_candidates() -> None:
+    contract = rankings_cache._build_short_entry_decision_contract(  # type: ignore[attr-defined]
+        {
+            "actionable_short_candidates": [],
+            "caution_watch_candidates": [
+                {"code": "1001", "tradeEntryBlockReasons": ["missing_short_profit_expectancy"]},
+                {
+                    "code": "1002",
+                    "tradeEntryBlockReasons": [
+                        "missing_short_profit_expectancy",
+                        "extended_below_ma20_profit_risk",
+                    ],
+                },
+            ],
+        }
+    )
+
+    assert contract["status"] == "no_eligible_short"
+    assert contract["actionable_short_count"] == 0
+    assert contract["excluded_short_count"] == 2
+    assert contract["exclusion_reason_counts"] == {
+        "missing_short_profit_expectancy": 2,
+        "extended_below_ma20_profit_risk": 1,
+    }
+    assert "ありません" in contract["message"]
+
+
+def test_long_candidates_require_profit_expectancy() -> None:
+    buckets = rankings_cache._build_trade_candidate_buckets(  # type: ignore[attr-defined]
+        [
+            {
+                "code": "1101",
+                "setupType": "breakout",
+                "monthlyBoxState": "box_upper",
+                "entryQualified": True,
+                "probSideCalib": 0.80,
+                "entryScore": 0.72,
+                "hybridScore": 0.72,
+                "downsideRisk": 0.18,
+                "swingScore": 0.60,
+                "mlEv5Net": None,
+                "mlEv10Net": None,
+                "mlEv20Net": None,
+                "changePct": 0.004,
+                "candleUpperWickRatio": 0.10,
+                "distMa20Signed": 0.02,
+                "diff20_pct": 0.04,
+            }
+        ]
+    )
+
+    assert buckets["actionable_buy_candidates"] == []
+    assert "missing_long_profit_expectancy" in buckets["caution_watch_candidates"][0]["tradeEntryBlockReasons"]
+    assert buckets["setup_watch_candidates"][0]["code"] == "1101"
+    assert buckets["setup_watch_candidates"][0]["longWatchClass"] == "setup_watch"
+
+
+def test_trade_buy_quality_blocks_low_priority_and_stale_ml_prediction() -> None:
+    low_priority_item = {
+        "code": "9434",
+        "asOf": "2026-04-24",
+        "setupType": "breakout",
+        "monthlyBoxState": "box_mid",
+        "entryQualified": True,
+        "tradePriorityScore": 0.44,
+        "modelVersion": "20260314153632",
+        "mlPredDt": 1776643200,
+        "mlEv5Net": 0.01,
+        "mlEv10Net": 0.01,
+        "mlEv20Net": 0.027,
+        "changePct": 0.004,
+        "candleUpperWickRatio": 0.10,
+        "distMa20Signed": 0.02,
+        "diff20_pct": 0.04,
+    }
+    stale_item = {
+        **low_priority_item,
+        "code": "4689",
+        "asOf": "2026-05-29",
+        "tradePriorityScore": 0.72,
+    }
+
+    assert "low_trade_priority_score" in rankings_cache._trade_up_entry_block_reasons(low_priority_item)  # type: ignore[attr-defined]
+    assert "stale_profit_expectancy" in rankings_cache._trade_up_entry_block_reasons(stale_item)  # type: ignore[attr-defined]
+
+
+def test_stale_ml_buy_candidate_is_demoted_to_long_watch() -> None:
+    buckets = rankings_cache._build_trade_candidate_buckets(  # type: ignore[attr-defined]
+        [
+            {
+                "code": "4689",
+                "asOf": "2026-05-29",
+                "setupType": "breakout",
+                "monthlyBoxState": "box_mid",
+                "entryQualified": True,
+                "probSideCalib": 0.82,
+                "entryScore": 0.72,
+                "hybridScore": 0.72,
+                "downsideRisk": 0.10,
+                "swingScore": 0.70,
+                "modelVersion": "20260314153632",
+                "mlPredDt": 1776643200,
+                "mlEv5Net": 0.01,
+                "mlEv10Net": 0.01,
+                "mlEv20Net": 0.046,
+                "mlPUpShort": 0.89,
+                "changePct": 0.004,
+                "candleUpperWickRatio": 0.10,
+                "distMa20Signed": 0.02,
+                "diff20_pct": 0.04,
+            }
+        ]
+    )
+
+    assert buckets["actionable_buy_candidates"] == []
+    assert buckets["caution_watch_candidates"][0]["code"] == "4689"
+    assert "stale_profit_expectancy" in buckets["caution_watch_candidates"][0]["tradeEntryBlockReasons"]
+    assert buckets["setup_watch_candidates"][0]["code"] == "4689"
+
+
+def test_soft_blocked_momentum_watch_promotes_to_momentum_entry_candidate(monkeypatch) -> None:
+    candidates = rankings_cache._build_momentum_entry_candidates(  # type: ignore[attr-defined]
+        [
+            {
+                "code": "5233",
+                "asOf": "2026-05-01",
+                "setupType": "reject",
+                "monthlyBoxState": "box_upper",
+                "entryQualified": False,
+                "probSideCalib": 0.82,
+                "entryScore": 0.72,
+                "hybridScore": 0.72,
+                "downsideRisk": 0.10,
+                "swingScore": 0.70,
+                "modelVersion": "20260314153632",
+                "mlPredDt": 1776643200,
+                "mlEv5Net": 0.03,
+                "mlEv10Net": 0.04,
+                "mlEv20Net": 0.06,
+                "mlPUpShort": 0.88,
+                "changePct": 0.018,
+                "candleUpperWickRatio": 0.10,
+                "distMa20Signed": 0.035,
+                "diff20_pct": 0.11,
+                "breakout20_up": 0.03,
+                "cnt_20_above": 16,
+                "cnt_7_above": 6,
+                "market_ret20": 0.03,
+                "momentumFollowThroughScore": 0.94,
+                "tradeEntryBlockReasons": ["low_trade_priority_score", "stale_profit_expectancy"],
+            }
+        ]
+    )
+
+    assert [row["code"] for row in candidates] == ["5233"]
+    assert candidates[0]["momentumEntryState"] == "entry_candidate"
+
+
+def test_momentum_entry_candidate_rejects_hard_blocked_watch(monkeypatch) -> None:
+    candidates = rankings_cache._build_momentum_entry_candidates(  # type: ignore[attr-defined]
+        [
+            {
+                "code": "9991",
+                "asOf": "2026-05-01",
+                "setupType": "reject",
+                "monthlyBoxState": "box_upper",
+                "entryQualified": False,
+                "probSideCalib": 0.82,
+                "entryScore": 0.72,
+                "hybridScore": 0.72,
+                "downsideRisk": 0.10,
+                "swingScore": 0.70,
+                "modelVersion": "20260314153632",
+                "mlPredDt": 1776643200,
+                "mlEv5Net": -0.01,
+                "mlEv10Net": 0.04,
+                "mlEv20Net": 0.06,
+                "mlPUpShort": 0.88,
+                "changePct": 0.018,
+                "candleUpperWickRatio": 0.10,
+                "distMa20Signed": 0.035,
+                "diff20_pct": 0.11,
+                "breakout20_up": 0.03,
+                "cnt_20_above": 16,
+                "cnt_7_above": 6,
+                "market_ret20": 0.03,
+                "momentumFollowThroughScore": 0.94,
+                "tradeEntryBlockReasons": ["low_trade_priority_score", "weak_5d_profit_expectancy"],
+            }
+        ]
+    )
+
+    assert candidates == []
+
+
+def test_long_watch_candidates_are_tiered_without_promoting_to_actionable() -> None:
+    def item(code: str, **overrides: object) -> dict[str, object]:
+        base: dict[str, object] = {
+            "code": code,
+            "setupType": "reject",
+            "monthlyBoxState": "box_upper",
+            "entryQualified": False,
+            "probSideCalib": 0.80,
+            "entryScore": 0.72,
+            "hybridScore": 0.72,
+            "downsideRisk": 0.18,
+            "swingScore": 0.60,
+            "mlEv5Net": None,
+            "mlEv10Net": None,
+            "mlEv20Net": None,
+            "changePct": 0.012,
+            "candleUpperWickRatio": 0.10,
+            "distMa20Signed": 0.02,
+            "diff20_pct": 0.04,
+        }
+        base.update(overrides)
+        return base
+
+    buckets = rankings_cache._build_trade_candidate_buckets(  # type: ignore[attr-defined]
+        [
+            item("2101", setupType="breakout", entryQualified=True),
+            item("2102", distMa20Signed=0.14),
+            item("2103"),
+        ]
+    )
+
+    assert buckets["actionable_buy_candidates"] == []
+    assert [row["code"] for row in buckets["setup_watch_candidates"]] == ["2101"]
+    assert [row["code"] for row in buckets["pullback_watch_candidates"]] == ["2102"]
+    assert [row["code"] for row in buckets["momentum_watch_candidates"]] == ["2103"]
+
+
+def test_long_watch_fallback_does_not_promote_actionable(monkeypatch) -> None:
+    source_items = [
+        {
+            "code": "3101",
+            "setupType": "reject",
+            "monthlyBoxState": "box_upper",
+            "entryQualified": False,
+            "probSideCalib": 0.80,
+            "entryScore": 0.72,
+            "hybridScore": 0.72,
+            "downsideRisk": 0.18,
+            "swingScore": 0.60,
+            "mlEv5Net": None,
+            "mlEv10Net": None,
+            "mlEv20Net": None,
+            "changePct": 0.012,
+            "candleUpperWickRatio": 0.10,
+            "distMa20Signed": 0.02,
+            "diff20_pct": 0.04,
+        }
+    ]
+    empty_buckets = {
+        "actionable_buy_candidates": [],
+        "actionable_short_candidates": [],
+        "caution_watch_candidates": [],
+        "momentum_watch_candidates": [],
+        "pullback_watch_candidates": [],
+        "setup_watch_candidates": [],
+    }
+    monkeypatch.setattr(rankings_cache, "_decorate_rule_items_with_entry_gate", lambda items, direction, risk_mode: [dict(item) for item in items])
+
+    filled = rankings_cache._fill_long_watch_candidates_from_source(  # type: ignore[attr-defined]
+        empty_buckets,
+        source_items,
+        direction="up",
+        risk_mode="balanced",
+    )
+
+    assert filled["actionable_buy_candidates"] == []
+    assert [row["code"] for row in filled["momentum_watch_candidates"]] == ["3101"]
+
+
+def test_long_entry_decision_contract_explains_zero_candidates() -> None:
+    contract = rankings_cache._build_long_entry_decision_contract(  # type: ignore[attr-defined]
+        {
+            "actionable_buy_candidates": [],
+            "caution_watch_candidates": [
+                {"code": "1001", "tradeEntryBlockReasons": ["missing_long_profit_expectancy"]},
+                {"code": "1002", "tradeEntryBlockReasons": ["missing_long_profit_expectancy", "extended_above_ma20"]},
+            ],
+        }
+    )
+
+    assert contract["status"] == "no_eligible_long"
+    assert contract["actionable_long_count"] == 0
+    assert contract["excluded_long_count"] == 2
+    assert contract["exclusion_reason_counts"] == {
+        "missing_long_profit_expectancy": 2,
+        "extended_above_ma20": 1,
+    }
+    assert "ありません" in contract["message"]
+
+
 def test_failed_high_retest_merge_preserves_short_entry_actionability(monkeypatch) -> None:
     monkeypatch.setattr(
         rankings_cache,

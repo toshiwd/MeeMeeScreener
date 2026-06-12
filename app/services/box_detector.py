@@ -38,7 +38,7 @@ def detect_boxes(
     rows: Iterable[tuple],
     *,
     min_bars: int = 3,
-    max_bars: int = 24,
+    max_bars: int = 12,
     max_range_pct: float = 0.18,
     min_range_pct: float = 0.12,
     edge_touch_pct: float = 0.18,

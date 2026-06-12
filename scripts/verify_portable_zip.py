@@ -10,9 +10,33 @@ REQUIRED_PATHS = [
     "_internal/app/backend/api/__init__.py",
     "_internal/app/backend/api/routers/__init__.py",
     "_internal/app/backend/api/routers/market.py",
+    "_internal/app/backend/services/noncandle_rank_window_shadow_adapter.py",
+    "_internal/app/backend/services/ml/rankings_cache.py",
     "_internal/app/backend/trade_parser.py",
     "_internal/app/backend/static/index.html",
     "_internal/app/desktop/launcher.py",
+]
+
+CNT60UP_RANKING_MUST_CONTAIN = [
+    "MEEMEE_RANK_CNT60UP_ACTIVE_RERANK",
+    "MEEMEE_RANK_CNT60UP_SHADOW_RESPONSE",
+    "cnt60up_active_rerank",
+    "cnt60up_shadow",
+    "MEEMEE_RANK_LIQUIDITY_ACTIVE_RERANK",
+    "MEEMEE_RANK_LIQUIDITY_SHADOW_RESPONSE",
+    "liquidity_active_rerank",
+    "liquidity_shadow",
+]
+
+CNT60UP_ADAPTER_MUST_CONTAIN = [
+    "compute_cnt60up_rank_window_shadow_ranking",
+    "compute_liquidity_rank_window_shadow_ranking",
+    "cnt60up_rank_window_pass",
+    "liquidity20d_rank_window_pass",
+    "missing_cnt60up_no_silent_fallback",
+    "missing_liquidity20d_no_silent_fallback",
+    "runtime_duckdb_write_attempted",
+    "production_registry_write_attempted",
 ]
 
 SIMILARITY_PATH_CANDIDATES = [
@@ -99,6 +123,20 @@ def main(argv: list[str]) -> int:
             for p in missing:
                 print(f"  - {p}")
             return 1
+
+        rankings_cache_text = read_text("_internal/app/backend/services/ml/rankings_cache.py")
+        for marker in CNT60UP_RANKING_MUST_CONTAIN:
+            if marker not in rankings_cache_text:
+                print("NG: cnt60up ranking marker missing")
+                print(f"  missing='{marker}' file=_internal/app/backend/services/ml/rankings_cache.py")
+                return 1
+
+        cnt60up_adapter_text = read_text("_internal/app/backend/services/noncandle_rank_window_shadow_adapter.py")
+        for marker in CNT60UP_ADAPTER_MUST_CONTAIN:
+            if marker not in cnt60up_adapter_text:
+                print("NG: cnt60up adapter marker missing")
+                print(f"  missing='{marker}' file=_internal/app/backend/services/noncandle_rank_window_shadow_adapter.py")
+                return 1
 
         # Frontend static assets gate (index.html + referenced assets)
         index_path = "_internal/app/backend/static/index.html"

@@ -48,6 +48,107 @@ type MaLine = {
   lineWidth: number;
 };
 
+type BattleZoneState = "battle" | "support" | "failed";
+
+type BattleZone = {
+  startTime: number;
+  breakTime: number;
+  endTime: number;
+  upper: number;
+  lower: number;
+  state: BattleZoneState;
+  touchCount: number;
+};
+
+const BATTLE_ZONE_LOOKBACK = 120;
+const BATTLE_ZONE_MAX_COUNT = 2;
+
+const findMa20Line = (maLines: MaLine[]) =>
+  maLines.find((line) => line.period === 20 || line.key === "ma20" || line.label === "20MA") ?? null;
+
+const buildBattleZones = (candles: Candle[], maLines: MaLine[], volume: VolumePoint[]): BattleZone[] => {
+  if (candles.length < BATTLE_ZONE_LOOKBACK + 4) return [];
+
+  const ma20 = findMa20Line(maLines);
+  if (!ma20?.visible) return [];
+
+  const ma20Map = new Map<number, number>();
+  (ma20.chartData ?? ma20.data ?? []).forEach((point) => {
+    if (Number.isFinite(point.time) && Number.isFinite(point.value)) {
+      ma20Map.set(point.time, point.value);
+    }
+  });
+  if (!ma20Map.size) return [];
+
+  const volumeMap = new Map<number, number>();
+  volume.forEach((point) => {
+    if (Number.isFinite(point.time) && Number.isFinite(point.value)) {
+      volumeMap.set(point.time, point.value);
+    }
+  });
+  if (!volumeMap.size) return [];
+
+  const zones: BattleZone[] = [];
+  let lastBreakTime = 0;
+
+  for (let index = BATTLE_ZONE_LOOKBACK; index < candles.length; index += 1) {
+    const current = candles[index];
+    if (!current) continue;
+
+    const ma20Value = ma20Map.get(current.time);
+    if (ma20Value == null || current.close <= ma20Value) continue;
+
+    let avgVolume = 0;
+    let volumeCount = 0;
+    for (let volumeIndex = Math.max(0, index - 20); volumeIndex < index; volumeIndex += 1) {
+      const value = volumeMap.get(candles[volumeIndex]?.time);
+      if (value == null) continue;
+      avgVolume += value;
+      volumeCount += 1;
+    }
+    const currentVolume = volumeMap.get(current.time);
+    if (!volumeCount || currentVolume == null || currentVolume < avgVolume / volumeCount) continue;
+
+    const prior = candles.slice(index - BATTLE_ZONE_LOOKBACK, index);
+    const resistance = Math.max(...prior.map((bar) => bar.high).filter(Number.isFinite));
+    if (!Number.isFinite(resistance) || resistance <= 0) continue;
+
+    const lower = resistance * 0.97;
+    const upper = resistance * 1.006;
+    const touchBars = prior.filter((bar) => bar.high >= lower && bar.high <= upper);
+    if (touchBars.length < 2) continue;
+
+    const prevClose = candles[index - 1]?.close ?? 0;
+    const brokeResistance =
+      current.close >= upper && current.high >= upper && prevClose < upper && current.low <= resistance * 1.04;
+    if (!brokeResistance) continue;
+    if (current.time - lastBreakTime < 20 * 24 * 60 * 60) continue;
+
+    const nextBars = candles.slice(index + 1, index + 4);
+    const failedBar = nextBars.find((bar) => bar.close < resistance * 0.99);
+    const state: BattleZoneState =
+      failedBar != null ? "failed" : nextBars.length >= 3 ? "support" : "battle";
+    const startTime = touchBars[0]?.time ?? candles[index - BATTLE_ZONE_LOOKBACK]?.time ?? current.time;
+    const endTime = failedBar?.time ?? candles[candles.length - 1]?.time ?? current.time;
+
+    zones.push({
+      startTime,
+      breakTime: current.time,
+      endTime,
+      upper,
+      lower,
+      state,
+      touchCount: touchBars.length
+    });
+    lastBreakTime = current.time;
+  }
+
+  const lastTime = candles[candles.length - 1]?.time ?? 0;
+  return zones
+    .filter((zone) => lastTime - zone.breakTime <= 120 * 24 * 60 * 60)
+    .slice(-BATTLE_ZONE_MAX_COUNT);
+};
+
 type EventMarker = {
   time: number;
   label?: string;
@@ -226,6 +327,7 @@ type DetailChartProps = {
   showVolume: boolean;
   boxes: Box[];
   showBoxes: boolean;
+  showBattleZones?: boolean;
   visibleRange?: { from: number; to: number } | null;
   positionOverlay?: {
     dailyPositions: DailyPosition[];
@@ -288,6 +390,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     showVolume,
     boxes,
     showBoxes,
+    showBattleZones = false,
     visibleRange,
     positionOverlay,
     eventMarkers,
@@ -360,6 +463,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     showVolume,
     boxes,
     showBoxes,
+    showBattleZones,
     cursorTime,
     selectedTime
   });
@@ -369,6 +473,8 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
   const candlesRef = useRef<Candle[]>(candles);
   const boxesRef = useRef<Box[]>(boxes);
   const showBoxesRef = useRef(showBoxes);
+  const showBattleZonesRef = useRef(showBattleZones);
+  const battleZonesRef = useRef<BattleZone[]>([]);
   const cursorTimeRef = useRef<number | null>(cursorTime ?? null);
   const selectedTimeRef = useRef<number | null>(selectedTime ?? null);
   const partialTimesRef = useRef<number[]>(partialTimes ?? []);
@@ -744,7 +850,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     const rightBoundary =
       visibleRange && Number.isFinite(visibleRange.to) ? visibleRange.to : candleSource[candleSource.length - 1]?.time ?? null;
     const chipCandle = findLastCandleAtOrBefore(candleSource, rightBoundary ?? null) ?? candleSource[candleSource.length - 1] ?? null;
-    const legendAnchorTime = cursorTimeRef.current ?? chipCandle?.time ?? null;
+    const legendAnchorTime = cursorTimeRef.current ?? selectedTimeRef.current ?? chipCandle?.time ?? null;
     const legendCandle = findLastCandleAtOrBefore(candleSource, legendAnchorTime);
     const activeCandle = legendCandle ?? chipCandle ?? candleSource[candleSource.length - 1] ?? null;
     const chartMaLines = dataRef.current.maLines ?? [];
@@ -1435,6 +1541,56 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
 
     const timeScale = chart.timeScale();
     const series = candleSeriesRef.current;
+
+    if (
+      showBattleZonesRef.current &&
+      typeof timeScale.timeToCoordinate === "function" &&
+      typeof series?.priceToCoordinate === "function"
+    ) {
+      const zonesToDraw = battleZonesRef.current ?? [];
+      zonesToDraw.forEach((zone) => {
+        const breakX = timeScale.timeToCoordinate(zone.breakTime as Time);
+        const rawStartX = timeScale.timeToCoordinate(zone.startTime as Time);
+        const rawEndX = timeScale.timeToCoordinate(zone.endTime as Time);
+        const yUpper = series.priceToCoordinate(zone.upper);
+        const yLower = series.priceToCoordinate(zone.lower);
+        if (breakX == null || yUpper == null || yLower == null) return;
+
+        const startX = rawStartX ?? 0;
+        const endX = rawEndX ?? width;
+        const rectX = Math.max(0, Math.min(startX, endX));
+        const rectW = Math.max(1, Math.min(width, Math.max(startX, endX)) - rectX);
+        const rectY = Math.min(yUpper, yLower);
+        const rectH = Math.max(1, Math.abs(yLower - yUpper));
+        const color = zone.state === "failed" ? "#ef4444" : zone.state === "support" ? "#16a34a" : "#2563eb";
+        const label = zone.state === "failed" ? "failed" : zone.state === "support" ? "support" : "battle";
+
+        ctx.save();
+        ctx.fillStyle = applyAlpha(color, zone.state === "failed" ? 0.045 : 0.075);
+        ctx.strokeStyle = applyAlpha(color, zone.state === "failed" ? 0.5 : 0.62);
+        ctx.lineWidth = zone.state === "support" ? 1.5 : 1.25;
+        if (zone.state === "failed") ctx.setLineDash([5, 4]);
+        ctx.fillRect(rectX, rectY, rectW, rectH);
+        ctx.strokeRect(rectX, rectY, rectW, rectH);
+        ctx.setLineDash([]);
+        ctx.strokeStyle = applyAlpha(color, 0.72);
+        ctx.beginPath();
+        ctx.moveTo(Math.max(0, breakX), rectY);
+        ctx.lineTo(Math.min(width, Math.max(breakX, endX)), rectY);
+        ctx.stroke();
+        if (rectW >= 54 && rectH >= 10) {
+          ctx.font = "bold 11px sans-serif";
+          ctx.textAlign = "left";
+          ctx.textBaseline = "middle";
+          ctx.fillStyle = color;
+          ctx.shadowColor = resolvedTheme === "light" ? "rgba(255,255,255,0.92)" : "rgba(15,23,42,0.8)";
+          ctx.shadowBlur = 4;
+          ctx.fillText(`${label} ${zone.touchCount}`, Math.max(4, rectX + 6), rectY + rectH / 2);
+        }
+        ctx.restore();
+      });
+    }
+
     const drawCandleRangeMeasurement = (
       startX: number,
       endX: number,
@@ -2098,8 +2254,8 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     };
 
     const selectedValue = findNearestChartTime(candlesRef.current ?? [], selectedTimeRef.current);
-    const cursorValue = cursorTimeRef.current;
-    if (selectedValue != null && selectedValue !== cursorValue) {
+    const cursorValue = cursorTimeRef.current ?? selectedValue;
+    if (selectedValue != null && cursorTimeRef.current != null && selectedValue !== cursorValue) {
       drawVerticalGuide(selectedValue, SELECTED_TIME_STROKE, 1.5, [5, 3]);
     }
     drawVerticalGuide(cursorValue, CURSOR_STROKE, 1);
@@ -2433,10 +2589,14 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
       showVolume,
       boxes: boxesRef.current,
       showBoxes: showBoxesRef.current,
+      showBattleZones: showBattleZonesRef.current,
       cursorTime: cursorTimeRef.current,
       selectedTime: selectedTimeRef.current
     };
     candlesRef.current = candles;
+    battleZonesRef.current = showBattleZonesRef.current
+      ? buildBattleZones(candles, maLines, volume)
+      : [];
     if (!gapBandsPropRef.current) {
       updateGapBandsStable(resolveGapAsOfFromLatestCandle());
     }
@@ -2446,6 +2606,8 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
   useEffect(() => {
     boxesRef.current = boxes;
     showBoxesRef.current = showBoxes;
+    showBattleZonesRef.current = showBattleZones;
+    battleZonesRef.current = showBattleZones ? buildBattleZones(candlesRef.current, maLines, volume) : [];
     cursorTimeRef.current = cursorTime ?? null;
     selectedTimeRef.current = selectedTime ?? null;
     partialTimesRef.current = partialTimes ?? [];
@@ -2455,6 +2617,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
       ...dataRef.current,
       boxes,
       showBoxes,
+      showBattleZones,
       cursorTime: cursorTime ?? null,
       selectedTime: selectedTime ?? null
     };
@@ -2462,7 +2625,19 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
       setChromeTick((tick) => tick + 1);
     }
     drawOverlayStable();
-  }, [boxes, showBoxes, cursorTime, selectedTime, partialTimes, eventMarkers, callouts, drawOverlayStable]);
+  }, [
+    boxes,
+    showBoxes,
+    showBattleZones,
+    maLines,
+    volume,
+    cursorTime,
+    selectedTime,
+    partialTimes,
+    eventMarkers,
+    callouts,
+    drawOverlayStable
+  ]);
 
   useEffect(() => {
     timeZonesRef.current = timeZones ?? [];
@@ -2946,7 +3121,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
       : selectedContextShape?.kind === "timeZone"
         ? timeZonesRef.current[selectedContextShape.index]?.color ?? BUY_ZONE_COLOR
         : null;
-  const showDetailChromeDateChip = false;
+  const showDetailChromeDateChip = detailChromeEnabled;
   const showDetailChromeLegend =
     detailChromeEnabled && detailChromeTimeframe !== "daily" && !positionOverlay;
 

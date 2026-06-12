@@ -17,6 +17,20 @@ const toText = (value: unknown, fallback = "") => {
 
 export type TradexListSummaryTone = "buy" | "neutral" | "sell";
 
+export type TradexShortLifecycleOverlay = {
+  state: string | null;
+  rank: number | null;
+  signalYmd: string | null;
+  expectedDownsidePct: number | null;
+  riskRewardToSl8: number | null;
+  setupState: string | null;
+  continuationStatus: string | null;
+  finalReviewStatus: string | null;
+  reasons: string[];
+  reviewOnly: boolean;
+  artifactCreatedAt: string | null;
+};
+
 export type TradexListSummaryRequestItem = {
   code: string;
   asof?: string | number | null;
@@ -31,6 +45,7 @@ export type TradexListSummaryItem = {
   confidence: number | null;
   publishReadiness: TradexAnalysisPublishReadiness | null;
   reasons: string[];
+  shortLifecycle?: TradexShortLifecycleOverlay | null;
 };
 
 export type TradexListSummaryReadResult = {
@@ -119,10 +134,12 @@ export const formatTradexListSummaryReadinessLabel = (
 };
 
 export const shouldShowTradexListSummary = (
-  flag = import.meta.env.VITE_ENABLE_TRADEX_LIST_SUMMARY
+  flag = import.meta.env.VITE_ENABLE_TRADEX_LIST_SUMMARY,
+  lifecycleFlag = import.meta.env.VITE_ENABLE_TRADEX_SHORT_LIFECYCLE_OVERLAY
 ) => {
   const raw = toText(flag, "0").toLowerCase();
-  return truthy.has(raw);
+  const lifecycleRaw = toText(lifecycleFlag, "0").toLowerCase();
+  return truthy.has(raw) || truthy.has(lifecycleRaw);
 };
 
 export const buildTradexListSummaryKey = (code: string, asof: string | number | null | undefined) => {
@@ -163,6 +180,24 @@ const normalizeAsof = (value: unknown): string | null => {
   return text || null;
 };
 
+const normalizeShortLifecycle = (value: unknown): TradexShortLifecycleOverlay | null => {
+  if (!value || typeof value !== "object") return null;
+  const source = value as Record<string, unknown>;
+  return {
+    state: toText(source.state) || null,
+    rank: toFiniteNumber(source.rank),
+    signalYmd: normalizeAsof(source.signal_ymd ?? source.signalYmd),
+    expectedDownsidePct: toFiniteNumber(source.expected_downside_pct ?? source.expectedDownsidePct),
+    riskRewardToSl8: toFiniteNumber(source.risk_reward_to_sl8 ?? source.riskRewardToSl8),
+    setupState: toText(source.setup_state ?? source.setupState) || null,
+    continuationStatus: toText(source.continuation_status ?? source.continuationStatus) || null,
+    finalReviewStatus: toText(source.final_review_status ?? source.finalReviewStatus) || null,
+    reasons: normalizeReasons(source.reasons),
+    reviewOnly: Boolean(source.review_only ?? source.reviewOnly),
+    artifactCreatedAt: normalizeAsof(source.artifact_created_at ?? source.artifactCreatedAt),
+  };
+};
+
 const normalizeItem = (value: unknown): TradexListSummaryItem => {
   const source = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
   const available = Boolean(source.available);
@@ -179,6 +214,7 @@ const normalizeItem = (value: unknown): TradexListSummaryItem => {
     confidence: toFiniteNumber(source.confidence),
     publishReadiness,
     reasons: normalizeReasons(source.reasons),
+    shortLifecycle: normalizeShortLifecycle(source.short_lifecycle ?? source.shortLifecycle),
   };
 };
 

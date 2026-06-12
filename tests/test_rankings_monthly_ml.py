@@ -104,6 +104,9 @@ def _monthly_cache_items() -> list[dict]:
 def _prepare_hybrid_ml_cache(monkeypatch) -> None:
     rankings_cache._RESULT_CACHE = {}  # type: ignore[attr-defined]
     rankings_cache._RESULT_CACHE_GENERATION = 0  # type: ignore[attr-defined]
+    rankings_cache._RESULT_REFRESH_IN_PROGRESS = {}  # type: ignore[attr-defined]
+    rankings_cache._RESULT_REFRESH_LAST_ERROR = {}  # type: ignore[attr-defined]
+    monkeypatch.setattr(rankings_cache, "_ensure_cache_fresh_stale_ok", lambda **kwargs: None)
     monkeypatch.setattr(rankings_cache, "is_legacy_analysis_disabled", lambda: False)
 
 

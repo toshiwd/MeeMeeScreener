@@ -888,7 +888,7 @@ export default function GridView() {
       normalized += idx >= 0 ? halfwidth[idx] : ch;
     }
     normalized = normalized.replace(/\s+/g, "").toUpperCase();
-    if (!/^\d{4}[A-Z]?$/.test(normalized)) return null;
+    if (!/^(?:\d{4}[A-Z]?|\d{3}[A-Z])$/.test(normalized)) return null;
     return normalized;
   }, []);
 

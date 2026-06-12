@@ -12,6 +12,8 @@ export const TRADEX_RESEARCH_ENDPOINTS = {
   stateEvalActionQueue: "/state-eval-action-queue",
   replayProgress: "/replay-progress",
   forecastSurfaceProjection: "/forecast-surface-projection",
+  shortLifecycleBoard: "/short-lifecycle-board",
+  buyLifecycleBoard: "/buy-lifecycle-board",
   stateEvalPromotionReview: "/state-eval-promotion-review",
   stateEvalPromotionDecision: "/state-eval-promotion-decision",
   stateEvalTagsCsv: "/state-eval-tags.csv",

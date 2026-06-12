@@ -1,0 +1,104 @@
+{
+  "schema_version": "tradex_review_label_registry_v1",
+  "scope": "TRADEX review and research reporting labels only",
+  "boundary": {
+    "runtime_db_write": false,
+    "production_ranking_mutation": false,
+    "meemee_reflection": false,
+    "english_ids_remain_authoritative_keys": true
+  },
+  "policy": {
+    "purpose": "Map stable English IDs to Japanese display names for review and operator communication.",
+    "usage_rule": "Use Japanese display_name in user-facing reports, while keeping english_id unchanged in code and artifacts unless explicitly promoted.",
+    "non_scope": [
+      "renaming production schema fields",
+      "changing model feature names",
+      "changing runtime DB columns",
+      "changing existing authoritative artifact keys"
+    ]
+  },
+  "pattern_labels": [
+    {
+      "english_id": "strong_close_hold",
+      "display_name": "強引け維持型",
+      "short_name": "強引け",
+      "definition_ja": "暴落日でも引け位置が高く、かつMA20を維持した事前リーダー。"
+    },
+    {
+      "english_id": "mid_close_hold",
+      "display_name": "中引け維持型",
+      "short_name": "中引け",
+      "definition_ja": "暴落日でもMA20は維持したが、引け位置は中途半端だった事前リーダー。"
+    },
+    {
+      "english_id": "weak_close_or_break",
+      "display_name": "弱引け崩れ型",
+      "short_name": "弱引け",
+      "definition_ja": "暴落日に引け位置が弱い、またはMA20を割った事前リーダー。"
+    },
+    {
+      "english_id": "ma20_break_rebound",
+      "display_name": "MA20割れ反発型",
+      "short_name": "MA20割れ",
+      "definition_ja": "弱引け崩れ型のうち、暴落日にMA20を割り込んだが、その後の反発余地が残る事前リーダー。"
+    },
+    {
+      "english_id": "ma20_hold_weak_close",
+      "display_name": "MA20維持弱引け型",
+      "short_name": "維持弱引け",
+      "definition_ja": "弱引け崩れ型のうち、MA20は維持したまま引け位置だけが弱かった事前リーダー。"
+    }
+  ],
+  "entry_state_labels": [
+    {
+      "english_id": "entry_fit",
+      "display_name": "新規許容",
+      "short_name": "許容",
+      "definition_ja": "現行 review 条件では新規エントリー候補として残る状態。"
+    },
+    {
+      "english_id": "blocked",
+      "display_name": "新規見送り",
+      "short_name": "見送り",
+      "definition_ja": "現行 review 条件では新規エントリー候補から除外される状態。"
+    }
+  ],
+  "block_reason_labels": [
+    {
+      "english_id": "current_weak_close",
+      "display_name": "弱引け失速",
+      "short_name": "弱引け",
+      "definition_ja": "直近足の引けが弱く、当日の反発持続力が不足している。"
+    },
+    {
+      "english_id": "high_zone_extension_risk",
+      "display_name": "高値圏伸び切り",
+      "short_name": "伸び切り",
+      "definition_ja": "高値圏からの乖離が大きく、追い買いの期待値が悪化している。"
+    },
+    {
+      "english_id": "late_buy_chase_risk",
+      "display_name": "遅れ追い危険",
+      "short_name": "追い遅れ",
+      "definition_ja": "エントリー位置が遅く、上昇の後追いになっている。"
+    },
+    {
+      "english_id": "upper_wick_rejection",
+      "display_name": "上ヒゲ拒否",
+      "short_name": "上ヒゲ",
+      "definition_ja": "上値を試したが売られており、引けの需要確認が弱い。"
+    },
+    {
+      "english_id": "already_large_20d_run",
+      "display_name": "20日大幅走り後",
+      "short_name": "走り過ぎ",
+      "definition_ja": "過去20営業日で既に大きく上昇しており、続伸余地が細っている。"
+    },
+    {
+      "english_id": "no_failed_rebound_short_setup",
+      "display_name": "戻り売り不成立",
+      "short_name": "戻り売り外",
+      "definition_ja": "失敗反発からの売り条件を満たしておらず、短期ショート型として整っていない。"
+    }
+  ]
+}

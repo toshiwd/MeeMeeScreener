@@ -2851,6 +2851,141 @@ def refresh_daily_tracking_window(
     }
 
 
+def refresh_ranking_appearance_outcomes(
+    *,
+    db_path: str | None = None,
+    ranking_logic_version: str | None = None,
+) -> dict[str, Any]:
+    started_at = time.monotonic()
+    with _open_conn(db_path) as conn:
+        resolved_ranking_logic_version, _ = _resolve_ranking_logic_version(conn, ranking_logic_version)
+    with _open_conn(db_path, read_only=True) as conn:
+        latest_market_ymd = _latest_market_ymd(conn)
+        latest_market_date = _ymd_to_date(latest_market_ymd)
+        rows = conn.execute(
+            """
+            SELECT appearance_id, dt, dir, code, anchor_price_close, anchor_price_next_open, status
+            FROM ranking_appearance_daily
+            WHERE ranking_logic_version = ?
+              AND status IN ('active', 'completed')
+            ORDER BY dt, dir, rank, appearance_id
+            """,
+            [resolved_ranking_logic_version],
+        ).fetchall()
+        bars_cache: dict[str, tuple[list[DailyBar], dict[int, int]]] = {}
+        update_rows: list[list[Any]] = []
+        status_counts: dict[str, int] = {"active": 0, "completed": 0, "archive": 0}
+        for appearance_id, dt, direction, code, anchor_close, anchor_next_open, _old_status in rows:
+            code_key = str(code or "").strip()
+            if not code_key or dt is None:
+                continue
+            if code_key not in bars_cache:
+                bars = _fetch_code_bars(conn, code=code_key, start_ymd=int(dt))
+                bars_cache[code_key] = (bars, _bar_price_lookup(bars))
+            bars, by_date = bars_cache[code_key]
+            start_index = by_date.get(int(dt))
+            if start_index is None:
+                if latest_market_date is not None:
+                    appearance_date = _ymd_to_date(int(dt))
+                    if appearance_date is not None:
+                        stale_cutoff_date = appearance_date + timedelta(
+                            days=WATCH_HORIZON_BARS + COMPLETED_RETENTION_DAYS
+                        )
+                        if latest_market_date >= stale_cutoff_date:
+                            status_counts["archive"] = status_counts.get("archive", 0) + 1
+                            update_rows.append(
+                                [
+                                    None,
+                                    None,
+                                    None,
+                                    None,
+                                    None,
+                                    None,
+                                    None,
+                                    None,
+                                    "archive",
+                                    None,
+                                    datetime.combine(stale_cutoff_date, datetime.min.time(), tzinfo=timezone.utc),
+                                    datetime.now(timezone.utc),
+                                    str(appearance_id),
+                                ]
+                            )
+                continue
+            metrics = _compute_window_metrics(
+                side="sell" if str(direction) == "down" else "buy",
+                bars=bars,
+                start_index=start_index,
+                anchor_close_price=float(anchor_close) if anchor_close is not None else None,
+                anchor_exec_price=float(anchor_next_open) if anchor_next_open is not None else None,
+                latest_market_ymd=latest_market_ymd,
+            )
+            new_status = str(metrics["status"])
+            completed_at = metrics.get("completed_at")
+            archived_at = metrics.get("archived_at")
+            if new_status == "active" and latest_market_date is not None:
+                appearance_date = _ymd_to_date(int(dt))
+                if appearance_date is not None:
+                    stale_cutoff_date = appearance_date + timedelta(
+                        days=WATCH_HORIZON_BARS + COMPLETED_RETENTION_DAYS
+                    )
+                    if latest_market_date >= stale_cutoff_date:
+                        new_status = "archive"
+                        archived_at = datetime.combine(stale_cutoff_date, datetime.min.time(), tzinfo=timezone.utc)
+            status_counts[new_status] = status_counts.get(new_status, 0) + 1
+            update_rows.append(
+                [
+                    metrics["current_return_close_basis"],
+                    metrics["final_return_at_horizon"],
+                    metrics["max_favorable_return"],
+                    metrics["max_adverse_return"],
+                    metrics.get("days_to_max_favorable_30"),
+                    metrics.get("days_to_max_adverse_30"),
+                    metrics.get("date_of_max_favorable_30"),
+                    metrics.get("date_of_max_adverse_30"),
+                    new_status,
+                    completed_at,
+                    archived_at,
+                    datetime.now(timezone.utc),
+                    str(appearance_id),
+                ]
+            )
+    if update_rows:
+        with _open_conn(db_path) as conn:
+            conn.executemany(
+                """
+                UPDATE ranking_appearance_daily
+                SET
+                    current_directional_return = ?,
+                    return_30d = ?,
+                    max_favorable_30 = ?,
+                    max_adverse_30 = ?,
+                    days_to_max_favorable_30 = ?,
+                    days_to_max_adverse_30 = ?,
+                    date_of_max_favorable_30 = ?,
+                    date_of_max_adverse_30 = ?,
+                    status = ?,
+                    completed_at = ?,
+                    archived_at = ?,
+                    updated_at = ?
+                WHERE appearance_id = ?
+                """,
+                update_rows,
+            )
+    with _REFRESH_LOCK:
+        _REFRESH_STATE["as_of"] = latest_market_ymd
+        _REFRESH_STATE["refreshed_at"] = datetime.now(timezone.utc)
+    return {
+        "ok": True,
+        "ranking_logic_version": resolved_ranking_logic_version,
+        "latest_market_ymd": latest_market_ymd,
+        "latest_market_date": _ymd_to_iso(latest_market_ymd),
+        "rows_scanned": len(rows),
+        "rows_updated": len(update_rows),
+        "status_counts_after_refresh_scope": status_counts,
+        "elapsed_sec": round(time.monotonic() - started_at, 3),
+    }
+
+
 def ensure_signal_tracking_current(
     *,
     as_of: int | str | None = None,
@@ -2869,6 +3004,8 @@ def ensure_signal_tracking_current(
             or (as_of_int is not None and last_as_of != as_of_int)
         )
     if should_refresh:
+        if as_of_int is None:
+            return refresh_ranking_appearance_outcomes(db_path=db_path)
         return refresh_signal_tracking(as_of=as_of_int, db_path=db_path)
     return {
         "ok": True,

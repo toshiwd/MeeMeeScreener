@@ -118,6 +118,7 @@ def test_run_validation_writes_authoritative_json(monkeypatch, tmp_path) -> None
     assert payload["fixed_evaluation_conditions"]["live_db_queries"] is False
     assert payload["authoritative_rollup_decision"] in {"keep", "hold", "drop"}
     assert "momentum_follow_through_v1" in payload["candidate_local_decision"]
+    assert "short_momentum_follow_through_v1" in payload["candidate_local_decision"]
     assert Path(result["artifact_refs"]["ranking_surface_inventory"]).exists()
 
 
@@ -148,3 +149,64 @@ def test_run_validation_stops_decision_when_snapshot_is_stale(monkeypatch, tmp_p
     payload = validation.json.loads(decision_path.read_text(encoding="utf-8"))
     assert payload["authoritative_rollup_decision"] == "not-yet-reportable"
     assert payload["not_reportable_reasons"]
+
+
+def test_run_validation_respects_down_only_direction(monkeypatch, tmp_path) -> None:
+    db_path = tmp_path / "stocks.duckdb"
+    _create_validation_db(db_path)
+
+    from app.backend.services import codex_bridge_service
+    from app.backend.services.ml import rankings_cache
+
+    requested_directions: list[str] = []
+    monkeypatch.setattr(
+        codex_bridge_service,
+        "get_runtime_stock_db_status",
+        lambda: {"freshness_state": "fresh", "selected_runtime_db_path": str(db_path)},
+    )
+    monkeypatch.setattr(
+        codex_bridge_service,
+        "get_rankings_freshness",
+        lambda **kwargs: {
+            "freshness_state": "fresh",
+            "stale": False,
+            "snapshot_as_of": "2026-01-80",
+            "tf": kwargs.get("tf"),
+            "direction": kwargs.get("direction"),
+        },
+    )
+
+    def fake_rankings_asof(tf, which, direction, limit, *, as_of, mode="trade", risk_mode="balanced"):
+        requested_directions.append(direction)
+        assert direction == "down"
+        return {
+            "tf": tf,
+            "which": which,
+            "dir": direction,
+            "mode": mode,
+            "risk_mode": risk_mode,
+            "items": [{"code": "0008", "asOf": str(as_of), "entryQualified": True}],
+        }
+
+    monkeypatch.setattr(rankings_cache, "get_rankings_asof", fake_rankings_asof)
+
+    result = validation.run_validation(
+        db_path=db_path,
+        output_root=tmp_path / "out",
+        required_latest_ymd=20260170,
+        lookback_dates=1,
+        eval_step=3,
+        min_eval_dates=1,
+        timeframes=("D",),
+        directions=("down",),
+        horizons=(5,),
+        top_k_values=(5,),
+    )
+
+    payload = validation.json.loads(Path(result["artifact_refs"]["authoritative_decision"]).read_text(encoding="utf-8"))
+    assert requested_directions and set(requested_directions) == {"down"}
+    assert payload["candidate_local_decision"]["buy"]["decision"] == "not-run"
+    assert payload["candidate_local_decision"]["momentum_follow_through_v1"]["decision"] == "not-run"
+    assert payload["candidate_local_decision"]["sell"]["decision"] in {"keep", "hold", "drop"}
+    assert not Path(result["artifact_refs"]["ranking_effectiveness_buy_compare"]).exists()
+    assert Path(result["artifact_refs"]["ranking_effectiveness_sell_compare"]).exists()

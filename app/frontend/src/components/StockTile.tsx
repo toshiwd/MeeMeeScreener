@@ -81,6 +81,9 @@ const StockTile = memo(function StockTile({
   const cachedThumb = getThumbnailCache(cacheKey);
   const earningsLabel = formatEventBadgeDate(ticker.eventEarningsDate);
   const rightsLabel = formatEventBadgeDate(ticker.eventRightsDate);
+  const watchlistTags = Array.isArray(ticker.watchlistTags)
+    ? ticker.watchlistTags.filter((tag): tag is string => Boolean(tag)).slice(0, 3)
+    : [];
   const bars = barsPayload?.bars ?? [];
   const hasLiveBars = bars.length > 0;
   const hasCachedThumb = Boolean(cachedThumb);
@@ -182,6 +185,15 @@ const StockTile = memo(function StockTile({
         <div className={`tile-id${showCompactHeader ? " is-inline" : ""}`}>
           <span className="tile-code">{ticker.code}</span>
           <span className="tile-name">{ticker.name}</span>
+          {watchlistTags.length > 0 && (
+            <span className="tile-watch-tags">
+              {watchlistTags.map((tag) => (
+                <span key={tag} className="tile-watch-tag">
+                  {tag}
+                </span>
+              ))}
+            </span>
+          )}
         </div>
         <div className="tile-header-right">
           {showCompactHeader && (asofLabel || showRightsBadge || showEarningsBadge) && (

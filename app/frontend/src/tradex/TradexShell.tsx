@@ -4,6 +4,8 @@ import { readTradexLocal, tradexStorageKeys } from "./storage";
 import { tradexFreshnessLabel, tradexReplayLabel } from "./labels";
 
 const navItems = [
+  { to: "/buy-lifecycle", label: "Buy lifecycle" },
+  { to: "/short-lifecycle", label: "Short lifecycle" },
   { to: "/verify", label: "検証" },
   { to: "/compare", label: "候補比較" },
   { to: "/adopt", label: "反映判定" }

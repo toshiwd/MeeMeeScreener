@@ -99,12 +99,16 @@ Feature flags:
 - frontend detail: `VITE_ENABLE_TRADEX_DETAIL_ANALYSIS`
 - backend list summary: `MEEMEE_ENABLE_TRADEX_LIST_SUMMARY`
 - frontend list summary: `VITE_ENABLE_TRADEX_LIST_SUMMARY`
+- backend short lifecycle overlay: `MEEMEE_ENABLE_TRADEX_SHORT_LIFECYCLE_OVERLAY` (default off, read-only)
+- frontend short lifecycle overlay: `VITE_ENABLE_TRADEX_SHORT_LIFECYCLE_OVERLAY` (default off, read-only)
 
 Fallback behavior:
 
 - unavailable detail or summary analysis renders as `analysis unavailable`
 - the UI stays read-only and keeps the rest of MeeMee usable
 - publish / override / write behavior is out of scope for v1
+- the short lifecycle overlay may annotate MeeMee sell-ranking rows, but it must not change ranking order, score, candidate generation, or runtime DB state
+- stale short lifecycle artifacts are not displayed
 
 Cache / TTL behavior:
 

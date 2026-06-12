@@ -2871,6 +2871,7 @@ def post_tradex_list_summary_snapshot(
         items=[item for item in items if isinstance(item, dict)],
         repo=repo,
         enabled=is_tradex_list_summary_enabled(),
+        detail_enabled=is_tradex_detail_analysis_enabled(),
         scope=str(scope).strip() if isinstance(scope, str) and scope.strip() else None,
     )
 

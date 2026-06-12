@@ -67,6 +67,9 @@
 - Do not create repo-root temp/test/cache trees.
 - In-repo release canonical artifact is the portable zip only.
 - Do not keep build or unpacked release trees resident in the repo.
+- C drive should hold only the MeeMee/TRADEX working tree and required runtime DB/state; heavy research artifacts, replay outputs, snapshots, and validation outputs belong on `G:\Tradex`.
+- After heavy research, validation, export, packaging, or replay work finishes, clean up obsolete copies, duplicate snapshots, unpacked releases, temp worktrees, and cache/test residue instead of leaving them resident.
+- Keep canonical or future-validation artifacts on `G:\Tradex`; remove old duplicates and copies once they are no longer needed for future verification.
 - Codex may autonomously maintain repo hygiene and safe cleanup of reproducible temp/cache/output residue.
 - Destructive deletion and storage-boundary changes require explicit approval.
 - Run `tools/check_repo_hygiene.ps1` before heavy Codex or VS Code work.

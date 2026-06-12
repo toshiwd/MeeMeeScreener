@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { buildTradexListSummaryWarmItems } from "./tradexSummary";
+import { buildTradexListSummaryWarmItems, shouldShowTradexListSummary } from "./tradexSummary";
+
+describe("shouldShowTradexListSummary", () => {
+  it("keeps the short lifecycle overlay opt-in", () => {
+    expect(shouldShowTradexListSummary(undefined, undefined)).toBe(false);
+    expect(shouldShowTradexListSummary(undefined, "1")).toBe(true);
+  });
+});
 
 describe("buildTradexListSummaryWarmItems", () => {
   it("dedupes by symbol/asof and caps visible warm items", () => {

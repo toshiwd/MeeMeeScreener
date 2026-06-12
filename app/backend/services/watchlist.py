@@ -25,7 +25,7 @@ WATCHLIST_TRASH_PATTERNS = [
     os.path.join(DATA_DIR, "csv", "{code}*.csv"),
     os.path.join(DATA_DIR, "txt", "{code}*.txt"),
 ]
-WATCHLIST_CODE_RE = re.compile(r"^\d{4}[A-Z]?$")
+WATCHLIST_CODE_RE = re.compile(r"^(?:\d{4}[A-Z]?|\d{3}[A-Z])$")
 watchlist_lock = threading.Lock()
 
 

@@ -94,6 +94,22 @@ type ScreenerListCacheEntry = {
   listLoadedAt: number;
 };
 
+const normalizeWatchlistTagsByCode = (value: unknown): Record<string, string[]> => {
+  if (!value || typeof value !== "object") return {};
+  const entries = Object.entries(value as Record<string, unknown>);
+  const normalized: Record<string, string[]> = {};
+  entries.forEach(([code, tags]) => {
+    if (!Array.isArray(tags)) return;
+    const clean = tags
+      .map((tag) => (typeof tag === "string" ? tag.trim() : ""))
+      .filter((tag): tag is string => tag.length > 0);
+    if (clean.length) {
+      normalized[code] = clean;
+    }
+  });
+  return normalized;
+};
+
 const readPersistedScreenerListCache = (): ScreenerListCacheEntry | null => {
   if (typeof window === "undefined") return null;
   try {
@@ -249,6 +265,7 @@ export const useStore = create<StoreState>((set, get) => ({
     gridTimeframe: getInitialTimeframe(),
     listTimeframe: "daily",
     showBoxes: true,
+    showBattleZones: true,
     showIndicators: false,
     sortKey: getInitialSortKey(),
     sortDir: getInitialSortDir(),
@@ -400,7 +417,7 @@ export const useStore = create<StoreState>((set, get) => ({
         }
         return [];
       };
-      const tickers: Ticker[] = items.map((rawItem) => {
+      let tickers: Ticker[] = items.map((rawItem) => {
         const item = rawItem as Record<string, any>;
         const statusLabel = item.statusLabel ?? null;
         const stageRaw = item.stage ?? statusLabel ?? "UNKNOWN";
@@ -770,6 +787,13 @@ export const useStore = create<StoreState>((set, get) => ({
       try {
         const resWatch = await api.get("/watchlist");
         const watchlistCodes = (resWatch.data?.codes || []) as string[];
+        const watchlistTagsByCode = normalizeWatchlistTagsByCode(resWatch.data?.tagsByCode);
+        if (tickers.length) {
+          tickers = tickers.map((ticker) => ({
+            ...ticker,
+            watchlistTags: watchlistTagsByCode[ticker.code] ?? [],
+          }));
+        }
         if (watchlistCodes.length) {
           const existing = new Set(tickers.map((item) => item.code));
           const missingWatchlistCodes = watchlistCodes.filter((code) => !existing.has(code));
@@ -801,6 +825,7 @@ export const useStore = create<StoreState>((set, get) => ({
             tickers.push({
               code,
               name: code,
+              watchlistTags: watchlistTagsByCode[code] ?? [],
               stage: "",
               score: null,
               reason: "WATCHLIST_ONLY",
@@ -1294,6 +1319,9 @@ export const useStore = create<StoreState>((set, get) => ({
   },
   setShowBoxes: (value) => {
     set((state) => ({ settings: { ...state.settings, showBoxes: value } }));
+  },
+  setShowBattleZones: (value) => {
+    set((state) => ({ settings: { ...state.settings, showBattleZones: value } }));
   },
   setSortKey: (value) => {
     if (typeof window !== "undefined") {

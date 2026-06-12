@@ -10,6 +10,8 @@ import TradexComparePage from "./pages/TradexComparePage";
 import TradexAdoptPage from "./pages/TradexAdoptPage";
 import TradexCandidateDetailPage from "./pages/TradexCandidateDetailPage";
 import TradexReplayPage from "./pages/TradexReplayPage";
+import TradexShortLifecyclePage from "./pages/TradexShortLifecyclePage";
+import TradexBuyLifecyclePage from "./pages/TradexBuyLifecyclePage";
 import { TradexLegacyPublishPage, TradexLegacySimPage, TradexLegacyTagsPage } from "./pages/TradexLegacyPages";
 
 const NotFound = lazy(async () => ({
@@ -42,6 +44,8 @@ export default function TradexApp() {
               <Route path="/compare" element={<TradexComparePage />} />
               <Route path="/adopt" element={<TradexAdoptPage />} />
               <Route path="/replay" element={<TradexReplayPage />} />
+              <Route path="/short-lifecycle" element={<TradexShortLifecyclePage />} />
+              <Route path="/buy-lifecycle" element={<TradexBuyLifecyclePage />} />
               <Route path="/detail/:runId" element={<TradexCandidateDetailPage />} />
               <Route path="/legacy/tags" element={<TradexLegacyTagsPage />} />
               <Route path="/legacy/publish" element={<TradexLegacyPublishPage />} />

@@ -20,6 +20,7 @@ from app.backend.services.watchlist import (
     update_watchlist_file,
     watchlist_lock,
 )
+from app.backend.services.market_watch_tags import build_market_watch_tags_by_code
 from app.backend.core.screener_snapshot_job import schedule_screener_snapshot_refresh
 
 router = APIRouter()
@@ -33,7 +34,12 @@ def get_watchlist():
 
     with watchlist_lock:
         codes = load_watchlist_codes(path)
-    return {"codes": codes, "path": path, "missing": False}
+    return {
+        "codes": codes,
+        "tagsByCode": build_market_watch_tags_by_code(codes),
+        "path": path,
+        "missing": False,
+    }
 
 
 @router.post("/api/watchlist/add")

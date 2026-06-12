@@ -230,6 +230,49 @@ const DETAIL_CHROME_WEEKLY = { timeframe: "weekly" as const };
 const DETAIL_CHROME_MONTHLY = { timeframe: "monthly" as const };
 const ANNOTATION_API_RETRY_DELAYS_MS = [350, 900, 1600];
 
+export const resolveCursorPannedRange = (
+  candles: Candle[],
+  visibleRange: { from: number; to: number } | null | undefined,
+  time: number
+) => {
+  if (!candles.length || !visibleRange) return null;
+  const { from, to } = visibleRange;
+  if (time >= from && time <= to) return null;
+
+  const targetIndex = candles.findIndex((candle) => candle.time === time);
+  if (targetIndex < 0) return null;
+
+  let visibleFromIndex = candles.findIndex((candle) => candle.time >= from);
+  if (visibleFromIndex < 0) {
+    visibleFromIndex = candles.length - 1;
+  }
+  let visibleToIndex = -1;
+  for (let index = candles.length - 1; index >= 0; index -= 1) {
+    if (candles[index].time <= to) {
+      visibleToIndex = index;
+      break;
+    }
+  }
+  if (visibleToIndex < 0) {
+    visibleToIndex = 0;
+  }
+  if (visibleToIndex < visibleFromIndex) {
+    visibleToIndex = visibleFromIndex;
+  }
+
+  const visibleCount = visibleToIndex - visibleFromIndex + 1;
+  const maxFromIndex = Math.max(0, candles.length - visibleCount);
+  const nextFromIndex =
+    time < from
+      ? Math.max(0, targetIndex)
+      : Math.min(maxFromIndex, targetIndex - visibleCount + 1);
+  const nextToIndex = Math.min(candles.length - 1, nextFromIndex + visibleCount - 1);
+  const nextFrom = candles[nextFromIndex]?.time;
+  const nextTo = candles[nextToIndex]?.time;
+  if (nextFrom == null || nextTo == null) return null;
+  return { from: nextFrom, to: nextTo };
+};
+
 const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
 const isRetryableAnnotationApiError = (error: unknown) => {
@@ -529,6 +572,8 @@ export default function DetailView() {
   const setFavoriteLocal = useStore((state) => state.setFavoriteLocal);
   const showBoxes = useStore((state) => state.settings.showBoxes);
   const setShowBoxes = useStore((state) => state.setShowBoxes);
+  const showBattleZones = useStore((state) => state.settings.showBattleZones);
+  const setShowBattleZones = useStore((state) => state.setShowBattleZones);
   const maSettings = useStore((state) => state.maSettings);
   const compareMaSettings = useStore((state) => state.compareMaSettings);
   const updateMaSetting = useStore((state) => state.updateMaSetting);
@@ -610,6 +655,7 @@ export default function DetailView() {
   const [maEditMode, setMaEditMode] = useState<"main" | "compare">("main");
   const [weeklyRatio, setWeeklyRatio] = useState(DETAIL_DEFAULT_WEEKLY_RATIO);
   const [rangeMonths, setRangeMonths] = useState<number | null>(12);
+  const [cursorDailyVisibleRange, setCursorDailyVisibleRange] = useState<{ from: number; to: number } | null>(null);
   const [showTradesOverlay] = useState(true);
   const [showPnLPanel] = useState(true);
   const [syncRanges, setSyncRanges] = useState(true);
@@ -965,6 +1011,7 @@ export default function DetailView() {
 
   useEffect(() => {
     setRangeMonths(12);
+    setCursorDailyVisibleRange(null);
     manualDailyRangeRef.current = null;
     manualWeeklyRangeRef.current = null;
     manualMonthlyRangeRef.current = null;
@@ -972,7 +1019,7 @@ export default function DetailView() {
     manualCompareMonthlyRangeRef.current = null;
     // Suppress programmatic range events after code change
     rangeSettleRef.current = Date.now() + RANGE_SETTLE_MS;
-  }, [code]);
+  }, [code, mainAsOf]);
 
   const tickerByCode = useMemo(() => {
     return new Map(tickers.map((item) => [item.code, item]));
@@ -4627,7 +4674,7 @@ export default function DetailView() {
     }
     return buildRange(monthlyCandles, rangeMonths);
   }, [chartAsOfTime, monthlyCandles, rangeMonths]);
-  const resolvedDailyVisibleRange = rangeMonths ? dailyVisibleRange : manualDailyRangeRef.current;
+  const resolvedDailyVisibleRange = cursorDailyVisibleRange ?? (rangeMonths ? dailyVisibleRange : manualDailyRangeRef.current);
   const resolvedWeeklyVisibleRange = rangeMonths ? weeklyVisibleRange : manualWeeklyRangeRef.current;
   const resolvedMonthlyVisibleRange = rangeMonths ? monthlyVisibleRange : manualMonthlyRangeRef.current;
 
@@ -4638,32 +4685,11 @@ export default function DetailView() {
 
     if (!resolvedDailyVisibleRange) return;
 
-    const { from, to } = resolvedDailyVisibleRange;
-    if (time < from || time > to) {
-      const rangeSize = to - from;
-      let newFrom = time - rangeSize / 2;
-      let newTo = time + rangeSize / 2;
-      const minTime = dailyCandles[0]?.time ?? null;
-      const maxTime = dailyCandles[dailyCandles.length - 1]?.time ?? null;
-      if (minTime != null && maxTime != null) {
-        if (newFrom < minTime) {
-          const overflow = minTime - newFrom;
-          newFrom += overflow;
-          newTo += overflow;
-        }
-        if (newTo > maxTime) {
-          const overflow = newTo - maxTime;
-          newFrom -= overflow;
-          newTo -= overflow;
-        }
-        if (newFrom < minTime) {
-          newFrom = minTime;
-        }
-        if (newTo > maxTime) {
-          newTo = maxTime;
-        }
-      }
-      dailyChartRef.current.setVisibleRange({ from: newFrom, to: newTo });
+    const nextRange = resolveCursorPannedRange(dailyCandles, resolvedDailyVisibleRange, time);
+    if (nextRange) {
+      setCursorDailyVisibleRange(nextRange);
+      rangeSettleRef.current = Date.now() + RANGE_SETTLE_MS;
+      dailyChartRef.current.setVisibleRange(nextRange);
     }
   }, [resolvedDailyVisibleRange, dailyCandles, overwriteLiveValidationMode]);
 
@@ -6014,6 +6040,7 @@ export default function DetailView() {
       if (!shouldSwitchToManual) {
         return;
       }
+      setCursorDailyVisibleRange(null);
       manualDailyRangeRef.current = range;
       manualWeeklyRangeRef.current = range;
       manualMonthlyRangeRef.current = range;
@@ -6021,6 +6048,7 @@ export default function DetailView() {
     }
     mainSync.handleDailyVisibleRangeChange(range);
     if (!rangeMonths && range) {
+      setCursorDailyVisibleRange(null);
       manualDailyRangeRef.current = range;
     }
   };
@@ -6085,6 +6113,10 @@ export default function DetailView() {
 
   const toggleRange = (months: number) => {
     setRangeMonths(months);
+    setCursorDailyVisibleRange(null);
+    manualDailyRangeRef.current = null;
+    manualWeeklyRangeRef.current = null;
+    manualMonthlyRangeRef.current = null;
     manualCompareDailyRangeRef.current = null;
     manualCompareMonthlyRangeRef.current = null;
     // Suppress programmatic visible-range events after preset change
@@ -6545,6 +6577,14 @@ export default function DetailView() {
             </button>
             <button
               type="button"
+              className={`popover-item ${showBattleZones ? "active" : ""}`}
+              onClick={() => setShowBattleZones(!showBattleZones)}
+            >
+              <span className="popover-item-label">Battle zones</span>
+              {showBattleZones && <span className="popover-check">ON</span>}
+            </button>
+            <button
+              type="button"
               className={`popover-item ${showGapBands ? "active" : ""}`}
               onClick={() => setShowGapBands((prev) => !prev)}
             >
@@ -6933,6 +6973,7 @@ export default function DetailView() {
                         eventMarkers={mergedDailyEventMarkers}
                         boxes={boxes}
                         showBoxes={showBoxes}
+                        showBattleZones={showBattleZones}
                         gapBands={gapBandsOverride}
                         drawingEnabled={activeDrawTool != null}
                         timeZones={dailyDrawings.timeZones}
@@ -7012,6 +7053,7 @@ export default function DetailView() {
                         showVolume={showVolumeEnabled && compareDailyVolume.length > 0}
                         boxes={compareBoxes}
                         showBoxes={showBoxes}
+                        showBattleZones={showBattleZones}
                         gapBands={gapBandsOverride}
                         drawingEnabled={activeDrawTool != null}
                         timeZones={compareDailyDrawings.timeZones}
@@ -7089,6 +7131,7 @@ export default function DetailView() {
                       eventMarkers={mergedDailyEventMarkers}
                       boxes={boxes}
                       showBoxes={showBoxes}
+                      showBattleZones={showBattleZones}
                       gapBands={gapBandsOverride}
                       drawingEnabled={dailyAnnotationDrawTool != null}
                       timeZones={dailyDrawings.timeZones}
@@ -7304,6 +7347,7 @@ export default function DetailView() {
                       eventMarkers={mergedDailyEventMarkers}
                       boxes={boxes}
                       showBoxes={showBoxes}
+                      showBattleZones={showBattleZones}
                       gapBands={gapBandsOverride}
                       drawingEnabled={dailyAnnotationDrawTool != null}
                       timeZones={dailyDrawings.timeZones}

@@ -111,3 +111,47 @@ def test_build_tradex_list_summary_snapshot_degrades_when_disabled(monkeypatch) 
 
     assert result == {"available": False, "reason": "feature flag disabled", "scope": "grid-visible", "items": []}
 
+
+def test_short_lifecycle_overlay_is_opt_in(monkeypatch) -> None:
+    monkeypatch.delenv("MEEMEE_ENABLE_TRADEX_LIST_SUMMARY", raising=False)
+    monkeypatch.delenv("MEEMEE_ENABLE_TRADEX_SHORT_LIFECYCLE_OVERLAY", raising=False)
+
+    assert service.is_tradex_list_summary_enabled() is False
+
+
+def test_build_tradex_list_summary_snapshot_adds_read_only_short_lifecycle_without_detail(monkeypatch) -> None:
+    monkeypatch.setattr(
+        service,
+        "_load_short_lifecycle_by_code",
+        lambda: (
+            {
+                "5016": {
+                    "code": "5016",
+                    "lifecycle_rank": 1,
+                    "lifecycle_state": "Probe",
+                    "signal_ymd": 20260526,
+                    "expected_downside_pct": 0.1378,
+                    "risk_reward_to_sl8": 1.51,
+                    "lifecycle_reasons": ["setup_ready_confirmed_continuation"],
+                }
+            },
+            {"available": True, "created_at": "2026-06-05T02:48:15+00:00", "artifact_path": "G:/Tradex/board.json"},
+        ),
+    )
+
+    result = service.build_tradex_list_summary_snapshot(
+        items=[{"code": "5016", "asof": "2026-06-05"}],
+        repo=_FakeRepo(),
+        enabled=True,
+        detail_enabled=False,
+        scope="ranking-visible",
+    )
+
+    item = result["items"][0]
+    assert result["available"] is True
+    assert item["available"] is True
+    assert item["dominant_tone"] is None
+    assert item["short_lifecycle"]["state"] == "Probe"
+    assert item["short_lifecycle"]["expected_downside_pct"] == 0.1378
+    assert item["short_lifecycle"]["review_only"] is True
+

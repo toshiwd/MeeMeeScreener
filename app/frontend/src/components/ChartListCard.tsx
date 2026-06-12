@@ -41,6 +41,7 @@ type ChartListCardProps = {
   phaseN?: number | null;
   onEnterView?: (code: string) => void;
   annotation?: ReactNode;
+  chromeCollapsed?: boolean;
 };
 
 const normalizeDateParts = (year: number, month: number, day: number) => {
@@ -212,7 +213,8 @@ const ChartListCard = memo(function ChartListCard({
   phaseLate,
   phaseN,
   onEnterView,
-  annotation
+  annotation,
+  chromeCollapsed = false
 }: ChartListCardProps) {
   const { ref, inView } = useInView(deferUntilInView, rootMargin);
   const maxTime = useMemo(() => parseMaxDate(maxDate), [maxDate]);
@@ -276,7 +278,7 @@ const ChartListCard = memo(function ChartListCard({
 
   return (
     <div
-      className={`tile rank-tile${tileClassName ? ` ${tileClassName}` : ""}`}
+      className={`tile rank-tile${tileClassName ? ` ${tileClassName}` : ""}${chromeCollapsed ? " is-chart-focused" : ""}`}
       role="button"
       tabIndex={0}
       onClick={handleOpen}
@@ -321,7 +323,7 @@ const ChartListCard = memo(function ChartListCard({
           </div>
         )}
       </div>
-      {signals?.length ? (
+      {!chromeCollapsed && signals?.length ? (
         <div className="tile-signal-row">
           <div className="signal-chips">
             {signals.slice(0, 4).map((signal) => (
@@ -335,7 +337,7 @@ const ChartListCard = memo(function ChartListCard({
           </div>
         </div>
       ) : null}
-      {annotation ? <div className="tile-annotation-row">{annotation}</div> : null}
+      {!chromeCollapsed && annotation ? <div className="tile-annotation-row">{annotation}</div> : null}
       {showPhase && (
         <div className="tile-phase">
           <div className="tile-scores">

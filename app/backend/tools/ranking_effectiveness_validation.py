@@ -29,6 +29,7 @@ DEFAULT_EVAL_STEP = 5
 DEFAULT_REQUIRED_LATEST = 20260507
 DEFAULT_MIN_EVAL_DATES = 20
 MOMENTUM_CHALLENGER_ID = "momentum_follow_through_v1"
+SHORT_MOMENTUM_CHALLENGER_ID = "short_momentum_follow_through_v1"
 
 
 @dataclass(frozen=True)
@@ -373,6 +374,137 @@ def _select_momentum_challenger(
     return selected
 
 
+def _select_ranked_challenger(
+    ranked: list[dict[str, Any]],
+    *,
+    universe_by_code: dict[str, dict[str, Any]],
+    k: int,
+) -> list[dict[str, Any]]:
+    selected: list[dict[str, Any]] = []
+    for item in ranked:
+        row = universe_by_code.get(str(item["code"]))
+        if row is None:
+            continue
+        merged = dict(row)
+        merged["challenger_features"] = item
+        selected.append(merged)
+        if len(selected) >= k:
+            break
+    return selected
+
+
+def _short_momentum_candidate_rows(conn: duckdb.DuckDBPyConnection, *, as_of: int) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        f"""
+        WITH normalized AS (
+            SELECT
+                code,
+                {_normalize_daily_date_expr("date")} AS ymd,
+                CAST(c AS DOUBLE) AS close,
+                CAST(h AS DOUBLE) AS high,
+                CAST(l AS DOUBLE) AS low,
+                CAST(v AS DOUBLE) AS volume
+            FROM daily_bars
+            WHERE COALESCE(source, 'pan') <> 'yahoo'
+              AND c IS NOT NULL
+        ),
+        ranked AS (
+            SELECT
+                code,
+                ymd,
+                close,
+                high,
+                low,
+                volume,
+                ROW_NUMBER() OVER (PARTITION BY code ORDER BY ymd) AS rn
+            FROM normalized
+            WHERE ymd IS NOT NULL
+        ),
+        anchor AS (
+            SELECT code, rn AS anchor_rn, close AS anchor_close
+            FROM ranked
+            WHERE ymd <= ?
+            QUALIFY ROW_NUMBER() OVER (PARTITION BY code ORDER BY ymd DESC) = 1
+        ),
+        features AS (
+            SELECT
+                a.code,
+                a.anchor_close,
+                p5.close AS close_5,
+                p10.close AS close_10,
+                p20.close AS close_20,
+                MAX(recent.high) AS high_10,
+                MIN(recent.low) AS low_20,
+                AVG(recent.volume) AS volume_20,
+                AVG(prevvol.volume) AS prev_volume_20
+            FROM anchor a
+            LEFT JOIN ranked p5 ON p5.code = a.code AND p5.rn = a.anchor_rn - 5
+            LEFT JOIN ranked p10 ON p10.code = a.code AND p10.rn = a.anchor_rn - 10
+            LEFT JOIN ranked p20 ON p20.code = a.code AND p20.rn = a.anchor_rn - 20
+            LEFT JOIN ranked recent ON recent.code = a.code AND recent.rn > a.anchor_rn - 20 AND recent.rn <= a.anchor_rn
+            LEFT JOIN ranked prevvol ON prevvol.code = a.code AND prevvol.rn > a.anchor_rn - 40 AND prevvol.rn <= a.anchor_rn - 20
+            WHERE a.anchor_close IS NOT NULL AND a.anchor_close > 0
+            GROUP BY a.code, a.anchor_close, p5.close, p10.close, p20.close
+        )
+        SELECT
+            code,
+            CASE WHEN close_5 IS NOT NULL AND close_5 > 0 THEN (anchor_close - close_5) / close_5 ELSE NULL END AS ret5,
+            CASE WHEN close_10 IS NOT NULL AND close_10 > 0 THEN (anchor_close - close_10) / close_10 ELSE NULL END AS ret10,
+            CASE WHEN close_20 IS NOT NULL AND close_20 > 0 THEN (anchor_close - close_20) / close_20 ELSE NULL END AS ret20,
+            CASE WHEN low_20 IS NOT NULL AND low_20 > 0 THEN anchor_close / low_20 ELSE NULL END AS low20_pos,
+            CASE WHEN high_10 IS NOT NULL AND high_10 > 0 THEN (high_10 - anchor_close) / high_10 ELSE NULL END AS high10_drawdown,
+            CASE WHEN prev_volume_20 IS NOT NULL AND prev_volume_20 > 0 THEN volume_20 / prev_volume_20 ELSE NULL END AS volume_ratio
+        FROM features
+        """,
+        [int(as_of)],
+    ).fetchall()
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        ret5 = _safe_float(row[1])
+        ret10 = _safe_float(row[2])
+        ret20 = _safe_float(row[3])
+        low20_pos = _safe_float(row[4])
+        high10_drawdown = _safe_float(row[5])
+        volume_ratio = _safe_float(row[6])
+        if ret5 is None or ret10 is None or ret20 is None or low20_pos is None:
+            continue
+        if ret20 >= -0.03 or ret10 >= -0.01 or ret5 >= 0.02:
+            continue
+        score = (
+            1.40 * abs(ret20)
+            + 0.90 * abs(ret10)
+            + 0.55 * max(0.0, -ret5)
+            + 0.08 * max(0.0, min(1.0, (1.08 - low20_pos) / 0.08))
+            + 0.05 * max(0.0, min(1.0, (high10_drawdown or 0.0) / 0.12))
+            + 0.03 * max(0.0, min(2.0, (volume_ratio or 1.0) - 1.0))
+            - 0.04 * max(0.0, abs(ret5) - 0.12)
+        )
+        out.append(
+            {
+                "code": str(row[0]),
+                "short_momentum_score": float(score),
+                "ret5": ret5,
+                "ret10": ret10,
+                "ret20": ret20,
+                "low20_pos": low20_pos,
+                "high10_drawdown": high10_drawdown,
+                "volume_ratio": volume_ratio,
+            }
+        )
+    return sorted(out, key=lambda item: (-float(item["short_momentum_score"]), item["code"]))
+
+
+def _select_short_momentum_challenger(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    as_of: int,
+    universe_by_code: dict[str, dict[str, Any]],
+    k: int,
+) -> list[dict[str, Any]]:
+    ranked = _short_momentum_candidate_rows(conn, as_of=as_of)
+    return _select_ranked_challenger(ranked, universe_by_code=universe_by_code, k=k)
+
+
 def _ranking_item_summary(item: dict[str, Any], *, rank: int) -> dict[str, Any]:
     return {
         "rank": rank,
@@ -499,6 +631,56 @@ def _decide_challenger(compare_payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _decide_short_challenger(compare_payload: dict[str, Any]) -> dict[str, Any]:
+    k_rows = compare_payload.get("k_summary") if isinstance(compare_payload.get("k_summary"), list) else []
+    top5 = next((row for row in k_rows if int(row.get("top_k") or 0) == 5), None)
+    if not isinstance(top5, dict):
+        return {"decision": "not-yet-reportable", "reason": "missing_top5_short_challenger_metrics"}
+    keep_hits = 0
+    partial_hits = 0
+    blockers: list[str] = []
+    for horizon in DEFAULT_HORIZONS:
+        row = top5.get(f"horizon_{horizon}") if isinstance(top5.get(f"horizon_{horizon}"), dict) else {}
+        selected = row.get("selected") if isinstance(row.get("selected"), dict) else {}
+        momentum = row.get("momentum_baseline") if isinstance(row.get("momentum_baseline"), dict) else {}
+        challenger = row.get("challenger") if isinstance(row.get("challenger"), dict) else {}
+        selected_mean = selected.get("mean_favorable_return")
+        momentum_mean = momentum.get("mean_favorable_return")
+        challenger_mean = challenger.get("mean_favorable_return")
+        if challenger_mean is None or selected_mean is None or momentum_mean is None:
+            blockers.append(f"horizon{horizon}:insufficient_short_challenger_metrics")
+            continue
+        beats_current = float(challenger_mean) > float(selected_mean)
+        beats_momentum = float(challenger_mean) > float(momentum_mean)
+        if beats_current and beats_momentum:
+            keep_hits += 1
+        elif beats_current or beats_momentum:
+            partial_hits += 1
+    if keep_hits >= 2:
+        return {
+            "decision": "keep",
+            "reason": "short_momentum_follow_through_top5_beats_current_and_momentum",
+            "horizon_keep_hit_count": keep_hits,
+            "horizon_partial_hit_count": partial_hits,
+            "blockers": blockers,
+        }
+    if keep_hits + partial_hits >= 1:
+        return {
+            "decision": "hold",
+            "reason": "short_momentum_follow_through_partial_edge",
+            "horizon_keep_hit_count": keep_hits,
+            "horizon_partial_hit_count": partial_hits,
+            "blockers": blockers,
+        }
+    return {
+        "decision": "drop",
+        "reason": "short_momentum_follow_through_does_not_beat_current_and_momentum",
+        "horizon_keep_hit_count": keep_hits,
+        "horizon_partial_hit_count": partial_hits,
+        "blockers": blockers,
+    }
+
+
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
@@ -598,49 +780,75 @@ def run_validation(
             "not_reportable_reasons": not_reportable_reasons,
         }
 
-        buy_compare = _build_side_compare(
-            db_path=resolved_db,
-            rankings_cache=rankings_cache,
-            eval_dates=eval_dates,
-            direction="up",
-            timeframes=selected_timeframes,
-            horizons=horizons,
-            top_k_values=top_k_values,
+        buy_compare = (
+            _build_side_compare(
+                db_path=resolved_db,
+                rankings_cache=rankings_cache,
+                eval_dates=eval_dates,
+                direction="up",
+                timeframes=selected_timeframes,
+                horizons=horizons,
+                top_k_values=top_k_values,
+            )
+            if "up" in selected_directions
+            else None
         )
-        sell_compare = _build_side_compare(
-            db_path=resolved_db,
-            rankings_cache=rankings_cache,
-            eval_dates=eval_dates,
-            direction="down",
-            timeframes=selected_timeframes,
-            horizons=horizons,
-            top_k_values=top_k_values,
+        sell_compare = (
+            _build_side_compare(
+                db_path=resolved_db,
+                rankings_cache=rankings_cache,
+                eval_dates=eval_dates,
+                direction="down",
+                timeframes=selected_timeframes,
+                horizons=horizons,
+                top_k_values=top_k_values,
+            )
+            if "down" in selected_directions
+            else None
         )
         trend_compare = {
             "schema_version": SCHEMA_VERSION,
             "generated_at": _utc_now_iso(),
             "source_db_path": str(resolved_db),
             "summary": {
-                "buy_vs_momentum": buy_compare.get("momentum_baseline_summary"),
-                "sell_vs_momentum": sell_compare.get("momentum_baseline_summary"),
+                "buy_vs_momentum": buy_compare.get("momentum_baseline_summary") if buy_compare else None,
+                "sell_vs_momentum": sell_compare.get("momentum_baseline_summary") if sell_compare else None,
             },
         }
 
-        buy_decision = {"decision": "not-yet-reportable", "reason": "freshness_or_horizon_gate_failed"} if not_reportable_reasons else _decide_side(buy_compare, side="buy")
-        sell_decision = {"decision": "not-yet-reportable", "reason": "freshness_or_horizon_gate_failed"} if not_reportable_reasons else _decide_side(sell_compare, side="sell")
-        challenger_decision = {"decision": "not-yet-reportable", "reason": "freshness_or_horizon_gate_failed"} if not_reportable_reasons else _decide_challenger(buy_compare)
+        not_run_decision = {"decision": "not-run", "reason": "direction_not_requested"}
+        if not_reportable_reasons:
+            gated_decision = {"decision": "not-yet-reportable", "reason": "freshness_or_horizon_gate_failed"}
+            buy_decision = gated_decision if buy_compare else not_run_decision
+            sell_decision = gated_decision if sell_compare else not_run_decision
+            challenger_decision = gated_decision if buy_compare else not_run_decision
+            short_challenger_decision = gated_decision if sell_compare else not_run_decision
+        else:
+            buy_decision = _decide_side(buy_compare, side="buy") if buy_compare else not_run_decision
+            sell_decision = _decide_side(sell_compare, side="sell") if sell_compare else not_run_decision
+            challenger_decision = _decide_challenger(buy_compare) if buy_compare else not_run_decision
+            short_challenger_decision = _decide_short_challenger(sell_compare) if sell_compare else not_run_decision
         if not_reportable_reasons:
             overall_decision = "not-yet-reportable"
             overall_reason = "freshness_or_horizon_gate_failed"
         elif challenger_decision["decision"] == "keep":
             overall_decision = "keep"
             overall_reason = "momentum_challenger_keep"
+        elif short_challenger_decision["decision"] == "keep":
+            overall_decision = "keep"
+            overall_reason = "short_momentum_challenger_keep"
         elif buy_decision["decision"] == "keep" and sell_decision["decision"] == "keep":
             overall_decision = "keep"
             overall_reason = "buy_and_sell_rankings_both_keep"
         elif "drop" == buy_decision["decision"] == sell_decision["decision"]:
             overall_decision = "drop"
             overall_reason = "buy_and_sell_rankings_both_drop"
+        elif selected_directions == ("up",) and buy_decision["decision"] == "keep":
+            overall_decision = "keep"
+            overall_reason = "buy_ranking_keep"
+        elif selected_directions == ("down",) and sell_decision["decision"] == "keep":
+            overall_decision = "keep"
+            overall_reason = "sell_ranking_keep"
         else:
             overall_decision = "hold"
             overall_reason = "mixed_or_one_sided_ranking_edge"
@@ -655,6 +863,7 @@ def run_validation(
                 "buy": buy_decision,
                 "sell": sell_decision,
                 "momentum_follow_through_v1": challenger_decision,
+                "short_momentum_follow_through_v1": short_challenger_decision,
             },
             "not_reportable_reasons": not_reportable_reasons,
             "fixed_evaluation_conditions": {
@@ -688,8 +897,10 @@ def run_validation(
     }
     decision_payload["artifact_refs"] = {key: str(path) for key, path in paths.items()}
     _write_json(paths["ranking_surface_inventory"], surface_inventory)
-    _write_json(paths["ranking_effectiveness_buy_compare"], buy_compare)
-    _write_json(paths["ranking_effectiveness_sell_compare"], sell_compare)
+    if buy_compare is not None:
+        _write_json(paths["ranking_effectiveness_buy_compare"], buy_compare)
+    if sell_compare is not None:
+        _write_json(paths["ranking_effectiveness_sell_compare"], sell_compare)
     _write_json(paths["trend_following_baseline_compare"], trend_compare)
     _write_json(paths["authoritative_decision"], decision_payload)
     return {
@@ -734,6 +945,13 @@ def _build_side_compare(
             for surface in surfaces
         }
         with duckdb.connect(str(db_path), read_only=True) as conn:
+            challenger_ranked = (
+                _momentum_candidate_rows(conn, as_of=as_of)
+                if direction == "up" and "D" in timeframes
+                else _short_momentum_candidate_rows(conn, as_of=as_of)
+                if direction == "down" and "D" in timeframes
+                else []
+            )
             for horizon in horizons:
                 universe_rows = universe_cache.setdefault(
                     (as_of, horizon),
@@ -749,16 +967,25 @@ def _build_side_compare(
                         random_rows = _hash_sample(universe_rows, sample_size=len(selected_rows) or top_k, seed=f"{as_of}:{surface.key}:{top_k}:{horizon}")
                         momentum_rows = _select_momentum_baseline(universe_rows, direction=direction, k=len(selected_rows) or top_k)
                         challenger_rows: list[dict[str, Any]] = []
-                        if direction == "up" and surface.tf == "D":
-                            challenger_rows = challenger_cache.setdefault(
-                                top_k,
-                                _select_momentum_challenger(
-                                    conn,
-                                    as_of=as_of,
-                                    universe_by_code=universe_by_code,
-                                    k=len(selected_rows) or top_k,
-                                ),
-                            )
+                        if surface.tf == "D":
+                            if direction == "up":
+                                challenger_rows = challenger_cache.setdefault(
+                                    top_k,
+                                    _select_ranked_challenger(
+                                        challenger_ranked,
+                                        universe_by_code=universe_by_code,
+                                        k=len(selected_rows) or top_k,
+                                    ),
+                                )
+                            elif direction == "down":
+                                challenger_rows = challenger_cache.setdefault(
+                                    top_k,
+                                    _select_ranked_challenger(
+                                        challenger_ranked,
+                                        universe_by_code=universe_by_code,
+                                        k=len(selected_rows) or top_k,
+                                    ),
+                                )
                         aggregate[(top_k, horizon)]["selected"].extend(selected_rows)
                         aggregate[(top_k, horizon)]["universe"].extend(universe_rows)
                         aggregate[(top_k, horizon)]["random"].extend(random_rows)
@@ -779,7 +1006,13 @@ def _build_side_compare(
                                 "random_baseline": _metrics(random_rows, direction=direction),
                                 "momentum_baseline": _metrics(momentum_rows, direction=direction),
                                 "challenger": _metrics(challenger_rows, direction=direction) if challenger_rows else None,
-                                "challenger_id": MOMENTUM_CHALLENGER_ID if challenger_rows else None,
+                                "challenger_id": (
+                                    MOMENTUM_CHALLENGER_ID
+                                    if direction == "up" and challenger_rows
+                                    else SHORT_MOMENTUM_CHALLENGER_ID
+                                    if direction == "down" and challenger_rows
+                                    else None
+                                ),
                             }
                         )
 
@@ -795,7 +1028,13 @@ def _build_side_compare(
                 "random_baseline": _metrics(bucket["random"], direction=direction),
                 "momentum_baseline": _metrics(bucket["momentum"], direction=direction),
                 "challenger": _metrics(bucket["challenger"], direction=direction),
-                "challenger_id": MOMENTUM_CHALLENGER_ID if bucket["challenger"] else None,
+                "challenger_id": (
+                    MOMENTUM_CHALLENGER_ID
+                    if direction == "up" and bucket["challenger"]
+                    else SHORT_MOMENTUM_CHALLENGER_ID
+                    if direction == "down" and bucket["challenger"]
+                    else None
+                ),
             }
             row[f"horizon_{horizon}"] = horizon_payload
             momentum_summary.append(
@@ -848,6 +1087,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--eval-step", type=int, default=DEFAULT_EVAL_STEP)
     parser.add_argument("--min-eval-dates", type=int, default=DEFAULT_MIN_EVAL_DATES)
     parser.add_argument("--timeframes", default=",".join(DEFAULT_TFS), help="Comma-separated timeframes to validate, e.g. D or D,W,M.")
+    parser.add_argument("--directions", default=",".join(DEFAULT_DIRECTIONS), help="Comma-separated directions to validate, e.g. up,down or down.")
     return parser.parse_args(argv)
 
 
@@ -861,6 +1101,7 @@ def main(argv: list[str] | None = None) -> int:
         eval_step=args.eval_step,
         min_eval_dates=args.min_eval_dates,
         timeframes=tuple(part.strip().upper() for part in str(args.timeframes).split(",") if part.strip()),
+        directions=tuple(part.strip().lower() for part in str(args.directions).split(",") if part.strip()),
     )
     print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
     return 0

@@ -218,6 +218,27 @@ describe("store.loadList", () => {
     expect(useStore.getState().tickers[0]?.code).toBe("2002");
   });
 
+  it("applies watchlist tags from the watchlist API to screener rows", async () => {
+    apiGet.mockImplementation((url: string) => {
+      if (url === "/grid/screener") {
+        return Promise.resolve({
+          data: {
+            items: [{ code: "8035", name: "東京エレクトロン", stage: "WATCH", score: 10, reason: "" }],
+          },
+        });
+      }
+      if (url === "/watchlist") {
+        return Promise.resolve({ data: { codes: ["8035"], tagsByCode: { "8035": ["日経225"] } } });
+      }
+      return Promise.reject(new Error(`unexpected url ${url}`));
+    });
+
+    const { useStore } = await import("./store");
+    await useStore.getState().loadList();
+
+    expect(useStore.getState().tickers[0]?.watchlistTags).toEqual(["日経225"]);
+  });
+
   it("keeps cached screener rows when the refresh request fails", async () => {
     apiGet.mockImplementation((url: string) => {
       if (url === "/grid/screener") {

@@ -112,6 +112,7 @@ def _apply_packaged_backend_defaults(env: dict[str, str]) -> None:
     env["MEEMEE_ANALYSIS_PREWARM_ENABLED"] = "0"
     env["MEEMEE_RANK_QUALITY_ENABLED"] = "0"
     env["MEEMEE_PUBLISH_CANDIDATE_MAINTENANCE_ENABLED"] = "0"
+    env.setdefault("MEEMEE_RANK_CNT60UP_ACTIVE_RERANK", "1")
 
 
 def _storage_app_name() -> str:

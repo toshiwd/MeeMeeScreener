@@ -2747,6 +2747,28 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
         rankings_cache.refresh_cache()
         state["last_cache_refresh_at"] = datetime.now().isoformat()
         state["last_cache_refresh_db_latest_key"] = int(db_latest_after_ingest_key) if db_latest_after_ingest_key is not None else None
+        try:
+            from app.backend.core.config import config as app_config
+            from app.backend.services.dev_db_sync import (
+                record_dev_db_sync_state,
+                sync_confirmed_production_db_to_dev,
+            )
+
+            sync_result = sync_confirmed_production_db_to_dev(source_db_path=app_config.DB_PATH)
+            record_dev_db_sync_state(state, sync_result)
+            if sync_result.get("synced"):
+                ml_note_parts.append(
+                    f"dev_db_sync=ok(confirmed={sync_result.get('confirmed_latest_date')})"
+                )
+            elif sync_result.get("skipped_reason"):
+                ml_note_parts.append(f"dev_db_sync=skip({sync_result.get('skipped_reason')})")
+            else:
+                ml_note_parts.append(f"dev_db_sync=failed({sync_result.get('error')})")
+        except Exception as exc:
+            logger.warning("Production-to-dev DB sync skipped after txt_update cache refresh: %s", exc)
+            state["last_dev_db_sync_at"] = datetime.now().isoformat()
+            state["last_dev_db_sync_error"] = str(exc)
+            ml_note_parts.append(f"dev_db_sync=failed({exc})")
         _record_profile_phase(profile, "refresh_latest_ranking", started_at=cache_refresh_started)
     except Exception as exc:
         logger.exception("Rankings cache refresh failed: %s", exc)

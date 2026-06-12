@@ -269,7 +269,7 @@ describe("DetailChart MeeMee chrome", () => {
     render.cleanup();
   });
 
-  it("enables MeeMee detail chrome with hidden MA edge labels and no date chip overlay", async () => {
+  it("enables MeeMee detail chrome with hidden MA edge labels and a terminal date chip", async () => {
     const weeklyChipTime = Date.UTC(2026, 3, 6) / 1000;
     const render = await renderClient(
       <DetailChart
@@ -304,7 +304,8 @@ describe("DetailChart MeeMee chrome", () => {
 
     const chip = render.container.querySelector("[data-testid='detail-chart-date-chip']");
     const legend = render.container.querySelector("[data-testid='detail-chart-legend']");
-    expect(chip).toBeNull();
+    expect(chip).not.toBeNull();
+    expect(chip?.textContent).toContain("26/04/09");
     expect(legend).not.toBeNull();
     expect(legend?.textContent).toContain("日付");
     expect(legend?.textContent).toContain("終値");
@@ -334,6 +335,59 @@ describe("DetailChart MeeMee chrome", () => {
     const legend = render.container.querySelector("[data-testid='detail-chart-legend']");
     expect(legend?.textContent).toContain("5MA");
     expect(legend?.textContent).toContain("+2.8%/2");
+
+    render.cleanup();
+  });
+
+  it("uses the selected candle as the detail chrome legend anchor when cursor time is absent", async () => {
+    const render = await renderClient(
+      <DetailChart
+        candles={baseCandles}
+        volume={baseVolume}
+        maLines={baseMaLines}
+        showVolume={false}
+        boxes={[]}
+        showBoxes={false}
+        meeMeeDetailChrome={{ timeframe: "weekly" }}
+        selectedTime={baseCandles[0].time}
+      />
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const legend = render.container.querySelector("[data-testid='detail-chart-legend']");
+    expect(legend?.textContent).toContain("26/04/06");
+    expect(legend?.textContent).not.toContain("26/04/20");
+
+    render.cleanup();
+  });
+
+  it("lets cursor time override selected time for the detail chrome legend", async () => {
+    const render = await renderClient(
+      <DetailChart
+        candles={baseCandles}
+        volume={baseVolume}
+        maLines={baseMaLines}
+        showVolume={false}
+        boxes={[]}
+        showBoxes={false}
+        meeMeeDetailChrome={{ timeframe: "weekly" }}
+        selectedTime={baseCandles[0].time}
+        cursorTime={baseCandles[1].time}
+      />
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const legend = render.container.querySelector("[data-testid='detail-chart-legend']");
+    expect(legend?.textContent).toContain("26/04/13");
+    expect(legend?.textContent).not.toContain("26/04/06");
 
     render.cleanup();
   });
@@ -430,7 +484,7 @@ describe("DetailChart MeeMee chrome", () => {
 
     const chip = render.container.querySelector("[data-testid='detail-chart-date-chip']");
     const legend = render.container.querySelector("[data-testid='detail-chart-legend']");
-    expect(chip).toBeNull();
+    expect(chip).not.toBeNull();
     expect(legend).toBeNull();
     expect(render.container.textContent).toContain("+2.8%/2");
 
@@ -487,7 +541,7 @@ describe("DetailChart MeeMee chrome", () => {
     expect(chart.options.timeScale.fixRightEdge).toBe(true);
     expect(chart.options.timeScale.lockVisibleTimeRangeOnResize).toBe(true);
     expect(chart.options.timeScale.rightBarStaysOnScroll).toBe(true);
-    expect(render.container.querySelector("[data-testid='detail-chart-date-chip']")).toBeNull();
+    expect(render.container.querySelector("[data-testid='detail-chart-date-chip']")).not.toBeNull();
     expect(render.container.querySelector("[data-testid='detail-chart-legend']")).not.toBeNull();
 
     await act(async () => {
@@ -499,7 +553,7 @@ describe("DetailChart MeeMee chrome", () => {
       await Promise.resolve();
     });
 
-    expect(render.container.querySelector("[data-testid='detail-chart-date-chip']")).toBeNull();
+    expect(render.container.querySelector("[data-testid='detail-chart-date-chip']")?.textContent).toContain("26/04/09");
 
     render.cleanup();
   });
@@ -553,7 +607,7 @@ describe("DetailChart MeeMee chrome", () => {
     render.cleanup();
   });
 
-  it("hides the extra date chip on daily detail chrome", async () => {
+  it("shows the terminal date chip on daily detail chrome", async () => {
     const dailyTime = Date.UTC(2026, 3, 22) / 1000;
     const render = await renderClient(
       <DetailChart
@@ -574,7 +628,7 @@ describe("DetailChart MeeMee chrome", () => {
       await Promise.resolve();
     });
 
-    expect(render.container.querySelector("[data-testid='detail-chart-date-chip']")).toBeNull();
+    expect(render.container.querySelector("[data-testid='detail-chart-date-chip']")?.textContent).toContain("26/04/22");
     expect(render.container.querySelector("[data-testid='detail-chart-legend']")).toBeNull();
 
     render.cleanup();

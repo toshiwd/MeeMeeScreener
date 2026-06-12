@@ -581,6 +581,8 @@ type RankingAppearance = {
   return_30d: number | null;
   max_favorable_30: number | null;
   max_adverse_30: number | null;
+  days_to_max_favorable_30?: number | null;
+  days_to_max_adverse_30?: number | null;
   status: TrackingStatus;
   break_status: "alive" | "broken" | "completed_clean" | null;
   break_reason: string | null;
@@ -661,6 +663,12 @@ const formatPercent = (value: number | null | undefined) => {
 const formatPrice = (value: number | null | undefined) => {
   if (typeof value !== "number" || !Number.isFinite(value)) return "--";
   return value.toLocaleString("ja-JP", { maximumFractionDigits: 2 });
+};
+
+const formatPeakMove = (value: number | null | undefined, days: number | null | undefined) => {
+  const valueLabel = formatPercent(value);
+  if (typeof days !== "number" || !Number.isFinite(days)) return valueLabel;
+  return `${valueLabel} / ${Math.max(0, Math.round(days))}d`;
 };
 
 const formatSignalStateLabel = (value: "buy" | "sell" | "wait" | "both") => {
@@ -993,6 +1001,21 @@ function TrackingDrawer({
                   <div>
                     <span>30日成績</span>
                     <strong>{formatPercent(activeRanking.appearance.return_30d)}</strong>
+                  </div>
+                  <div>
+                    <span>peak favorable / days</span>
+                    <strong>
+                      {formatPeakMove(
+                        activeRanking.appearance.max_favorable_30,
+                        activeRanking.appearance.days_to_max_favorable_30
+                      )}
+                    </strong>
+                  </div>
+                  <div>
+                    <span>peak adverse / days</span>
+                    <strong>
+                      {formatPeakMove(activeRanking.appearance.max_adverse_30, activeRanking.appearance.days_to_max_adverse_30)}
+                    </strong>
                   </div>
                   <div>
                     <span>シナリオ崩れ</span>
@@ -2554,8 +2577,8 @@ export default function TrackingView() {
                       <small>open基準 {formatPercent(item.current_exec_directional_return)}</small>
                     </div>
                     <div className="tracking-cell">{formatPercent(item.return_30d)}</div>
-                    <div className="tracking-cell">{formatPercent(item.max_favorable_30)}</div>
-                    <div className="tracking-cell">{formatPercent(item.max_adverse_30)}</div>
+                    <div className="tracking-cell">{formatPeakMove(item.max_favorable_30, item.days_to_max_favorable_30)}</div>
+                    <div className="tracking-cell">{formatPeakMove(item.max_adverse_30, item.days_to_max_adverse_30)}</div>
                     <div className="tracking-cell">
                       <span className={`tracking-status-pill is-${item.break_status === "broken" ? "archive" : item.status}`}>
                         {formatBreakLabel(item.break_status, item.break_reason)}

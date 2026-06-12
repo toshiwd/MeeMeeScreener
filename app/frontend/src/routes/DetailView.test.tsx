@@ -48,8 +48,10 @@ const mocks = vi.hoisted(() => {
       setFavoriteLocal: vi.fn(),
       settings: {
         showBoxes: true,
+        showBattleZones: true,
       },
       setShowBoxes: vi.fn(),
+      setShowBattleZones: vi.fn(),
       maSettings: {
         daily: baseMaSettings,
         weekly: baseMaSettings,
@@ -359,7 +361,7 @@ vi.mock("./detail/hooks/useDetailDrawings", () => ({
   }),
 }));
 
-import DetailView from "./DetailView";
+import DetailView, { resolveCursorPannedRange } from "./DetailView";
 
 const flushMicrotasks = async () => {
   await Promise.resolve();
@@ -572,6 +574,7 @@ describe("DetailView", () => {
     mocks.storeState.loadFavorites.mockClear();
     mocks.storeState.setFavoriteLocal.mockClear();
     mocks.storeState.setShowBoxes.mockClear();
+    mocks.storeState.setShowBattleZones.mockClear();
     mocks.storeState.updateMaSetting.mockClear();
     mocks.storeState.updateCompareMaSetting.mockClear();
     mocks.storeState.resetMaSettings.mockClear();
@@ -752,6 +755,26 @@ describe("DetailView", () => {
     expect(monthlyChart.getAttribute("data-last-time")).toBe(String(Date.UTC(2026, 2, 1) / 1000));
 
     render.cleanup();
+  });
+
+  it("resolves selected candle cursor edge panning one visible candle at a time", () => {
+    const candles = Array.from({ length: 8 }, (_, index) => ({
+      time: 1000 + index * 100,
+      open: 1,
+      high: 2,
+      low: 0,
+      close: 1,
+    }));
+
+    expect(resolveCursorPannedRange(candles, { from: 1200, to: 1500 }, 1100)).toEqual({
+      from: 1100,
+      to: 1400,
+    });
+    expect(resolveCursorPannedRange(candles, { from: 1200, to: 1500 }, 1600)).toEqual({
+      from: 1300,
+      to: 1600,
+    });
+    expect(resolveCursorPannedRange(candles, { from: 1200, to: 1500 }, 1400)).toBeNull();
   });
 
   it("stays mounted after switching to financial mode", async () => {

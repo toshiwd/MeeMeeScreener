@@ -19,7 +19,27 @@ const toneClassName: Record<"buy" | "neutral" | "sell", string> = {
   sell: "is-warn",
 };
 
+const lifecycleLabel: Record<string, string> = {
+  Probe: "打診",
+  Watch: "監視",
+  AddWatch: "追加監視",
+  HoldReview: "保有確認",
+  TakeProfit: "利確",
+  Exit: "撤退",
+  Avoid: "回避",
+  RegimeMissing: "地合い欠損",
+};
+
+const lifecycleClassName = (state: string | null) => {
+  if (state === "Probe" || state === "AddWatch" || state === "TakeProfit") return "is-ok";
+  if (state === "Avoid" || state === "Exit" || state === "RegimeMissing") return "is-warn";
+  return "is-neutral";
+};
+
 const readinessClassName = (ready: boolean) => (ready ? "is-ok" : "is-warn");
+
+const formatPct = (value: number | null) =>
+  Number.isFinite(value ?? NaN) ? `${(Number(value) * 100).toFixed(1)}%` : "--";
 
 const summaryBadge = (label: ReactNode, className = "") => (
   <span className={`rank-score-badge ${className}`.trim()}>{label}</span>
@@ -30,9 +50,7 @@ export default function TradexListSummary({ summary, loading = false, className 
   if (loading && !summary) {
     return (
       <div className={["tradex-list-summary", className].filter(Boolean).join(" ")}>
-        <div className="rank-badges">
-          {summaryBadge("分析を確認中...", "rank-qualification is-warn")}
-        </div>
+        <div className="rank-badges">{summaryBadge("TRADEX確認中...", "rank-qualification is-neutral")}</div>
       </div>
     );
   }
@@ -52,6 +70,8 @@ export default function TradexListSummary({ summary, loading = false, className 
     );
   }
 
+  const lifecycle = summary.shortLifecycle;
+  const hasAnalysis = Boolean(summary.dominantTone || summary.confidence != null || summary.publishReadiness);
   const toneLabel = formatTradexListSummaryToneLabel(summary.dominantTone);
   const toneBadgeClass = summary.dominantTone ? toneClassName[summary.dominantTone] : "";
   const readiness = summary.publishReadiness;
@@ -64,9 +84,18 @@ export default function TradexListSummary({ summary, loading = false, className 
   return (
     <div className={["tradex-list-summary", className].filter(Boolean).join(" ")}>
       <div className="rank-badges">
-        {summaryBadge(`検証 ${toneLabel}`, toneBadgeClass)}
-        {summaryBadge(`信頼度 ${formatTradexListSummaryConfidence(summary.confidence)}`)}
-        {summaryBadge(readinessLabel, `rank-qualification ${readinessClass}`)}
+        {lifecycle
+          ? summaryBadge(
+              `TRADEX売り監視: ${lifecycleLabel[lifecycle.state ?? ""] ?? lifecycle.state ?? "--"}`,
+              `rank-qualification ${lifecycleClassName(lifecycle.state)}`
+            )
+          : null}
+        {lifecycle ? summaryBadge(`期待下げ ${formatPct(lifecycle.expectedDownsidePct)}`) : null}
+        {lifecycle && lifecycle.riskRewardToSl8 != null ? summaryBadge(`RR ${lifecycle.riskRewardToSl8.toFixed(2)}`) : null}
+        {lifecycle?.signalYmd ? summaryBadge(`signal ${lifecycle.signalYmd}`, "rank-qualification is-neutral") : null}
+        {hasAnalysis ? summaryBadge(`検証 ${toneLabel}`, toneBadgeClass) : null}
+        {hasAnalysis ? summaryBadge(`信頼度 ${formatTradexListSummaryConfidence(summary.confidence)}`) : null}
+        {hasAnalysis ? summaryBadge(readinessLabel, `rank-qualification ${readinessClass}`) : null}
       </div>
       {userFacingReasons.length > 0 && (
         <div className="signal-chips">

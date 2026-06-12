@@ -4,6 +4,7 @@ import csv
 import io
 import json
 import os
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -57,6 +58,12 @@ from external_analysis.results.publish_candidates import list_publish_candidate_
 
 router = APIRouter(prefix="/api/tradex", tags=["tradex"])
 OPERATOR_CONSOLE_DEPENDENCIES = [Depends(require_operator_console_access)]
+SHORT_LIFECYCLE_BOARD_ROOT = Path(
+    os.getenv("TRADEX_SHORT_LIFECYCLE_BOARD_ROOT", r"G:\Tradex\current_short_lifecycle_rank_board_v1")
+)
+BUY_LIFECYCLE_BOARD_ROOT = Path(
+    os.getenv("TRADEX_BUY_LIFECYCLE_BOARD_ROOT", r"G:\Tradex\current_buy_lifecycle_board_v1")
+)
 
 
 class TradexAdoptRequest(BaseModel):
@@ -156,6 +163,61 @@ def _num(value: Any) -> float | None:
             return None
         return parsed if parsed == parsed else None
     return None
+
+
+def _latest_artifact_json(root: Path, file_name: str) -> Path | None:
+    if not root.exists() or not root.is_dir():
+        return None
+    candidates = [path / file_name for path in root.iterdir() if path.is_dir() and (path / file_name).exists()]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda path: (path.stat().st_mtime, path.parent.name))
+
+
+def _limited_int(value: int, minimum: int, maximum: int) -> int:
+    return max(minimum, min(maximum, int(value)))
+
+
+def _short_lifecycle_candidate(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "code": _text(row.get("code")),
+        "name": _text(row.get("name")) or None,
+        "signal_ymd": _text(row.get("signal_ymd")) or None,
+        "lifecycle_rank": row.get("lifecycle_rank"),
+        "lifecycle_state": _text(row.get("lifecycle_state"), "Unknown"),
+        "lifecycle_rank_score": _num(row.get("lifecycle_rank_score")),
+        "original_rank": row.get("original_rank"),
+        "original_score": _num(row.get("original_score")),
+        "final_review_status": _text(row.get("final_review_status")) or None,
+        "setup_state": _text(row.get("setup_state")) or None,
+        "continuation_status": _text(row.get("continuation_status")) or None,
+        "expected_downside_pct": _num(row.get("expected_downside_pct")),
+        "risk_reward_to_sl8": _num(row.get("risk_reward_to_sl8")),
+        "base_target_actionability": _text(row.get("base_target_actionability")) or None,
+        "regime_permission_status": _text(row.get("regime_permission_status")) or None,
+        "advancers_ratio": _num(row.get("advancers_ratio")),
+        "visual_micro_label": _text(row.get("visual_micro_label")) or None,
+        "lifecycle_reasons": [str(item) for item in row.get("lifecycle_reasons", []) if item],
+        "profit_target_rule": _text(row.get("profit_target_rule"), "pt20"),
+        "stop_loss_rule": _text(row.get("stop_loss_rule"), "sl8"),
+    }
+
+
+def _buy_lifecycle_candidate(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "code": _text(row.get("code")),
+        "as_of_date": _text(row.get("as_of_date")) or None,
+        "lifecycle_rank": row.get("lifecycle_rank"),
+        "entry_state": _text(row.get("entry_state"), "Unknown"),
+        "held_position_review_state": _text(row.get("held_position_review_state"), "Unknown"),
+        "entry_actionability_score": _num(row.get("entry_actionability_score")),
+        "upside_probability_20d": _num(row.get("upside_probability_20d")),
+        "downside_risk_probability_20d": _num(row.get("downside_risk_probability_20d")),
+        "review_bucket": _text(row.get("review_bucket")) or None,
+        "avoid_level": _text(row.get("avoid_level")) or None,
+        "event_risk_contract_status": _text(row.get("event_risk_contract_status")) or None,
+        "lifecycle_reasons": [str(item) for item in row.get("lifecycle_reasons", []) if item],
+    }
 
 
 def _compact_json(value: Any) -> str:
@@ -531,6 +593,70 @@ def get_tradex_research_forecast_surface_review():
 @router.get("/research/forecast-surface-projection", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
 def get_tradex_research_forecast_surface_projection(limit_per_side: int = 20):
     return get_internal_forecast_surface_projection(limit_per_side=limit_per_side)
+
+
+@router.get("/research/short-lifecycle-board", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
+def get_tradex_research_short_lifecycle_board(limit: int = 30):
+    artifact_path = _latest_artifact_json(SHORT_LIFECYCLE_BOARD_ROOT, "current_short_lifecycle_rank_board.json")
+    if artifact_path is None:
+        return {
+            "available": False,
+            "reason": "short_lifecycle_board_not_found",
+            "artifact_root": str(SHORT_LIFECYCLE_BOARD_ROOT),
+            "candidates": [],
+        }
+    try:
+        payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail={"ok": False, "reason": "short_lifecycle_board_read_failed", "artifact_path": str(artifact_path)},
+        ) from exc
+    candidates = payload.get("candidates") if isinstance(payload.get("candidates"), list) else []
+    row_limit = _limited_int(limit, 1, 100)
+    return {
+        "available": True,
+        "artifact_path": str(artifact_path),
+        "run_id": payload.get("run_id"),
+        "created_at": payload.get("created_at"),
+        "authoritative_decision": payload.get("authoritative_decision"),
+        "counts": payload.get("counts") if isinstance(payload.get("counts"), dict) else {},
+        "classification_contract": payload.get("classification_contract")
+        if isinstance(payload.get("classification_contract"), dict)
+        else {},
+        "source_artifact_paths": payload.get("source_artifact_paths")
+        if isinstance(payload.get("source_artifact_paths"), dict)
+        else {},
+        "runtime_db_write": bool(payload.get("runtime_db_write")),
+        "meemee_modified": bool(payload.get("meemee_modified")),
+        "production_ranking_modified": bool(payload.get("production_ranking_modified")),
+        "candidates": [_short_lifecycle_candidate(row) for row in candidates[:row_limit] if isinstance(row, dict)],
+    }
+
+
+@router.get("/research/buy-lifecycle-board", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
+def get_tradex_research_buy_lifecycle_board(limit: int = 100):
+    artifact_path = _latest_artifact_json(BUY_LIFECYCLE_BOARD_ROOT, "current_buy_lifecycle_board.json")
+    if artifact_path is None:
+        return {"available": False, "reason": "buy_lifecycle_board_not_found", "artifact_root": str(BUY_LIFECYCLE_BOARD_ROOT), "candidates": []}
+    try:
+        payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail={"ok": False, "reason": "buy_lifecycle_board_read_failed", "artifact_path": str(artifact_path)}) from exc
+    candidates = payload.get("candidates") if isinstance(payload.get("candidates"), list) else []
+    return {
+        "available": True,
+        "artifact_path": str(artifact_path),
+        "run_id": payload.get("run_id"),
+        "created_at": payload.get("created_at"),
+        "authoritative_decision": payload.get("authoritative_decision"),
+        "counts": payload.get("counts") if isinstance(payload.get("counts"), dict) else {},
+        "classification_contract": payload.get("classification_contract") if isinstance(payload.get("classification_contract"), dict) else {},
+        "runtime_db_write": bool(payload.get("runtime_db_write")),
+        "meemee_modified": bool(payload.get("meemee_modified")),
+        "production_ranking_modified": bool(payload.get("production_ranking_modified")),
+        "candidates": [_buy_lifecycle_candidate(row) for row in candidates[: _limited_int(limit, 1, 200)] if isinstance(row, dict)],
+    }
 
 
 @router.get("/research/state-eval-promotion-review", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)

@@ -612,6 +612,28 @@ def handle_txt_followup(job_id: str, payload: dict) -> None:
             int(db_latest_after_key) if db_latest_after_key is not None else None
         )
         try:
+            from app.backend.core.config import config as app_config
+            from app.backend.services.dev_db_sync import (
+                record_dev_db_sync_state,
+                sync_confirmed_production_db_to_dev,
+            )
+
+            sync_result = sync_confirmed_production_db_to_dev(source_db_path=app_config.DB_PATH)
+            record_dev_db_sync_state(state, sync_result)
+            if sync_result.get("synced"):
+                ml_note_parts.append(
+                    f"dev_db_sync=ok(confirmed={sync_result.get('confirmed_latest_date')})"
+                )
+            elif sync_result.get("skipped_reason"):
+                ml_note_parts.append(f"dev_db_sync=skip({sync_result.get('skipped_reason')})")
+            else:
+                ml_note_parts.append(f"dev_db_sync=failed({sync_result.get('error')})")
+        except Exception as exc:
+            logger.warning("Production-to-dev DB sync skipped after txt_followup cache refresh: %s", exc)
+            state["last_dev_db_sync_at"] = datetime.now().isoformat()
+            state["last_dev_db_sync_error"] = str(exc)
+            ml_note_parts.append(f"dev_db_sync=failed({exc})")
+        try:
             final_manifest = _build_txt_source_manifest_snapshot(
                 code_path=_pan_code_txt_path(),
                 out_dir=_pan_out_txt_dir(),

@@ -28,6 +28,7 @@ def get_ranking_history_appearances(
     outcome: str = Query("all"),
 ):
     try:
+        signal_tracking_service.ensure_signal_tracking_current()
         return signal_tracking_service.list_ranking_appearances(
             status=status,
             direction=dir,
@@ -49,6 +50,7 @@ def get_ranking_history_appearances(
 @router.get("/appearances/{appearance_id}")
 def get_ranking_history_appearance_detail(appearance_id: str):
     try:
+        signal_tracking_service.ensure_signal_tracking_current()
         return signal_tracking_service.get_ranking_appearance_detail(appearance_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -62,6 +64,7 @@ def get_ranking_history_summary(
     ranking_logic_version: str = Query("latest"),
 ):
     try:
+        signal_tracking_service.ensure_signal_tracking_current()
         return signal_tracking_service.get_ranking_history_summary(
             direction=dir,
             ranking_logic_version=ranking_logic_version,
@@ -75,6 +78,7 @@ def get_ranking_history_analysis(
     ranking_logic_version: str = Query("latest"),
 ):
     try:
+        signal_tracking_service.ensure_signal_tracking_current()
         return signal_tracking_service.get_ranking_history_analysis(
             ranking_logic_version=ranking_logic_version,
         )

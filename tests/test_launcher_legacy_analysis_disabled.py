@@ -15,6 +15,7 @@ def test_packaged_defaults_keep_ranking_warmup_enabled(monkeypatch):
     assert env["MEEMEE_EDINET_AUTO_START_ENABLED"] == "1"
     assert env["MEEMEE_MARKET_REFERENCE_REFRESH_ENABLED"] == "1"
     assert env["MEEMEE_ANALYSIS_PREWARM_ENABLED"] == "0"
+    assert env["MEEMEE_RANK_CNT60UP_ACTIVE_RERANK"] == "1"
 
 
 def test_packaged_defaults_respect_ranking_warmup_opt_out(monkeypatch):
@@ -24,6 +25,7 @@ def test_packaged_defaults_respect_ranking_warmup_opt_out(monkeypatch):
         "MEEMEE_RANKINGS_WARMUP_ENABLED": "0",
         "MEEMEE_RANKINGS_RESULT_WARMUP_DELAY_SEC": "5",
         "MEEMEE_RANKINGS_WARMUP_DELAY_SEC": "30",
+        "MEEMEE_RANK_CNT60UP_ACTIVE_RERANK": "0",
     }
 
     launcher._apply_packaged_backend_defaults(env)
@@ -31,6 +33,7 @@ def test_packaged_defaults_respect_ranking_warmup_opt_out(monkeypatch):
     assert env["MEEMEE_RANKINGS_WARMUP_ENABLED"] == "0"
     assert env["MEEMEE_RANKINGS_RESULT_WARMUP_DELAY_SEC"] == "5"
     assert env["MEEMEE_RANKINGS_WARMUP_DELAY_SEC"] == "30"
+    assert env["MEEMEE_RANK_CNT60UP_ACTIVE_RERANK"] == "0"
 
 
 def test_desktop_stocks_db_path_stays_under_selected_data_dir(tmp_path):
