@@ -60,6 +60,7 @@ class _ProvenanceRepo:
 def _clear_batch_bars_cache() -> None:
     bars_module._batch_v3_cache.clear()
     bars_module._batch_v3_inflight.clear()
+    bars_module.get_batch_bars_v3_observability(reset=True)
 
 
 def _build_client() -> TestClient:
@@ -368,6 +369,61 @@ def test_batch_bars_v3_keeps_persisted_yahoo_rows_provisional(monkeypatch, tmp_p
     assert daily["provenance"]["overwrite_status"] == "provisional_only"
 
 
+def test_batch_bars_v3_treats_yahoo_history_backfill_as_provisional(monkeypatch, tmp_path) -> None:
+    db_path = tmp_path / "stocks.duckdb"
+    db_path.touch()
+    os.utime(db_path, (1_700_000_000, 1_700_000_000))
+    monkeypatch.setenv("STOCKS_DB_PATH", str(db_path))
+
+    class _YahooHistoryRepo:
+        def get_daily_bars_batch(self, codes, limit, asof_dt=None):
+            raise AssertionError("source-aware daily fetch should be used")
+
+        def get_daily_bars_with_source_batch(self, codes, limit, asof_dt=None):
+            rows = [
+                (20260414, 100.0, 110.0, 95.0, 105.0, 1000.0, "yahoo_history"),
+                (20260415, 106.0, 112.0, 101.0, 111.0, 1200.0, "yahoo_history"),
+            ]
+            return {code: rows[-limit:] for code in codes}
+
+        def get_weekly_bars_batch(self, codes, limit, asof_dt=None):
+            return {code: [] for code in codes}
+
+        def get_monthly_bars_batch(self, codes, limit, asof_dt=None, recent_daily_rows_by_code=None):
+            return {code: [] for code in codes}
+
+    monkeypatch.setattr(
+        bars_module,
+        "get_provisional_daily_rows_from_spark",
+        lambda codes, prefer_chart_ohlc=True, force_refresh=False: {},
+    )
+    _clear_batch_bars_cache()
+
+    client = FastAPI()
+    client.include_router(bars_module.router)
+    client.dependency_overrides[get_stock_repo] = lambda: _YahooHistoryRepo()
+    test_client = TestClient(client)
+
+    response = test_client.post(
+        "/api/batch_bars_v3",
+        json={
+            "codes": ["7203"],
+            "timeframes": ["daily"],
+            "limit": 24,
+            "includeProvisional": True,
+            "includeBoxes": False,
+        },
+    )
+
+    assert response.status_code == 200
+    daily = response.json()["items"]["7203"]["daily"]
+    assert len(daily["bars"]) == 2
+    assert daily["provenance"]["chart_last_confirmed_date"] is None
+    assert daily["provenance"]["chart_last_provisional_date"] == 20260415
+    assert daily["provenance"]["display_basis_classification"] == "provisional"
+    assert daily["provenance"]["judgment_basis_classification"] == "provisional"
+
+
 def test_batch_bars_v3_uses_direct_weekly_source_without_daily_fetch(monkeypatch) -> None:
     class _WeeklyOnlyRepo:
         def get_daily_bars_batch(self, codes, limit, asof_dt=None):  # pragma: no cover - guardrail
@@ -596,6 +652,51 @@ def test_batch_bars_v3_returns_503_when_chart_db_is_busy(monkeypatch, tmp_path) 
     assert detail["error"] == "chart_db_busy"
     assert detail["retry_after_ms"] == 1000
     assert "db_busy_ms" in detail["timings_ms"]
+
+
+def test_batch_bars_v3_retries_transient_chart_db_busy(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("MEEMEE_CHART_DISPLAY_CACHE_DIR", str(tmp_path / "chart_display_cache"))
+
+    class _TransientBusyRepo(_FakeRepo):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls = 0
+
+        def get_daily_bars_batch(self, codes, limit, asof_dt=None):
+            self.calls += 1
+            if self.calls == 1:
+                raise DatabaseAccessBusyError("C:/tmp/stocks.duckdb", timeout_sec=0.05)
+            return super().get_daily_bars_batch(codes, limit, asof_dt=asof_dt)
+
+    _clear_batch_bars_cache()
+    repo = _TransientBusyRepo()
+    client = FastAPI()
+    client.include_router(bars_module.router)
+    client.dependency_overrides[get_stock_repo] = lambda: repo
+    test_client = TestClient(client)
+
+    response = test_client.post(
+        "/api/batch_bars_v3",
+        json={
+            "codes": ["7203"],
+            "timeframes": ["daily"],
+            "limit": 120,
+            "includeProvisional": False,
+            "includeBoxes": False,
+        },
+    )
+
+    assert response.status_code == 200
+    timings = response.json()["meta"]["timings_ms"]
+    assert timings["read_gate_attempts"] == 2.0
+    assert timings["db_busy_retry_count"] == 1.0
+    assert "read_gate_wait_ms" in timings
+    assert repo.calls == 2
+    observability = bars_module.get_batch_bars_v3_observability(reset=True)
+    assert observability["request_count"] == 1
+    assert observability["success_count"] == 1
+    assert observability["db_busy_count"] == 1
+    assert observability["db_busy_retry_count"] == 1
 
 
 def test_batch_bars_v3_returns_stale_display_cache_when_chart_db_is_busy(monkeypatch, tmp_path) -> None:

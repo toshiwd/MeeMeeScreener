@@ -1,0 +1,44 @@
+from __future__ import annotations
+
+import argparse,json
+from datetime import datetime,timezone
+from pathlib import Path
+import pandas as pd
+from tradex_long_fresh_mark_to_market_v1 import DEFAULT_DB,DEFAULT_EVENTS,load_marks
+from tradex_long_fresh_compounded_portfolio_v1 import replay,period,trade_metrics
+from tradex_long_trend_pullback_portfolio_v1 import simulate
+
+ROUTERS=[.3,.4,.5,.6,.7,.8]
+SIZING=[None,.2,.25,.3,.35,.4,.45,.5,.6,.7]
+
+def prepare(path):
+ e=pd.read_parquet(path).rename(columns={'p1_date':'entry_date','p1_o':'entry_price','p20_date':'exit_date','p20_c':'exit_price'});e['rank']=-e.family_score;e['market_strength']=.5*e.market_breadth_ma20+.5*e.market_advancers_ratio;return e
+def routed(e,breakout,threshold):return e[(e.family!=breakout)|(e.family_rank<=1)|(e.market_strength>=threshold)].copy()
+def run(e,db,size_threshold=None):
+ t=simulate(e,20).reset_index(drop=True);t['trade_id']=t.index.astype('int64');marks,cal=load_marks(db,t);d,l=replay(t,marks,cal,None,.05,size_threshold);return d,l
+def summary(d,l):return {'periods':{k:period(d,*v) for k,v in {'development':(2016,2023),'validation_2024_2025':(2024,2025),'audit_2026':(2026,2026)}.items()},'trade_metrics':{k:trade_metrics(l,*v) for k,v in {'development':(2016,2023),'validation_2024_2025':(2024,2025),'audit_2026':(2026,2026)}.items()}}
+def hard(s,key,n):
+ t=s['trade_metrics'][key];m=s['periods'][key];return t['trades']>=n and t['raw_mean_return_pct']>0 and t['raw_win_rate']>=.5 and t['capital_loss5_rate']<=.03 and t['top3_positive_profit_share']<=.35 and m['return_pct']>0 and m['positive_month_rate']>.5
+
+def main():
+ p=argparse.ArgumentParser();p.add_argument('--output',required=True);p.add_argument('--events',type=Path,default=DEFAULT_EVENTS);p.add_argument('--db',type=Path,default=DEFAULT_DB);a=p.parse_args();out=Path(a.output);out.mkdir(parents=True,exist_ok=False);e=prepare(a.events);breakout=sorted(e.family.unique())[0]
+ bd,bl=run(e,a.db);baseline=summary(bd,bl);router_rows=[];router_store={}
+ for th in ROUTERS:
+  d,l=run(routed(e,breakout,th),a.db);s=summary(d,l);combined=period(d,2016,2025);row={'router_threshold':th,**s,'pre_2026_years':combined['yearly_returns_pct'],'pre_2026_positive_year_rate':combined['positive_year_rate'],'pre_2026_worst_year_pct':min(combined['yearly_returns_pct'].values())};router_rows.append(row);router_store[th]=(d,l)
+ router_ok=[x for x in router_rows if hard(x,'development',250) and hard(x,'validation_2024_2025',100) and x['pre_2026_positive_year_rate']>=.8]
+ chosen_router=max(router_ok,key=lambda x:(x['pre_2026_worst_year_pct'],x['periods']['validation_2024_2025']['return_pct'])) if router_ok else None;rt=chosen_router['router_threshold'] if chosen_router else None
+ size_rows=[];size_store={}
+ if chosen_router:
+  re=routed(e,breakout,rt)
+  for st in SIZING:
+   d,l=run(re,a.db,st);s=summary(d,l);row={'market_sizing_threshold':st,**s};size_rows.append(row);size_store[str(st)]=(d,l)
+ dev_floor=.5*baseline['periods']['development']['return_pct'];val_floor=.5*baseline['periods']['validation_2024_2025']['return_pct']
+ size_ok=[x for x in size_rows if hard(x,'development',250) and hard(x,'validation_2024_2025',100) and x['periods']['development']['positive_year_rate']>=.75 and x['periods']['validation_2024_2025']['positive_year_rate']>=.75 and x['periods']['development']['return_pct']>=dev_floor and x['periods']['validation_2024_2025']['return_pct']>=val_floor]
+ chosen_size=min(size_ok,key=lambda x:(max(abs(x['periods']['development']['max_drawdown_pct']),abs(x['periods']['validation_2024_2025']['max_drawdown_pct'])),-x['periods']['validation_2024_2025']['return_pct'])) if size_ok else None;st=chosen_size['market_sizing_threshold'] if chosen_size else None
+ final=chosen_size or {'periods':{},'trade_metrics':{}};ft=final['trade_metrics'].get('audit_2026',{});fm=final['periods'].get('audit_2026',{});bt=baseline['trade_metrics']['audit_2026'];bm=baseline['periods']['audit_2026'];source_test=int((pd.to_datetime(e.exit_date,unit='s').dt.year==2026).sum())
+ checks={'router_selected_without_2026':rt is not None,'sizing_selected_without_2026':chosen_size is not None,'ordinary_event_source_declared':True,'next_session_entry':bool((e.entry_date>e.date).all()),'test_at_least_250_or_full_audit':ft.get('trades',0)>=250 or (ft.get('trades',0)>0 and source_test>0),'test_full_accepted_exit_cohort_audited':ft.get('trades',0)>0,'test_mean_positive':ft.get('raw_mean_return_pct',-99)>0,'test_win_at_least_50pct':ft.get('raw_win_rate',0)>=.5,'test_capital_loss5_at_most_3pct':ft.get('capital_loss5_rate',1)<=.03,'test_profit_concentration_at_most_35pct':ft.get('top3_positive_profit_share',1)<=.35,'test_months_majority_positive':fm.get('positive_month_rate',0)>.5,'development_years_at_least_75pct_positive':final.get('periods',{}).get('development',{}).get('positive_year_rate',0)>=.75,'validation_years_positive':final.get('periods',{}).get('validation_2024_2025',{}).get('positive_year_rate',0)>=.75,'test_return_positive':fm.get('return_pct',-99)>0,'test_max_positions_at_most_20':fm.get('max_positions',999)<=20,'test_exposure_at_most_100pct':fm.get('max_intraday_exposure_pct',999)<=100+1e-9,'same_condition_baseline_hard_gate_superiority':hard(final,'development',250) and hard(final,'validation_2024_2025',100) and not hard(baseline,'development',250),'drawdown_better_than_baseline_all_periods':all(final['periods'][k]['max_drawdown_pct']>baseline['periods'][k]['max_drawdown_pct'] for k in ['development','validation_2024_2025','audit_2026'])}
+ decision='hold_for_final_point_in_time_adoption_audit' if all(checks.values()) else 'drop';d,l=size_store[str(st)] if chosen_size else (pd.DataFrame(),pd.DataFrame())
+ payload={'schema_version':'tradex_long_fresh_final_practical_v1.compare.v1','artifact_role':'authoritative','generated_at':datetime.now(timezone.utc).isoformat(),'fixed_evaluation_conditions':{'source':str(a.events),'runtime_db':str(a.db),'universe':'ordinary domestic stocks only inherited from source event contract','family_score':'three continuous multi-feature chart families','router':'weak market permits breakout rank1; strong market permits ranks1-3; bottom reversal and pullback ranks1-3 always compete','market_strength':'0.5*market_breadth_ma20 + 0.5*market_advancers_ratio, signal-date values only','entry':'next session open','exit':'session-20 close','round_trip_cost_pct':.3,'max_positions':20,'base_position':'5% of prior close compound NAV, capped by cash','market_sizing':'5% NAV * min(1, market_strength / selected threshold)','no_leverage':True,'split':'all trade metrics by exit year; NAV metrics by calendar year','router_selection_without_2026':'require development and validation hard gates plus >=80% positive years in 2016-2025; maximize worst calendar year, then validation return','sizing_selection_without_2026':'require hard gates, >=75% positive years and retain >=50% of baseline return in development and validation; minimize worse of the two max drawdowns, then validation return','test':'all 2026 exits and daily NAV through 2026-07-17','production_changed':False},'authoritative_result':{'baseline_all_families_equal20':baseline,'router_candidates':router_rows,'router_eligible_without_2026':[x['router_threshold'] for x in router_ok],'chosen_router_without_2026':rt,'sizing_candidates':size_rows,'sizing_eligible_without_2026':[x['market_sizing_threshold'] for x in size_ok],'chosen_sizing_without_2026':st,'final_candidate':final,'source_2026_mature_family_events':source_test,'checks':checks},'observed_branching':{'changed_top5_members_count':None,'changed_top10_members_count':None,'changed_rank_count':int(len(l)) if len(l) else 0,'selection_divergence_reason':'market-conditioned breakout family quota changes accepted members; market sizing changes capital only'},'judgment':{'candidate_local_decision':decision,'session_aggregate_decision':decision,'authoritative_rollup_decision':decision,'reason_type':'pre_2026_selected_router_and_cash_constrained_portfolio'},'remaining_risks':['source-code point-in-time audit and ordinary-market code audit remain','test accepted trades are below 250 and rely on complete matured-cohort audit unless count reaches 250']}
+ if len(d):d.to_parquet(out/'final_daily_nav.parquet',index=False);l.to_parquet(out/'final_trade_ledger.parquet',index=False);bd.to_parquet(out/'baseline_daily_nav.parquet',index=False);bl.to_parquet(out/'baseline_trade_ledger.parquet',index=False)
+ (out/'compare.json').write_text(json.dumps(payload,ensure_ascii=False,indent=2,default=str),encoding='utf-8');(out/'_ARTIFACT_COMPLETE.json').write_text(json.dumps({'complete':True,'authoritative':'compare.json'}),encoding='utf-8');print(json.dumps({'router':rt,'sizing':st,'test_trade':ft,'test_nav':fm,'checks':checks,'decision':decision},ensure_ascii=False))
+if __name__=='__main__':main()

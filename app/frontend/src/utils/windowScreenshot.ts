@@ -6,6 +6,8 @@
 type ScreenshotOptions = {
     screenType: string;
     code?: string | null;
+    captureSelector?: string;
+    ignoreSelectors?: string[];
 };
 
 type CaptureResult = {
@@ -144,6 +146,18 @@ const applyCanvasSnapshotsToClone = (clonedDocument: Document, snapshots: Map<st
     });
 };
 
+const removeIgnoredElementsFromClone = (clonedDocument: Document, selectors: string[]) => {
+    selectors.forEach((selector) => {
+        try {
+            clonedDocument.querySelectorAll(selector).forEach((element) => {
+                element.remove();
+            });
+        } catch {
+            // Ignore invalid caller-provided selectors.
+        }
+    });
+};
+
 const resolveCaptureBackground = (root: HTMLElement): string | null => {
     const candidates = [document.body, document.documentElement, root].filter(
         (node): node is HTMLElement => Boolean(node)
@@ -186,7 +200,10 @@ export const captureWindowBlob = async (
             return { success: false, error: "ルート要素が見つかりません" };
         }
 
-        const captureRoot = document.body ?? root;
+        const selectedRoot = options.captureSelector
+            ? document.querySelector<HTMLElement>(options.captureSelector)
+            : null;
+        const captureRoot = selectedRoot ?? document.body ?? root;
         const backgroundColor = resolveCaptureBackground(root);
 
         // Dynamically import html2canvas
@@ -198,7 +215,19 @@ export const captureWindowBlob = async (
             return { success: false, error: "スクリーンショット機能の読み込みに失敗しました" };
         }
 
-        const canvasSnapshots = captureCanvasElements(root);
+        const canvasSnapshots = captureCanvasElements(captureRoot);
+        const captureRect = captureRoot.getBoundingClientRect();
+        const captureWidth = selectedRoot
+            ? Math.max(1, Math.ceil(captureRect.width))
+            : window.innerWidth;
+        const captureHeight = selectedRoot
+            ? Math.max(1, Math.min(Math.ceil(captureRect.height), window.innerHeight))
+            : window.innerHeight;
+        const ignoreSelectors = [
+            "[data-html2canvas-ignore='true']",
+            "[data-meemee-screenshot-ignore='true']",
+            ...(options.ignoreSelectors ?? []),
+        ];
         let canvas: HTMLCanvasElement;
         try {
             canvas = await html2canvas(captureRoot, {
@@ -208,14 +237,15 @@ export const captureWindowBlob = async (
                 scale: window.devicePixelRatio || 1,
                 logging: false,
                 backgroundColor,
-                windowWidth: captureRoot.scrollWidth,
-                windowHeight: captureRoot.scrollHeight,
-                width: window.innerWidth,
-                height: window.innerHeight,
+                windowWidth: Math.max(captureRoot.scrollWidth, captureWidth),
+                windowHeight: Math.max(captureRoot.scrollHeight, captureHeight),
+                width: captureWidth,
+                height: captureHeight,
                 x: 0,
                 y: 0,
                 onclone: (clonedDocument: Document) => {
                     applyCanvasSnapshotsToClone(clonedDocument, canvasSnapshots.snapshots);
+                    removeIgnoredElementsFromClone(clonedDocument, ignoreSelectors);
                 },
             });
         } finally {
@@ -422,7 +452,9 @@ export const captureAndCopyScreenshot = async (
 
 export const getScreenType = (pathname: string): string => {
     if (pathname.startsWith("/practice/")) return "Practice";
+    if (pathname.startsWith("/detail-shot/")) return "Detail";
     if (pathname.startsWith("/detail/")) return "Detail";
+    if (pathname.startsWith("/detail-v2/")) return "Detail";
     if (pathname === "/ranking") return "Ranking";
     if (pathname === "/favorites") return "Favorites";
     if (pathname === "/candidates") return "Candidates";

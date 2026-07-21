@@ -11,7 +11,7 @@ import threading
 import time
 import traceback
 from contextlib import redirect_stdout, redirect_stderr
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Callable
 
 from .config import config
@@ -186,6 +186,30 @@ def _record_profile_phase(
         phases.append(phase)
 
 
+def _record_update_stage_duration(
+    state: dict,
+    profile: dict[str, Any],
+    name: str,
+    *,
+    started_at: float,
+    status: str = "done",
+    **extra: Any,
+) -> float:
+    duration_sec = round(max(0.0, time.monotonic() - float(started_at)), 3)
+    durations = state.get("last_pipeline_stage_durations")
+    if not isinstance(durations, dict):
+        durations = {}
+        state["last_pipeline_stage_durations"] = durations
+    durations[str(name)] = {
+        "duration_sec": duration_sec,
+        "status": str(status),
+        "recorded_at": datetime.now().isoformat(),
+        **extra,
+    }
+    _record_profile_phase(profile, name, started_at=started_at, status=status, **extra)
+    return duration_sec
+
+
 def _write_daily_update_profile(profile: dict[str, Any], *, status: str) -> str | None:
     ended_at = datetime.now()
     started_monotonic = float(profile.pop("_started_monotonic", time.monotonic()))
@@ -301,6 +325,26 @@ def _parse_txt_ymd_key(value: object) -> int | None:
         return None
 
 
+def _expected_latest_confirmed_date_key(now: datetime | None = None) -> int:
+    current = (now or datetime.now()).date()
+    expected = current - timedelta(days=1)
+    while expected.weekday() >= 5:
+        expected -= timedelta(days=1)
+    return int(expected.strftime("%Y%m%d"))
+
+
+def _preflight_manifest_is_current_enough(manifest: dict[str, Any]) -> tuple[bool, str | None]:
+    expected_key = _expected_latest_confirmed_date_key()
+    source_key = _parse_txt_ymd_key(manifest.get("source_latest_date"))
+    db_key = _parse_txt_ymd_key(manifest.get("db_latest_date"))
+    latest_key = max((key for key in (source_key, db_key) if key is not None), default=None)
+    if latest_key is None:
+        return False, "latest_date_missing"
+    if latest_key < expected_key:
+        return False, "source_behind_expected_trading_day"
+    return True, None
+
+
 def _latest_txt_export_date_key_from_file(path: str) -> int | None:
     try:
         with open(path, "rb") as handle:
@@ -414,6 +458,16 @@ def _manifests_match_for_noop(previous: dict[str, Any] | None, current: dict[str
     if str(previous.get("ranking_snapshot_as_of") or "") != str(current.get("db_latest_date") or ""):
         return False, "ranking_snapshot_stale"
     return True, None
+
+
+def _manifest_supports_postprocess_only_resume(
+    previous: dict[str, Any] | None,
+    current: dict[str, Any],
+) -> bool:
+    matches, reason = _manifests_match_for_noop(previous, current)
+    if matches:
+        return False
+    return reason == "ranking_snapshot_stale"
 
 
 def _trim_retry_trace(state: dict) -> None:
@@ -1663,6 +1717,184 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
     EXPORT_PROGRESS_START = 10
     EXPORT_PROGRESS_END = 68
 
+    previous_manifest = _load_txt_source_manifest()
+    previous_ranking_key = _to_optional_int(state.get("last_cache_refresh_db_latest_key"))
+    preflight_manifest = _build_txt_source_manifest_snapshot(
+        code_path=code_path,
+        out_dir=out_dir,
+        db_latest_key=db_latest_before_key,
+        ranking_snapshot_key=previous_ranking_key,
+    )
+    allow_postprocess_only_resume = _to_bool(
+        payload.get("allow_postprocess_only_resume"),
+        _to_bool(os.getenv("MEEMEE_TXT_UPDATE_ALLOW_POSTPROCESS_ONLY_RESUME"), True),
+    )
+    allow_manifest_fast_noop = _to_bool(
+        payload.get("allow_manifest_fast_noop"),
+        _to_bool(os.getenv("MEEMEE_TXT_UPDATE_ALLOW_MANIFEST_FAST_NOOP"), False),
+    )
+    force_export = _to_bool(payload.get("force_export"), False) or full_rebuild_requested
+    repair_mode = bool(auto_fill_missing_history or force_export)
+    preflight_manifest_matches, _preflight_manifest_miss_reason = _manifests_match_for_noop(
+        previous_manifest,
+        preflight_manifest,
+    )
+    preflight_manifest_current, preflight_manifest_stale_reason = _preflight_manifest_is_current_enough(
+        preflight_manifest
+    )
+    if not preflight_manifest_current:
+        profile["preflight_noop_blocked_reason"] = preflight_manifest_stale_reason
+        state["last_txt_update_preflight_noop_blocked_at"] = datetime.now().isoformat()
+        state["last_txt_update_preflight_noop_blocked_reason"] = preflight_manifest_stale_reason
+    if (
+        allow_manifest_fast_noop
+        and (not force_export)
+        and (not repair_mode)
+        and preflight_manifest_matches
+        and preflight_manifest_current
+    ):
+        completion_ts = datetime.now()
+        profile["status"] = "no_change"
+        profile["export_required"] = False
+        profile["export_reason"] = None
+        profile["import_required"] = False
+        profile["import_reason"] = None
+        profile["changed_files_count"] = 0
+        profile["changed_dates_count"] = 0
+        profile["changed_symbols_count"] = 0
+        profile["pan_finalized_rows"] = 0
+        profile["db_latest_after"] = preflight_manifest.get("db_latest_date")
+        profile["source_latest_date"] = preflight_manifest.get("source_latest_date")
+        profile["skipped"]["pan_import"] = True
+        profile["skipped"]["export"] = True
+        profile["skipped"]["import"] = True
+        profile["skipped"]["ranking_refresh"] = True
+        profile["skipped"]["tracking_refresh"] = True
+        state["last_pan_import_skipped_at"] = completion_ts.isoformat()
+        state["last_pan_import_skipped_reason"] = "source_manifest_unchanged"
+        state["last_txt_update_no_change_at"] = completion_ts.isoformat()
+        state["last_txt_update_no_change_reason"] = "source_manifest_unchanged"
+        state["last_tracking_refresh_skipped_at"] = completion_ts.isoformat()
+        state["last_tracking_refresh_skipped_reason"] = "no_confirmed_change"
+        state.update(
+            {
+                "last_txt_update_at": completion_ts.isoformat(),
+                "last_txt_update_date": completion_ts.date().isoformat(),
+            }
+        )
+        _record_profile_phase(
+            profile,
+            "preflight_no_change",
+            started_at=time.monotonic(),
+            status="no_change",
+        )
+        final_message = "No confirmed TXT/PAN source changes detected. Daily update fast path completed."
+        _record_pipeline_success(state, stage="finalize", message=final_message)
+        _save_txt_source_manifest(preflight_manifest)
+        _finish_profile("no_change")
+        job_manager._update_db(
+            job_id,
+            "txt_update",
+            "success",
+            message=final_message,
+            progress=100,
+            finished_at=completion_ts,
+        )
+        return
+    if (
+        allow_postprocess_only_resume
+        and (not force_export)
+        and (not repair_mode)
+        and preflight_manifest_current
+        and _manifest_supports_postprocess_only_resume(previous_manifest, preflight_manifest)
+    ):
+        completion_ts = datetime.now()
+        postprocess_message = "Pan/TXT import already current. Queuing post-processing only..."
+        _set_pipeline_stage(state, "postprocess_resume", message=postprocess_message)
+        job_manager._update_db(
+            job_id,
+            "txt_update",
+            "running",
+            message=postprocess_message,
+            progress=92,
+        )
+        followup_payload = dict(payload)
+        followup_payload.update(
+            {
+                "source_txt_job_id": str(job_id),
+                "phase_dt": None,
+                "db_latest_after_key": int(db_latest_before_key) if db_latest_before_key is not None else None,
+                "changed_files": 0,
+                "pan_finalized_rows": 0,
+                "summary_line": "Pan/TXT import skipped; post-processing only",
+            }
+        )
+        followup_job_id = _queue_txt_followup(
+            state,
+            source_job_id=str(job_id),
+            payload=followup_payload,
+        )
+        profile["mode"] = "postprocess_only_resume"
+        profile["status"] = "queued_followup" if followup_job_id else "followup_queue_rejected"
+        profile["export_required"] = False
+        profile["export_reason"] = None
+        profile["import_required"] = False
+        profile["import_reason"] = None
+        profile["changed_files_count"] = 0
+        profile["changed_dates_count"] = 0
+        profile["changed_symbols_count"] = 0
+        profile["pan_finalized_rows"] = 0
+        profile["db_latest_after"] = _format_ymd_key(db_latest_before_key)
+        profile["source_latest_date"] = preflight_manifest.get("source_latest_date")
+        profile["skipped"]["export"] = True
+        profile["skipped"]["import"] = True
+        profile["skipped"]["ranking_refresh"] = True
+        profile["skipped"]["tracking_refresh"] = True
+        _record_profile_phase(
+            profile,
+            "postprocess_only_resume",
+            started_at=time.monotonic(),
+            status="queued" if followup_job_id else "queue_rejected",
+            followup_job_id=followup_job_id,
+        )
+        state["last_pan_import_skipped_at"] = completion_ts.isoformat()
+        state["last_pan_import_skipped_reason"] = "postprocess_only_resume"
+        state["last_txt_update_postprocess_resume_at"] = completion_ts.isoformat()
+        state["last_txt_update_postprocess_resume_reason"] = "ranking_snapshot_stale"
+        state["last_tracking_refresh_skipped_at"] = completion_ts.isoformat()
+        state["last_tracking_refresh_skipped_reason"] = "postprocess_only_resume_followup"
+        state.update(
+            {
+                "last_txt_update_at": completion_ts.isoformat(),
+                "last_txt_update_date": completion_ts.date().isoformat(),
+            }
+        )
+        _save_txt_source_manifest(preflight_manifest)
+        _finish_profile("queued_followup" if followup_job_id else "followup_queue_rejected")
+        if followup_job_id:
+            final_message = f"Pan/TXT import already current. Post-processing queued ({followup_job_id})."
+            _record_pipeline_success(state, stage="postprocess_resume", message=final_message)
+            job_manager._update_db(
+                job_id,
+                "txt_update",
+                "success",
+                message=final_message,
+                progress=100,
+                finished_at=completion_ts,
+            )
+            return
+        error_message = "Pan/TXT import already current, but post-processing queue was rejected."
+        _record_pipeline_failure(state, stage="postprocess_resume", error=error_message, message=error_message)
+        job_manager._update_db(
+            job_id,
+            "txt_update",
+            "failed",
+            error="Post-processing queue rejected",
+            message=error_message,
+            finished_at=completion_ts,
+        )
+        return
+
     # Step 0: Import latest data into Pan database (pandtmgr F5)
     if _exit_if_canceled(job_id, state, stage="pan_import", message="Canceled before Pan import"):
         return
@@ -1769,8 +2001,6 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
         return
 
     manifest_started = time.monotonic()
-    previous_manifest = _load_txt_source_manifest()
-    previous_ranking_key = _to_optional_int(state.get("last_cache_refresh_db_latest_key"))
     current_manifest = _build_txt_source_manifest_snapshot(
         code_path=code_path,
         out_dir=out_dir,
@@ -1778,17 +2008,20 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
         ranking_snapshot_key=previous_ranking_key,
     )
     manifest_matches, manifest_miss_reason = _manifests_match_for_noop(previous_manifest, current_manifest)
-    force_export = _to_bool(payload.get("force_export"), False) or full_rebuild_requested
-    allow_manifest_fast_noop = _to_bool(
-        payload.get("allow_manifest_fast_noop"),
-        _to_bool(os.getenv("MEEMEE_TXT_UPDATE_ALLOW_MANIFEST_FAST_NOOP"), False),
+    preflight_source_behind_expected = preflight_manifest_stale_reason == "source_behind_expected_trading_day"
+    export_required = bool(
+        force_export
+        or repair_mode
+        or preflight_source_behind_expected
+        or (not allow_manifest_fast_noop)
+        or not manifest_matches
     )
-    repair_mode = bool(auto_fill_missing_history or force_export)
-    export_required = bool(force_export or repair_mode or (not allow_manifest_fast_noop) or not manifest_matches)
     if force_export:
         export_reason = "forced_export"
     elif repair_mode:
         export_reason = "repair_mode"
+    elif preflight_source_behind_expected:
+        export_reason = "source_behind_expected_trading_day"
     elif not allow_manifest_fast_noop:
         export_reason = "manual_refresh_after_pan_import"
     elif manifest_matches:
@@ -2273,6 +2506,7 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
             or auto_fill_missing_history
             or auto_walkforward_run
             or auto_walkforward_gate
+            or changed_files > 0
             or (force_recompute_on_pan_finalize and pan_finalized_rows > 0)
         )
         followup_job_id: str | None = None
@@ -2428,7 +2662,10 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
     SCORING_PROGRESS = 97
     SELL_ANALYSIS_PROGRESS = 97
     ANALYSIS_BACKFILL_PROGRESS = 98
-    CACHE_REFRESH_PROGRESS = 98
+    FEATURE_REFRESH_PROGRESS = 98.1
+    LABEL_REFRESH_PROGRESS = 98.2
+    PREDICTION_REFRESH_PROGRESS = 98.3
+    CACHE_REFRESH_PROGRESS = 98.4
     TRACKING_REFRESH_PROGRESS = 99
     WALKFORWARD_RUN_PROGRESS = 98
     WALKFORWARD_GATE_PROGRESS = 98
@@ -2731,6 +2968,216 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
             ml_note_parts.append(f"analysis_prewarm=failed({exc})")
 
     try:
+        if _exit_if_canceled(job_id, state, stage="feature_refresh", message="Canceled before feature refresh"):
+            return
+        feature_refresh_started = time.monotonic()
+        feature_refresh_message = "feature_refresh: Refreshing confirmed ML features..."
+        _set_pipeline_stage(state, "feature_refresh", message=feature_refresh_message)
+        job_manager._update_db(
+            job_id,
+            "txt_update",
+            "running",
+            message=feature_refresh_message,
+            progress=FEATURE_REFRESH_PROGRESS,
+        )
+        from app.backend.db import get_conn as get_backend_conn
+        from app.backend.services.ml import ml_service
+
+        with get_backend_conn() as conn:
+            feature_refresh_result = ml_service.refresh_ml_features_incremental(conn)
+        state["last_ml_feature_refresh_at"] = datetime.now().isoformat()
+        state["last_ml_feature_refresh_result"] = feature_refresh_result
+        state.pop("last_ml_feature_refresh_error", None)
+        ml_note_parts.append(
+            "ml_features="
+            f"ok(rows={feature_refresh_result.get('rows')},latest={feature_refresh_result.get('latest_feature_dt')})"
+        )
+        feature_refresh_duration_sec = _record_update_stage_duration(
+            state,
+            profile,
+            "refresh_ml_features",
+            started_at=feature_refresh_started,
+            rows=feature_refresh_result.get("rows"),
+            latest=feature_refresh_result.get("latest_feature_dt"),
+        )
+        feature_refresh_done_message = (
+            "feature_refresh: ML features refreshed "
+            f"(rows={feature_refresh_result.get('rows')}, "
+            f"latest={feature_refresh_result.get('latest_feature_dt')}, "
+            f"{feature_refresh_duration_sec:.3f}s)"
+        )
+        _set_pipeline_stage(state, "feature_refresh", status="success", message=feature_refresh_done_message)
+        job_manager._update_db(
+            job_id,
+            "txt_update",
+            "running",
+            message=feature_refresh_done_message,
+            progress=FEATURE_REFRESH_PROGRESS,
+        )
+    except Exception as exc:
+        logger.exception("Incremental ML feature refresh failed: %s", exc)
+        if "feature_refresh_started" in locals():
+            _record_update_stage_duration(
+                state,
+                profile,
+                "refresh_ml_features",
+                started_at=feature_refresh_started,
+                status="failed",
+                error=str(exc),
+            )
+        state["last_ml_feature_refresh_error"] = str(exc)
+        ml_note_parts.append(f"ml_features=failed({exc})")
+        feature_refresh_failed_message = f"feature_refresh: ML feature refresh failed; continuing ({exc})"
+        _set_pipeline_stage(state, "feature_refresh", status="failed", message=feature_refresh_failed_message)
+        job_manager._update_db(
+            job_id,
+            "txt_update",
+            "running",
+            message=feature_refresh_failed_message,
+            progress=FEATURE_REFRESH_PROGRESS,
+        )
+
+    try:
+        if _exit_if_canceled(job_id, state, stage="label_refresh", message="Canceled before label refresh"):
+            return
+        label_refresh_started = time.monotonic()
+        label_refresh_message = "label_refresh: Refreshing mature 5/10/20-day labels..."
+        _set_pipeline_stage(state, "label_refresh", message=label_refresh_message)
+        job_manager._update_db(
+            job_id,
+            "txt_update",
+            "running",
+            message=label_refresh_message,
+            progress=LABEL_REFRESH_PROGRESS,
+        )
+        from app.backend.db import get_conn as get_backend_conn
+        from app.backend.services.ml import ml_service
+
+        with get_backend_conn() as conn:
+            label_refresh_result = ml_service.refresh_ml_labels_incremental(conn)
+        state["last_ml_label_refresh_at"] = datetime.now().isoformat()
+        state["last_ml_label_refresh_result"] = label_refresh_result
+        state.pop("last_ml_label_refresh_error", None)
+        ml_note_parts.append(
+            "ml_labels="
+            f"ok(rows={label_refresh_result.get('rows')},latest={label_refresh_result.get('latest_label_dt')})"
+        )
+        label_refresh_duration_sec = _record_update_stage_duration(
+            state,
+            profile,
+            "refresh_ml_labels",
+            started_at=label_refresh_started,
+            rows=label_refresh_result.get("rows"),
+            latest=label_refresh_result.get("latest_label_dt"),
+        )
+        label_refresh_done_message = (
+            "label_refresh: ML labels refreshed "
+            f"(rows={label_refresh_result.get('rows')}, "
+            f"latest={label_refresh_result.get('latest_label_dt')}, "
+            f"{label_refresh_duration_sec:.3f}s)"
+        )
+        _set_pipeline_stage(state, "label_refresh", status="success", message=label_refresh_done_message)
+        job_manager._update_db(
+            job_id,
+            "txt_update",
+            "running",
+            message=label_refresh_done_message,
+            progress=LABEL_REFRESH_PROGRESS,
+        )
+    except Exception as exc:
+        logger.exception("Incremental ML label refresh failed: %s", exc)
+        if "label_refresh_started" in locals():
+            _record_update_stage_duration(
+                state,
+                profile,
+                "refresh_ml_labels",
+                started_at=label_refresh_started,
+                status="failed",
+                error=str(exc),
+            )
+        state["last_ml_label_refresh_error"] = str(exc)
+        ml_note_parts.append(f"ml_labels=failed({exc})")
+        label_refresh_failed_message = f"label_refresh: ML label refresh failed; continuing ({exc})"
+        _set_pipeline_stage(state, "label_refresh", status="failed", message=label_refresh_failed_message)
+        job_manager._update_db(
+            job_id,
+            "txt_update",
+            "running",
+            message=label_refresh_failed_message,
+            progress=LABEL_REFRESH_PROGRESS,
+        )
+
+    try:
+        if _exit_if_canceled(job_id, state, stage="prediction_refresh", message="Canceled before prediction refresh"):
+            return
+        prediction_refresh_started = time.monotonic()
+        prediction_refresh_message = "prediction_refresh: Refreshing confirmed ML predictions..."
+        _set_pipeline_stage(state, "prediction_refresh", message=prediction_refresh_message)
+        job_manager._update_db(
+            job_id,
+            "txt_update",
+            "running",
+            message=prediction_refresh_message,
+            progress=PREDICTION_REFRESH_PROGRESS,
+        )
+        from app.backend.db import get_conn as get_backend_conn
+        from app.backend.services.ml import ml_service
+
+        with get_backend_conn() as conn:
+            prediction_refresh_result = ml_service.refresh_ml_predictions_incremental(conn)
+        state["last_ml_prediction_refresh_at"] = datetime.now().isoformat()
+        state["last_ml_prediction_refresh_result"] = prediction_refresh_result
+        state.pop("last_ml_prediction_refresh_error", None)
+        ml_note_parts.append(
+            "ml_predictions="
+            f"ok(rows={prediction_refresh_result.get('rows')},latest={prediction_refresh_result.get('latest_prediction_dt')})"
+        )
+        prediction_refresh_duration_sec = _record_update_stage_duration(
+            state,
+            profile,
+            "refresh_ml_predictions",
+            started_at=prediction_refresh_started,
+            rows=prediction_refresh_result.get("rows"),
+            latest=prediction_refresh_result.get("latest_prediction_dt"),
+        )
+        prediction_refresh_done_message = (
+            "prediction_refresh: ML predictions refreshed "
+            f"(rows={prediction_refresh_result.get('rows')}, "
+            f"latest={prediction_refresh_result.get('latest_prediction_dt')}, "
+            f"{prediction_refresh_duration_sec:.3f}s)"
+        )
+        _set_pipeline_stage(state, "prediction_refresh", status="success", message=prediction_refresh_done_message)
+        job_manager._update_db(
+            job_id,
+            "txt_update",
+            "running",
+            message=prediction_refresh_done_message,
+            progress=PREDICTION_REFRESH_PROGRESS,
+        )
+    except Exception as exc:
+        logger.exception("Incremental ML prediction refresh failed: %s", exc)
+        if "prediction_refresh_started" in locals():
+            _record_update_stage_duration(
+                state,
+                profile,
+                "refresh_ml_predictions",
+                started_at=prediction_refresh_started,
+                status="failed",
+                error=str(exc),
+            )
+        state["last_ml_prediction_refresh_error"] = str(exc)
+        ml_note_parts.append(f"ml_predictions=failed({exc})")
+        prediction_refresh_failed_message = f"prediction_refresh: ML prediction refresh failed; continuing ({exc})"
+        _set_pipeline_stage(state, "prediction_refresh", status="failed", message=prediction_refresh_failed_message)
+        job_manager._update_db(
+            job_id,
+            "txt_update",
+            "running",
+            message=prediction_refresh_failed_message,
+            progress=PREDICTION_REFRESH_PROGRESS,
+        )
+
+    try:
         if _exit_if_canceled(job_id, state, stage="cache_refresh", message="Canceled before cache refresh"):
             return
         cache_refresh_started = time.monotonic()
@@ -2751,10 +3198,10 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
             from app.backend.core.config import config as app_config
             from app.backend.services.dev_db_sync import (
                 record_dev_db_sync_state,
-                sync_confirmed_production_db_to_dev,
+                sync_updated_stock_db_to_local_peer,
             )
 
-            sync_result = sync_confirmed_production_db_to_dev(source_db_path=app_config.DB_PATH)
+            sync_result = sync_updated_stock_db_to_local_peer(source_db_path=app_config.DB_PATH)
             record_dev_db_sync_state(state, sync_result)
             if sync_result.get("synced"):
                 ml_note_parts.append(

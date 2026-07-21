@@ -615,10 +615,10 @@ def handle_txt_followup(job_id: str, payload: dict) -> None:
             from app.backend.core.config import config as app_config
             from app.backend.services.dev_db_sync import (
                 record_dev_db_sync_state,
-                sync_confirmed_production_db_to_dev,
+                sync_updated_stock_db_to_local_peer,
             )
 
-            sync_result = sync_confirmed_production_db_to_dev(source_db_path=app_config.DB_PATH)
+            sync_result = sync_updated_stock_db_to_local_peer(source_db_path=app_config.DB_PATH)
             record_dev_db_sync_state(state, sync_result)
             if sync_result.get("synced"):
                 ml_note_parts.append(

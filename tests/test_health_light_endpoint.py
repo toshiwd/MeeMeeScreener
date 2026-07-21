@@ -51,6 +51,54 @@ def test_health_live_is_db_independent():
     assert payload["message"] == "alive"
 
 
+def test_diagnostics_reports_batch_bars_observability():
+    stats = {
+        "missing_tables": [],
+        "errors": [],
+        "db_retryable": False,
+        "db_connect_stats": {"open_calls": 3},
+    }
+    observability = {"request_count": 2, "db_busy_count": 1}
+
+    with (
+        patch.object(health_router, "_collect_db_stats", return_value=stats),
+        patch.object(health_router, "get_batch_bars_v3_observability", return_value=observability),
+    ):
+        payload = health_router.diagnostics()
+
+    assert payload["batch_bars_v3_observability"] == observability
+
+
+def test_ml_maintenance_extra_uses_short_cache(monkeypatch):
+    health_router._ml_maintenance_cache = None
+    calls = {"count": 0}
+
+    class _Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    def _get_conn():
+        calls["count"] += 1
+        return _Conn()
+
+    monkeypatch.setattr("app.backend.db.get_conn", _get_conn)
+    monkeypatch.setattr(
+        "app.backend.services.ml.ml_service.get_ml_maintenance_status",
+        lambda conn: {"prediction_fresh": True},
+    )
+
+    first = health_router._ml_maintenance_extra()
+    second = health_router._ml_maintenance_extra()
+
+    assert first == {"ml_maintenance": {"prediction_fresh": True}}
+    assert second == first
+    assert calls["count"] == 1
+    health_router._ml_maintenance_cache = None
+
+
 def test_health_returns_not_ready_200_when_db_temporarily_busy_after_boot():
     readiness = {
         "missing_tables": [],

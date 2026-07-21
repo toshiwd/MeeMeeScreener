@@ -1694,7 +1694,11 @@ export default function GridView() {
     async (code: string, deleteArtifacts: boolean) => {
       if (!code) return;
       try {
-        const res = await api.post("/watchlist/remove", { code, deleteArtifacts });
+        const res = await api.post("/watchlist/remove", {
+          code,
+          deleteArtifacts,
+          deleteDb: true,
+        });
         await loadList();
         const trashToken = res.data?.trashToken || null;
         setUndoInfo({ code, trashToken });
@@ -1732,7 +1736,7 @@ export default function GridView() {
   const handleExclude = useCallback(
     (code: string) => {
       if (!code) return;
-      handleRemoveWatchlist(code, false);
+      handleRemoveWatchlist(code, true);
     },
     [handleRemoveWatchlist]
   );
@@ -2225,6 +2229,7 @@ export default function GridView() {
           auto_ml_train: false,
           auto_walkforward_run: false,
           auto_walkforward_gate: false,
+          allow_manifest_fast_noop: true,
           force_recompute_on_pan_finalize: false
         }
       });

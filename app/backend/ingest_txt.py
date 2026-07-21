@@ -41,6 +41,10 @@ REPO_ROOT = str(config.REPO_ROOT)
 DEFAULT_PAN_CODE_PATH = os.path.join(REPO_ROOT, "tools", "code.txt")
 DEFAULT_PAN_OUT_DIR = str(config.PAN_OUT_TXT_DIR)
 INGEST_STATE_PATH = str(config.DATA_DIR / "ingest_state.json")
+DELISTED_CODES_PATH = os.getenv(
+    "MEEMEE_DELISTED_CODES_PATH",
+    os.path.join(REPO_ROOT, "config", "delisted_codes.json"),
+)
 
 
 def resolve_data_dir() -> str:
@@ -56,6 +60,48 @@ TXT_PARSE_MAX_WORKERS = max(
     1,
     min(8, int(os.getenv("MEEMEE_TXT_PARSE_WORKERS", str(os.cpu_count() or 4)))),
 )
+
+
+def load_delisted_codes(path: str | os.PathLike[str] = DELISTED_CODES_PATH) -> set[str]:
+    registry_path = os.fspath(path)
+    if not registry_path or not os.path.exists(registry_path):
+        return set()
+    with open(registry_path, "r", encoding="utf-8") as fh:
+        payload = json.load(fh)
+    codes_payload = payload.get("codes") if isinstance(payload, dict) else None
+    if isinstance(codes_payload, dict):
+        raw_codes = codes_payload.keys()
+    elif isinstance(codes_payload, list):
+        raw_codes = codes_payload
+    else:
+        raw_codes = []
+    return {str(code).strip() for code in raw_codes if str(code).strip()}
+
+
+def filter_delisted_daily_rows(
+    daily: pd.DataFrame,
+    name_map: dict[str, str],
+    delisted_codes: set[str],
+) -> tuple[pd.DataFrame, dict[str, str], dict[str, int]]:
+    if daily.empty or not delisted_codes:
+        return daily, name_map, {"removed_rows": 0, "removed_codes": 0}
+
+    codes = daily["code"].astype(str)
+    remove_mask = codes.isin(delisted_codes)
+    removed_codes = set(codes[remove_mask].unique().tolist())
+    if not removed_codes:
+        return daily, name_map, {"removed_rows": 0, "removed_codes": 0}
+
+    filtered_daily = daily.loc[~remove_mask].copy().reset_index(drop=True)
+    filtered_name_map = {
+        str(code): name
+        for code, name in name_map.items()
+        if str(code) not in removed_codes
+    }
+    return filtered_daily, filtered_name_map, {
+        "removed_rows": int(remove_mask.sum()),
+        "removed_codes": int(len(removed_codes)),
+    }
 
 HEADER_ALIASES = {
     "code": {"code", "ticker", "symbol", "銘柄", "銘柄コード", "コード"},
@@ -1621,6 +1667,43 @@ def ingest(
             "skipped_files": skipped_files_count,
             "skipped": skipped_files_count,
             "pan_finalized_rows": 0,
+            "delisted_removed_rows": 0,
+            "delisted_removed_codes": 0,
+        }
+
+    start = step_start("filter_delisted_codes")
+    _notify_progress(progress_cb, 38, "Filtering delisted codes...")
+    delisted_codes = load_delisted_codes()
+    daily, name_map, delisted_filter_stats = filter_delisted_daily_rows(daily, name_map, delisted_codes)
+    step_end(
+        "filter_delisted_codes",
+        start,
+        registry_codes=len(delisted_codes),
+        removed_rows=delisted_filter_stats["removed_rows"],
+        removed_codes=delisted_filter_stats["removed_codes"],
+        remaining_rows=len(daily),
+    )
+
+    if daily.empty:
+        clear_tables()
+        log_counts(counts, 0)
+        print("No valid TXT rows remained after delisted-code filtering. Tables cleared.")
+        total_ms = int((time.perf_counter() - total_start) * 1000)
+        print(f"[STEP_END] ingest_total ms={total_ms} rows=0")
+        changed_files_count = int(len(changed_files))
+        skipped_files_count = int(skipped_count)
+        return {
+            "run_id": str(resolved_run_id),
+            "incremental": bool(incremental),
+            "force_full": bool(force_full),
+            "rows": 0,
+            "changed_files": changed_files_count,
+            "changed": changed_files_count,
+            "skipped_files": skipped_files_count,
+            "skipped": skipped_files_count,
+            "pan_finalized_rows": 0,
+            "delisted_removed_rows": int(delisted_filter_stats["removed_rows"]),
+            "delisted_removed_codes": int(delisted_filter_stats["removed_codes"]),
         }
 
     start = step_start("build_monthly")
@@ -1869,6 +1952,8 @@ def ingest(
         "skipped_files": skipped_files_count,
         "skipped": skipped_files_count,
         "pan_finalized_rows": int(pan_finalized_rows),
+        "delisted_removed_rows": int(delisted_filter_stats["removed_rows"]),
+        "delisted_removed_codes": int(delisted_filter_stats["removed_codes"]),
     }
 
 

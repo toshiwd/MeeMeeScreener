@@ -84,6 +84,9 @@ const StockTile = memo(function StockTile({
   const watchlistTags = Array.isArray(ticker.watchlistTags)
     ? ticker.watchlistTags.filter((tag): tag is string => Boolean(tag)).slice(0, 3)
     : [];
+  const researchTags = Array.isArray(ticker.researchTags)
+    ? ticker.researchTags.filter((tag): tag is string => Boolean(tag)).slice(0, 2)
+    : [];
   const bars = barsPayload?.bars ?? [];
   const hasLiveBars = bars.length > 0;
   const hasCachedThumb = Boolean(cachedThumb);
@@ -183,17 +186,26 @@ const StockTile = memo(function StockTile({
     >
       <div className={`tile-header${showCompactHeader ? " is-compact" : ""}`}>
         <div className={`tile-id${showCompactHeader ? " is-inline" : ""}`}>
-          <span className="tile-code">{ticker.code}</span>
-          <span className="tile-name">{ticker.name}</span>
-          {watchlistTags.length > 0 && (
-            <span className="tile-watch-tags">
-              {watchlistTags.map((tag) => (
-                <span key={tag} className="tile-watch-tag">
-                  {tag}
-                </span>
-              ))}
-            </span>
-          )}
+            <span className="tile-code">{ticker.code}</span>
+            <span className="tile-name">{ticker.name}</span>
+            {watchlistTags.length > 0 && (
+              <span className="tile-watch-tags">
+                {watchlistTags.map((tag) => (
+                  <span key={tag} className="tile-watch-tag">
+                    {tag}
+                  </span>
+                ))}
+              </span>
+            )}
+            {researchTags.length > 0 && (
+              <span className="tile-research-tags">
+                {researchTags.map((tag) => (
+                  <span key={tag} className="tile-research-tag">
+                    {tag}
+                  </span>
+                ))}
+              </span>
+            )}
         </div>
         <div className="tile-header-right">
           {showCompactHeader && (asofLabel || showRightsBadge || showEarningsBadge) && (

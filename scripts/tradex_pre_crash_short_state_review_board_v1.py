@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import json
@@ -124,17 +124,25 @@ def _candidate_row(code: str, current: pd.Series, features: dict[str, float | No
 
 def _build_board(daily: pd.DataFrame, recent_sessions: int, limit: int) -> list[dict[str, Any]]:
     recent_dates = _latest_dates(daily, recent_sessions)
+    latest_confirmed_ymd = int(daily["ymd"].max())
     rows: list[dict[str, Any]] = []
     for code, group in daily.groupby("code", sort=False):
         g = _add_shape_features(group)
-        for idx in range(140, len(g) - 1):
+        for idx in range(140, len(g)):
             current = g.iloc[idx]
             if int(current["ymd"]) not in recent_dates:
                 continue
             features = _feature_payload(current)
             pattern = _classify_shape(features)
             if _is_gated_event(features, pattern):
-                rows.append(_candidate_row(str(code), current, features, pattern))
+                candidate = _candidate_row(str(code), current, features, pattern)
+                candidate["signal_bar_status"] = "confirmed"
+                candidate["entry_timing_status"] = (
+                    "NextOpenPending"
+                    if int(current["ymd"]) == latest_confirmed_ymd
+                    else "NextOpenObservable"
+                )
+                rows.append(candidate)
     rows.sort(
         key=lambda row: (
             int(row["review_state"] == "EntryReady"),

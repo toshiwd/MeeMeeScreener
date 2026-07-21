@@ -301,6 +301,55 @@ def test_trade_candidates_block_late_chase_entries(monkeypatch) -> None:
     assert caution_by_code["2004"]["tradeEntryBlockReasons"] == ["extended_below_ma20"]
 
 
+def test_rulebook_display_only_warnings_do_not_promote_trade_candidates(monkeypatch) -> None:
+    monkeypatch.setattr(
+        rankings_cache,
+        "_load_trade_market_code_map",
+        lambda codes: {str(code): "PRIME" for code in codes},
+    )
+
+    def item(code: str, **overrides: object) -> dict[str, object]:
+        base: dict[str, object] = {
+            "code": code,
+            "setupType": "watch",
+            "monthlyBoxState": "box_upper",
+            "entryQualified": False,
+            "probSideCalib": 0.60,
+            "entryScore": 0.50,
+            "hybridScore": 0.50,
+            "downsideRisk": 0.30,
+            "swingScore": 0.50,
+            "mlEv5Net": 0.02,
+            "mlEv10Net": 0.02,
+            "mlEv20Net": 0.02,
+            "changePct": 0.0,
+            "candleUpperWickRatio": 0.10,
+            "distMa20Signed": 0.02,
+            "diff20_pct": 0.04,
+        }
+        base.update(overrides)
+        return base
+
+    items = [
+        item("9101", changePct=0.12),
+        item("9102", changePct=-0.01, diff20_pct=0.30, closePos=0.25, volumeRatio20=1.5),
+        item("9103", previousDistMa20Signed=0.10, distMa20Signed=-0.01),
+        item("9104", diff20_pct=0.32, distMa20Signed=0.34, candleUpperWickRatio=0.48, closePos=0.40),
+    ]
+
+    rankings_cache._apply_trade_priority_scores(items, direction="up")  # type: ignore[attr-defined]
+
+    watch_by_code = {item["code"]: item["tradeRiskWatch"] for item in items}
+    assert "rulebook_post_10pct_spike_chase_caution" in watch_by_code["9101"]
+    assert "rulebook_extended_run_weak_close_caution" in watch_by_code["9102"]
+    assert "rulebook_extended_gain_ma20_break_exit_review" in watch_by_code["9103"]
+    assert "rulebook_extended_run_upper_wick_exit_review" in watch_by_code["9104"]
+
+    buckets = rankings_cache._build_trade_candidate_buckets(items)  # type: ignore[attr-defined]
+    assert buckets["actionable_buy_candidates"] == []
+    assert buckets["actionable_short_candidates"] == []
+
+
 def test_trade_short_candidates_require_failed_rebound_entry_setup(monkeypatch) -> None:
     monkeypatch.setattr(
         rankings_cache,
@@ -762,6 +811,109 @@ def test_long_watch_candidates_are_tiered_without_promoting_to_actionable() -> N
     assert [row["code"] for row in buckets["momentum_watch_candidates"]] == ["2103"]
 
 
+def test_high_zone_chart_reads_separate_trend_follow_from_high_grab() -> None:
+    def item(code: str, **overrides: object) -> dict[str, object]:
+        base: dict[str, object] = {
+            "code": code,
+            "setupType": "breakout",
+            "monthlyBoxState": "box_upper",
+            "entryQualified": True,
+            "entryQualifiedByFallback": False,
+            "entryQualifiedFallbackStage": None,
+            "probSideCalib": 0.82,
+            "entryScore": 0.72,
+            "hybridScore": 0.72,
+            "downsideRisk": 0.12,
+            "swingScore": 0.68,
+            "modelVersion": "20260314153632",
+            "mlPredDt": 1777680000,
+            "asOf": "2026-05-01",
+            "mlEv5Net": 0.018,
+            "mlEv10Net": 0.022,
+            "mlEv20Net": 0.040,
+            "changePct": 0.032,
+            "candleUpperWickRatio": 0.08,
+            "distMa20Signed": 0.082,
+            "diff20_pct": 0.12,
+            "breakout20_up": 0.03,
+            "momentumFollowThroughScore": 0.96,
+            "swingReasons": ["LONG score=0.700 edge=0.500 risk=0.200", "setup=watch n=124844 mean=0.0100"],
+        }
+        base.update(overrides)
+        return base
+
+    buckets = rankings_cache._build_trade_candidate_buckets(  # type: ignore[attr-defined]
+        [
+            item("4101"),
+            item("4102", mlEv5Net=-0.002, mlEv10Net=0.020),
+            item("4103", diff20_pct=0.24, candleUpperWickRatio=0.40, mlEv5Net=-0.001, mlEv10Net=-0.002),
+        ]
+    )
+
+    assert "4101" not in {row["code"] for row in buckets["actionable_buy_candidates"]}
+    reads_by_code = {row["code"]: row for row in buckets["high_zone_chart_reads"]}
+    assert reads_by_code["4101"]["highZoneChartState"] == "trend_follow"
+    assert reads_by_code["4102"]["highZoneChartState"] == "wait_for_pullback"
+    assert reads_by_code["4103"]["highZoneChartState"] == "high_grab_risk"
+    assert reads_by_code["4101"]["highZoneEvidenceSampleCount"] == 124844
+    assert reads_by_code["4101"]["highZoneEvidenceMinSampleCount"] == 100
+    assert reads_by_code["4101"]["highZoneEvidenceUsable"] is True
+    assert "positive_5d_10d_expectancy" in reads_by_code["4101"]["highZoneChartReasons"]
+    assert "weak_short_expectancy" in reads_by_code["4102"]["highZoneChartRiskReasons"]
+    assert "already_large_20d_run" in reads_by_code["4103"]["highZoneChartRiskReasons"]
+    assert {row["code"] for row in buckets["pullback_watch_candidates"]} == {"4101", "4102", "4103"}
+    assert buckets["high_zone_research_candidates"] == []
+
+
+def test_high_zone_chart_reads_do_not_trend_follow_with_thin_evidence_sample() -> None:
+    buckets = rankings_cache._build_trade_candidate_buckets(  # type: ignore[attr-defined]
+        [
+            {
+                "code": "4104",
+                "setupType": "breakout",
+                "monthlyBoxState": "box_upper",
+                "entryQualified": True,
+                "entryQualifiedByFallback": False,
+                "entryQualifiedFallbackStage": None,
+                "probSideCalib": 0.82,
+                "entryScore": 0.72,
+                "hybridScore": 0.72,
+                "downsideRisk": 0.12,
+                "swingScore": 0.68,
+                "modelVersion": "20260314153632",
+                "mlPredDt": 1777680000,
+                "asOf": "2026-05-01",
+                "mlEv5Net": 0.018,
+                "mlEv10Net": 0.022,
+                "mlEv20Net": 0.040,
+                "changePct": 0.032,
+                "candleUpperWickRatio": 0.08,
+                "distMa20Signed": 0.082,
+                "diff20_pct": 0.12,
+                "breakout20_up": 0.03,
+                "momentumFollowThroughScore": 0.96,
+                "swingReasons": ["LONG score=0.700 edge=0.500 risk=0.200", "setup=watch n=12 mean=0.0100"],
+            }
+        ]
+    )
+
+    read = buckets["high_zone_chart_reads"][0]
+
+    assert read["highZoneChartState"] == "research_needed"
+    assert read["highZoneEvidenceSampleCount"] == 12
+    assert read["highZoneEvidenceMinSampleCount"] == 100
+    assert read["highZoneEvidenceUsable"] is False
+    assert read["highZoneEvidenceResearchRequired"] is True
+    assert "research_sample_needed" in read["highZoneChartRiskReasons"]
+    research = buckets["high_zone_research_candidates"][0]
+    assert research["code"] == "4104"
+    assert research["researchOnly"] is True
+    assert research["researchCandidateKind"] == "high_zone_chase_sample_gap"
+    assert research["researchCandidateReason"] == "high_zone_evidence_sample_below_minimum"
+    assert research["researchCandidateSource"] == "meemee_high_zone_chart_read"
+    assert research["researchCandidateBoundary"] == "TRADEX_REVIEW_ONLY"
+
+
 def test_long_watch_fallback_does_not_promote_actionable(monkeypatch) -> None:
     source_items = [
         {
@@ -788,6 +940,8 @@ def test_long_watch_fallback_does_not_promote_actionable(monkeypatch) -> None:
         "actionable_short_candidates": [],
         "caution_watch_candidates": [],
         "momentum_watch_candidates": [],
+        "high_zone_chart_reads": [],
+        "high_zone_research_candidates": [],
         "pullback_watch_candidates": [],
         "setup_watch_candidates": [],
     }
@@ -917,6 +1071,51 @@ def test_trade_theme_leadership_adjusts_priority_without_requalifying_weak_entry
     assert caution_by_code["8035"]["themeLeadershipDelta"] < 0
     assert "current_weak_close" in caution_by_code["8035"]["tradeEntryBlockReasons"]
     assert "8035" not in actionable_by_code
+
+
+def test_trade_theme_leadership_ignores_thin_samples(monkeypatch) -> None:
+    monkeypatch.setattr(
+        rankings_cache,
+        "_load_trade_market_code_map",
+        lambda codes: {str(code): "PRIME" for code in codes},
+    )
+
+    def item(code: str, *, change_pct: float) -> dict[str, object]:
+        return {
+            "code": code,
+            "setupType": "breakout",
+            "monthlyBoxState": "box_upper",
+            "entryQualified": True,
+            "probSideCalib": 0.80,
+            "entryScore": 0.72,
+            "hybridScore": 0.72,
+            "downsideRisk": 0.18,
+            "swingScore": 0.60,
+            "mlEv5Net": 0.10,
+            "mlEv10Net": 0.10,
+            "mlEv20Net": 0.10,
+            "changePct": change_pct,
+            "candleUpperWickRatio": 0.12,
+            "buy_overextended": False,
+        }
+
+    items = [
+        item("8035", change_pct=0.018),
+        item("6857", change_pct=0.016),
+        item("6920", change_pct=0.012),
+    ]
+
+    buckets = rankings_cache._build_trade_candidate_buckets(items)  # type: ignore[attr-defined]
+    actionable_by_code = {item["code"]: item for item in buckets["actionable_buy_candidates"]}
+    candidate = actionable_by_code["8035"]
+
+    assert candidate["themeId"] == "semiconductor_core"
+    assert candidate["themeMemberCount"] == 3
+    assert candidate["themeMinMemberCount"] == 4
+    assert candidate["themeLeadershipUsable"] is False
+    assert candidate["themeLeadershipState"] == "insufficient_sample"
+    assert candidate["themeLeadershipReasons"] == ["sample_below_minimum"]
+    assert candidate["themeLeadershipDelta"] == 0.0
 
 
 def test_trade_priority_scores_promote_momentum_follow_through(monkeypatch) -> None:

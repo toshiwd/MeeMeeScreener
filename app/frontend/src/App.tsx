@@ -12,8 +12,10 @@ import {
 import {
   CandidatesRoute,
   DetailRoute,
+  DetailScreenshotRoute,
   DetailV2Route,
   FavoritesRoute,
+  ForecastRoute,
   GridRoute,
   MarketRoute,
   PositionsRoute,
@@ -108,6 +110,7 @@ function AppRoutes() {
         <Route path="/" element={<GridRoute />} />
         <Route path="/ranking" element={<RankingRoute />} />
         <Route path="/favorites" element={<FavoritesRoute />} />
+        <Route path="/forecast" element={<ForecastRoute />} />
         <Route path="/candidates" element={<CandidatesRoute />} />
         <Route path="/positions" element={<PositionsRoute />} />
         <Route path="/market" element={<MarketRoute />} />
@@ -115,6 +118,7 @@ function AppRoutes() {
         <Route path="/tracking" element={<Navigate to="/ranking/tracking" replace />} />
         <Route path="/detail/:code" element={<DetailRoute />} />
         <Route path="/detail-v2/:code" element={<DetailV2Route />} />
+        <Route path="/detail-shot/:code" element={<DetailScreenshotRoute />} />
         <Route path="/practice/:code" element={<PracticeRoute />} />
       </Routes>
     </Suspense>
@@ -126,6 +130,7 @@ export const shouldEnableAiExplainProvider = (pathname: string) => {
   if (pathname === "/ranking") return true;
   if (pathname.startsWith("/detail/")) return true;
   if (pathname.startsWith("/detail-v2/")) return true;
+  if (pathname.startsWith("/detail-shot/")) return true;
   return false;
 };
 

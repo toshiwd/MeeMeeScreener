@@ -35,7 +35,13 @@ export const formatTxtUpdateStageLabel = (
 ): string => {
   const text = message?.toLowerCase() ?? "";
   if (!text) return fallback ?? "待機中";
-  if (text.includes("tracking_refresh") || text.includes("tracking refresh")) return "履歴を更新中";
+  if (text.includes("postprocess_resume") || text.includes("post-processing only")) return "後処理のみ実行中";
+  if (text.includes("tracking_refresh") || text.includes("tracking refresh")) return "追跡履歴を更新中";
+  if (text.includes("feature_refresh")) return "補助特徴量を更新中";
+  if (text.includes("label_refresh")) return "判定用ラベルを更新中";
+  if (text.includes("prediction_refresh")) return "予測データを更新中";
+  if (text.includes("analysis_backfill")) return "分析履歴を補完中";
+  if (text.includes("cache_refresh") || text.includes("rankings cache")) return "ランキング/表示用データを更新中";
   if (text.includes("pan import") || text.includes("launching pan")) return "外部データを取り込み中";
   if (text.includes("pan rolling export") || text.includes("vbs export") || text.includes("export completed")) {
     return "日次データを作成中";

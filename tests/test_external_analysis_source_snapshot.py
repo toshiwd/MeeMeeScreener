@@ -38,7 +38,7 @@ def test_create_source_snapshot_copies_db_and_prunes_old_files(tmp_path) -> None
     )
 
     assert Path(second["snapshot_db_path"]).exists() is True
-    assert Path(second["snapshot_wal_path"]).exists() is True
+    assert second["snapshot_wal_path"] is None
     assert len(list(snapshot_root.glob("*.json"))) >= 1
 
 

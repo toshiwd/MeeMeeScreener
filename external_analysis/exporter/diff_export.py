@@ -104,19 +104,20 @@ def _source_signature_with_content(source_conn, source_row_counts: dict[str, int
         if not selected_columns:
             parts.append({"table": table_name, "exists": True, "columns": [], "row_count": int(source_row_counts.get(table_name) or 0)})
             continue
-        rows = fetch_rows(source_conn, table_name, selected_columns, order_by=order_by)
-        table_raw = json.dumps(
+        quoted_columns = [f'"{column_name}"' for column_name in selected_columns]
+        hash_expr = f"hash({', '.join(quoted_columns)})"
+        row = source_conn.execute(
+            f"SELECT COUNT(*), COALESCE(bit_xor({hash_expr}), 0) FROM {table_name}"
+        ).fetchone()
+        parts.append(
             {
                 "table": table_name,
                 "exists": True,
                 "columns": list(selected_columns),
-                "rows": [row for row in rows],
-            },
-            ensure_ascii=False,
-            sort_keys=True,
-            default=str,
+                "row_count": int((row or [0])[0] or 0),
+                "content_hash": str(int((row or [0, 0])[1] or 0)),
+            }
         )
-        parts.append({"table": table_name, "digest": hashlib.sha1(table_raw.encode("utf-8")).hexdigest()})
     raw = json.dumps(parts, ensure_ascii=False, sort_keys=True)
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()
 
@@ -191,10 +192,14 @@ def _build_daily_export_rows(source_conn, export_run_id: str) -> list[dict[str, 
         ("code", "date", "o", "h", "l", "c", "v", *(("source",) if has_source else tuple())),
         order_by="code, date",
     )
-    return [
-        {
+    selected: dict[tuple[str, int], dict[str, Any]] = {}
+    source_priority = {"yahoo": 0, "pan": 1}
+    for row in rows:
+        trade_date = normalize_market_date(row["date"])
+        source = str(row.get("source") or "unknown").strip().lower()
+        item = {
             "code": row["code"],
-            "trade_date": normalize_market_date(row["date"]),
+            "trade_date": trade_date,
             "o": row["o"],
             "h": row["h"],
             "l": row["l"],
@@ -207,8 +212,12 @@ def _build_daily_export_rows(source_conn, export_run_id: str) -> list[dict[str, 
             ),
             "export_run_id": export_run_id,
         }
-        for row in rows
-    ]
+        key = (str(row["code"]), int(trade_date))
+        current = selected.get(key)
+        current_priority = source_priority.get(str((current or {}).get("source") or "unknown").strip().lower(), -1)
+        if current is None or source_priority.get(source, -1) > current_priority:
+            selected[key] = item
+    return [selected[key] for key in sorted(selected)]
 
 
 def _build_monthly_export_rows(source_conn, export_run_id: str) -> list[dict[str, Any]]:
@@ -452,6 +461,135 @@ EXPORT_STEP_SPECS: tuple[dict[str, Any], ...] = (
     {"step_name": "trade_event_export", "table_name": "trade_event_export", "key_columns": ("code", "event_ts", "event_seq"), "builder": _build_trade_event_export_rows, "max_field": "event_ts"},
     {"step_name": "position_snapshot_export", "table_name": "position_snapshot_export", "key_columns": ("code", "snapshot_at"), "builder": _build_position_export_rows, "max_field": "snapshot_at"},
 )
+
+_SQL_BULK_EXPORT_TABLES = {
+    "bars_daily_export",
+    "bars_monthly_export",
+    "indicator_daily_export",
+    "pattern_state_export",
+}
+
+
+def _normalized_market_date_sql(column: str) -> str:
+    return f"""
+        CASE
+            WHEN {column} BETWEEN 19000101 AND 20991231 THEN CAST({column} AS INTEGER)
+            WHEN {column} >= 1000000000000 THEN CAST(strftime(to_timestamp({column} / 1000), '%Y%m%d') AS INTEGER)
+            WHEN {column} >= 100000000 THEN CAST(strftime(to_timestamp({column}), '%Y%m%d') AS INTEGER)
+            ELSE CAST({column} AS INTEGER)
+        END
+    """
+
+
+def _bulk_export_select_sql(table_name: str, run_id: str) -> str:
+    run_literal = str(run_id).replace("'", "''")
+    if table_name == "bars_daily_export":
+        date_expr = _normalized_market_date_sql("date")
+        return f"""
+            WITH ranked AS (
+                SELECT *, {date_expr} AS trade_date,
+                       row_number() OVER (
+                           PARTITION BY code, {date_expr}
+                           ORDER BY CASE lower(COALESCE(source, '')) WHEN 'pan' THEN 2 WHEN 'yahoo' THEN 1 ELSE 0 END DESC
+                       ) AS source_rank
+                FROM source_sync.main.daily_bars
+            )
+            SELECT code, trade_date, o, h, l, c, v, COALESCE(source, 'unknown'),
+                   md5(concat_ws('|', code, trade_date, o, h, l, c, v, COALESCE(source, 'unknown'))) AS row_hash,
+                   '{run_literal}' AS export_run_id
+            FROM ranked
+            WHERE source_rank = 1
+        """
+    if table_name == "bars_monthly_export":
+        month_expr = _normalized_market_date_sql('"month"')
+        return f"""
+            SELECT code, {month_expr} AS month_key, o, h, l, c, v,
+                   md5(concat_ws('|', code, {month_expr}, o, h, l, c, v)) AS row_hash,
+                   '{run_literal}' AS export_run_id
+            FROM source_sync.main.monthly_bars
+        """
+    if table_name == "indicator_daily_export":
+        ma_date = _normalized_market_date_sql("m.date")
+        feature_date = _normalized_market_date_sql("f.dt")
+        return f"""
+            WITH ma AS (
+                SELECT code, {ma_date} AS trade_date, ma7, ma20, ma60
+                FROM source_sync.main.daily_ma m
+            ), feature AS (
+                SELECT code, {feature_date} AS trade_date, atr14, diff20_pct, diff20_atr,
+                       cnt_20_above, cnt_7_above, day_count, candle_flags
+                FROM source_sync.main.feature_snapshot_daily f
+            ), merged AS (
+                SELECT COALESCE(ma.code, feature.code) AS code,
+                       COALESCE(ma.trade_date, feature.trade_date) AS trade_date,
+                       ma.ma7, ma.ma20, ma.ma60,
+                       NULL::DOUBLE AS ma100, NULL::DOUBLE AS ma200,
+                       feature.atr14, feature.diff20_pct, feature.diff20_atr,
+                       feature.cnt_20_above, feature.cnt_7_above, feature.day_count, feature.candle_flags
+                FROM ma FULL OUTER JOIN feature USING (code, trade_date)
+            )
+            SELECT *, md5(concat_ws('|', code, trade_date, ma7, ma20, ma60, ma100, ma200,
+                                    atr14, diff20_pct, diff20_atr, cnt_20_above, cnt_7_above,
+                                    day_count, candle_flags)) AS row_hash, '{run_literal}' AS export_run_id
+            FROM merged
+        """
+    if table_name == "pattern_state_export":
+        feature_date = _normalized_market_date_sql("dt")
+        return f"""
+            SELECT code, {feature_date} AS trade_date,
+                   NULL::TEXT, NULL::TEXT, NULL::TEXT, NULL::DOUBLE, NULL::DOUBLE, NULL::TEXT,
+                   candle_flags,
+                   md5(concat_ws('|', code, {feature_date}, candle_flags)) AS row_hash,
+                   '{run_literal}' AS export_run_id
+            FROM source_sync.main.feature_snapshot_daily
+        """
+    raise ValueError(f"unsupported bulk export table: {table_name}")
+
+
+def _run_bulk_export_step(
+    *,
+    export_conn,
+    progress_payload: dict[str, Any],
+    progress_path: Path,
+    run_id: str,
+    source_signature: str,
+    step_spec: dict[str, Any],
+) -> dict[str, Any]:
+    step_name = str(step_spec["step_name"])
+    table_name = str(step_spec["table_name"])
+    started_at = _utcnow()
+    details = {"table_name": table_name, "sync_mode": "sql_bulk_replace"}
+    _record_progress_row(export_conn, run_id=run_id, source_signature=source_signature, step_name=step_name, step_kind="export", status=PROGRESS_STATUS_RUNNING, started_at=started_at, finished_at=None, row_count=None, max_trade_date=None, details=details)
+    _update_progress_payload(progress_payload, step_name=step_name, step_kind="export", status=PROGRESS_STATUS_RUNNING, started_at=started_at, finished_at=None, row_count=None, max_trade_date=None, details=details)
+    _write_progress_payload(progress_path, progress_payload)
+    old_count = int(export_conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0] or 0)
+    select_sql = _bulk_export_select_sql(table_name, run_id)
+    stage_name = f"_bulk_stage_{table_name}"
+    key_columns = tuple(step_spec["key_columns"])
+    join_sql = " AND ".join(f"old.{column} = stage.{column}" for column in key_columns)
+    export_conn.execute(f"DROP TABLE IF EXISTS {stage_name}")
+    export_conn.execute(f"CREATE TEMP TABLE {stage_name} AS {select_sql}")
+    inserted = int(export_conn.execute(f"SELECT COUNT(*) FROM {stage_name} stage LEFT JOIN {table_name} old ON {join_sql} WHERE old.{key_columns[0]} IS NULL").fetchone()[0] or 0)
+    updated = int(export_conn.execute(f"SELECT COUNT(*) FROM {stage_name} stage JOIN {table_name} old ON {join_sql} WHERE old.row_hash <> stage.row_hash").fetchone()[0] or 0)
+    deleted = int(export_conn.execute(f"SELECT COUNT(*) FROM {table_name} old LEFT JOIN {stage_name} stage ON {join_sql} WHERE stage.{key_columns[0]} IS NULL").fetchone()[0] or 0)
+    export_conn.execute("BEGIN TRANSACTION")
+    try:
+        export_conn.execute(f"DELETE FROM {table_name}")
+        export_conn.execute(f"INSERT INTO {table_name} SELECT * FROM {stage_name}")
+        export_conn.execute("COMMIT")
+    except Exception:
+        export_conn.execute("ROLLBACK")
+        raise
+    row_count = int(export_conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0] or 0)
+    max_field = str(step_spec.get("max_field") or "")
+    max_value = export_conn.execute(f"SELECT MAX({max_field}) FROM {table_name}").fetchone()[0] if max_field else None
+    finished_at = _utcnow()
+    export_conn.execute(f"DROP TABLE {stage_name}")
+    details.update({"old_count": old_count, "row_count": row_count, "inserted": inserted, "updated": updated, "deleted": deleted})
+    _record_progress_row(export_conn, run_id=run_id, source_signature=source_signature, step_name=step_name, step_kind="export", status=PROGRESS_STATUS_COMPLETE, started_at=started_at, finished_at=finished_at, row_count=row_count, max_trade_date=_normalize_progress_trade_date(max_value), details=details)
+    _update_progress_payload(progress_payload, step_name=step_name, step_kind="export", status=PROGRESS_STATUS_COMPLETE, started_at=started_at, finished_at=finished_at, row_count=row_count, max_trade_date=_normalize_progress_trade_date(max_value), details=details)
+    _write_progress_payload(progress_path, progress_payload)
+    return {"step_name": step_name, "table_name": table_name, "inserted": inserted, "updated": updated, "deleted": deleted, "resumed": False, "row_count": row_count, "max_trade_date": _normalize_progress_trade_date(max_value)}
 
 
 def _source_step_max_date(source_conn, table_name: str) -> int | None:
@@ -832,8 +970,14 @@ def _run_export_step(
         elif existing_hash != row["row_hash"]:
             updated += 1
             changed_rows.append(row)
-    deleted = _delete_missing_rows(export_conn, table_name, key_columns, source_keys)
-    _upsert_rows(export_conn, table_name, changed_rows)
+    export_conn.execute("BEGIN TRANSACTION")
+    try:
+        deleted = _delete_missing_rows(export_conn, table_name, key_columns, source_keys)
+        _upsert_rows(export_conn, table_name, changed_rows)
+        export_conn.execute("COMMIT")
+    except Exception:
+        export_conn.execute("ROLLBACK")
+        raise
     row_summary = _step_row_summary(rows, max_field if max_field else None)
     finished_at = _utcnow()
     details = {"table_name": table_name, "inserted": inserted, "updated": updated, "deleted": deleted, "changed_rows": len(changed_rows)}
@@ -913,6 +1057,8 @@ def run_diff_export(source_db_path: str | None = None, export_db_path: str | Non
     current_step: str | None = None
     try:
         ensure_export_schema(export_conn)
+        escaped_source_path = str(source_path).replace("'", "''")
+        export_conn.execute(f"ATTACH '{escaped_source_path}' AS source_sync (READ_ONLY)")
         source_row_counts = _collect_source_row_counts(source_conn)
         max_trade_row = source_conn.execute("SELECT MAX(date) FROM daily_bars").fetchone() if source_table_exists(source_conn, "daily_bars") else None
         source_max_trade_date = normalize_market_date(max_trade_row[0]) if max_trade_row and max_trade_row[0] is not None else None
@@ -941,16 +1087,26 @@ def run_diff_export(source_db_path: str | None = None, export_db_path: str | Non
         diff_reason: dict[str, dict[str, Any]] = {}
         for step_spec in EXPORT_STEP_SPECS:
             current_step = str(step_spec["step_name"])
-            step_result = _run_export_step(
-                source_conn=source_conn,
-                export_conn=export_conn,
-                progress_payload=progress_payload,
-                progress_path=progress_path,
-                run_id=export_run_id,
-                source_signature=source_signature,
-                latest_progress=latest_progress,
-                step_spec=step_spec,
-            )
+            if str(step_spec["table_name"]) in _SQL_BULK_EXPORT_TABLES:
+                step_result = _run_bulk_export_step(
+                    export_conn=export_conn,
+                    progress_payload=progress_payload,
+                    progress_path=progress_path,
+                    run_id=export_run_id,
+                    source_signature=source_signature,
+                    step_spec=step_spec,
+                )
+            else:
+                step_result = _run_export_step(
+                    source_conn=source_conn,
+                    export_conn=export_conn,
+                    progress_payload=progress_payload,
+                    progress_path=progress_path,
+                    run_id=export_run_id,
+                    source_signature=source_signature,
+                    latest_progress=latest_progress,
+                    step_spec=step_spec,
+                )
             if int(step_result["inserted"]) > 0 or int(step_result["updated"]) > 0 or int(step_result["deleted"]) > 0:
                 changed_table_names.append(str(step_result["table_name"]))
             diff_reason[str(step_result["table_name"])] = {
@@ -1022,5 +1178,9 @@ def run_diff_export(source_db_path: str | None = None, export_db_path: str | Non
             _set_progress_failure(progress_path, progress_payload, reason_code="export_failed", current_step=current_step)
         raise
     finally:
+        try:
+            export_conn.execute("DETACH source_sync")
+        except Exception:
+            pass
         source_conn.close()
         export_conn.close()

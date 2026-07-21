@@ -1537,7 +1537,10 @@ def refresh_ml_label_table(
     close_col = _get_close_column(conn)
     daily_dt_sql = _normalized_daily_dt_sql("date")
     label_dt_sql = _normalized_daily_dt_sql("dt")
+    daily_columns = {str(row[1]) for row in conn.execute("PRAGMA table_info('daily_bars')").fetchall()}
     where: list[str] = [f"{close_col} IS NOT NULL"]
+    if "source" in daily_columns:
+        where.append("source = 'pan'")
     params: list[object] = []
     if start_dt is not None:
         where.append(f"{daily_dt_sql} >= ?")
@@ -1771,6 +1774,156 @@ def refresh_ml_label_table(
 
     inserted += _insert_chunk(records)
     return int(inserted)
+
+
+def refresh_ml_labels_incremental(conn) -> dict[str, Any]:
+    """Advance mature daily labels without enabling legacy training or prediction jobs."""
+    ensure_ml_runtime_schema(conn, legacy_schema_enabled=True)
+    if not _table_exists(conn, "daily_bars"):
+        return {"updated": False, "rows": 0, "start_dt": None, "latest_label_dt": None}
+
+    latest_row = conn.execute("SELECT MAX(dt) FROM ml_label_20d").fetchone()
+    latest_raw = latest_row[0] if latest_row else None
+    start_dt = _normalize_daily_dt_key(latest_raw)
+    rows = refresh_ml_label_table(
+        conn,
+        cfg=load_ml_config(),
+        label_version=LABEL_VERSION,
+        start_dt=start_dt,
+    )
+    refreshed_row = conn.execute("SELECT MAX(dt) FROM ml_label_20d").fetchone()
+    refreshed_raw = refreshed_row[0] if refreshed_row else None
+    return {
+        "updated": bool(rows > 0),
+        "rows": int(rows),
+        "start_dt": start_dt,
+        "latest_label_dt": _normalize_daily_dt_key(refreshed_raw),
+    }
+
+
+def refresh_ml_features_incremental(conn) -> dict[str, Any]:
+    """Advance ML feature rows to the latest confirmed feature snapshot."""
+    ensure_ml_runtime_schema(conn, legacy_schema_enabled=True)
+    source_row = conn.execute("SELECT MAX(dt) FROM feature_snapshot_daily").fetchone()
+    current_row = conn.execute("SELECT MAX(dt) FROM ml_feature_daily").fetchone()
+    source_raw = source_row[0] if source_row else None
+    current_raw = current_row[0] if current_row else None
+    source_key = _normalize_daily_dt_key(source_raw)
+    current_key = _normalize_daily_dt_key(current_raw)
+    if source_key is None or (current_key is not None and current_key >= source_key):
+        return {
+            "updated": False,
+            "rows": 0,
+            "previous_feature_dt": current_key,
+            "latest_feature_dt": current_key,
+        }
+    start_key = current_key or source_key
+    start_dt, end_dt = _feature_refresh_bounds(conn, start_key=start_key, end_key=source_key)
+    rows = refresh_ml_feature_table(
+        conn,
+        feature_version=FEATURE_VERSION,
+        start_dt=start_dt,
+        end_dt=end_dt,
+    )
+    refreshed_row = conn.execute("SELECT MAX(dt) FROM ml_feature_daily").fetchone()
+    return {
+        "updated": bool(rows > 0),
+        "rows": int(rows),
+        "previous_feature_dt": current_key,
+        "latest_feature_dt": _normalize_daily_dt_key(refreshed_row[0] if refreshed_row else None),
+    }
+
+
+def refresh_ml_predictions_incremental(conn) -> dict[str, Any]:
+    """Advance daily ML predictions to the latest confirmed feature date using the active model."""
+    ensure_ml_runtime_schema(conn, legacy_schema_enabled=True)
+    feature_row = conn.execute("SELECT MAX(dt) FROM ml_feature_daily").fetchone()
+    prediction_row = conn.execute("SELECT MAX(dt) FROM ml_pred_20d").fetchone()
+    feature_raw = feature_row[0] if feature_row else None
+    prediction_raw = prediction_row[0] if prediction_row else None
+    feature_key = _normalize_daily_dt_key(feature_raw)
+    prediction_key = _normalize_daily_dt_key(prediction_raw)
+    if feature_key is None:
+        return {
+            "updated": False,
+            "rows": 0,
+            "previous_prediction_dt": prediction_key,
+            "latest_prediction_dt": prediction_key,
+            "skipped_reason": "missing_feature_date",
+        }
+    if prediction_key is not None and prediction_key >= feature_key:
+        return {
+            "updated": False,
+            "rows": 0,
+            "previous_prediction_dt": prediction_key,
+            "latest_prediction_dt": prediction_key,
+            "skipped_reason": None,
+        }
+
+    target_row = conn.execute(
+        f"""
+        SELECT MAX(dt)
+        FROM ml_feature_daily
+        WHERE {_normalized_daily_dt_sql("dt")} = ?
+        """,
+        [int(feature_key)],
+    ).fetchone()
+    target_dt = int(target_row[0]) if target_row and target_row[0] is not None else int(feature_raw)
+    frame = _load_prediction_feature_frame(conn, [int(target_dt)])
+    if frame.empty:
+        return {
+            "updated": False,
+            "rows": 0,
+            "previous_prediction_dt": prediction_key,
+            "latest_prediction_dt": prediction_key,
+            "skipped_reason": "missing_prediction_features",
+        }
+
+    models, model_version, n_train = _load_models_from_registry(conn)
+    pred = _predict_frame(frame, models, load_ml_config())
+    rows = _build_ml_pred_rows(pred, model_version=str(model_version), n_train=int(n_train))
+    _replace_ml_predictions_for_dates(conn, [int(target_dt)], rows)
+    refreshed_row = conn.execute("SELECT MAX(dt) FROM ml_pred_20d").fetchone()
+    return {
+        "updated": bool(rows),
+        "rows": int(len(rows)),
+        "previous_prediction_dt": prediction_key,
+        "latest_prediction_dt": _normalize_daily_dt_key(refreshed_row[0] if refreshed_row else None),
+        "model_version": str(model_version),
+        "skipped_reason": None,
+    }
+
+
+def get_ml_maintenance_status(conn) -> dict[str, Any]:
+    def _latest(table: str) -> int | None:
+        if not _table_exists(conn, table):
+            return None
+        row = conn.execute(f"SELECT MAX(dt) FROM {table}").fetchone()
+        return _normalize_daily_dt_key(row[0] if row else None)
+
+    daily_row = conn.execute("SELECT MAX(date) FROM daily_bars WHERE source = 'pan'").fetchone()
+    confirmed_dt = _normalize_daily_dt_key(daily_row[0] if daily_row else None)
+    label_dt = _latest("ml_label_20d")
+    feature_dt = _latest("ml_feature_daily")
+    prediction_dt = _latest("ml_pred_20d")
+    prediction_age_days = None
+    if confirmed_dt is not None and prediction_dt is not None:
+        prediction_age_days = (
+            datetime.strptime(str(confirmed_dt), "%Y%m%d")
+            - datetime.strptime(str(prediction_dt), "%Y%m%d")
+        ).days
+    return {
+        "confirmed_bar_date": confirmed_dt,
+        "label_20d_date": label_dt,
+        "feature_date": feature_dt,
+        "prediction_date": prediction_dt,
+        "prediction_age_days": prediction_age_days,
+        "prediction_fresh": bool(
+            prediction_age_days is not None
+            and 0 <= prediction_age_days <= 5
+        ),
+        "legacy_prediction_generation_enabled": not is_legacy_analysis_disabled(),
+    }
 
 
 def _load_monthly_feature_snapshots(

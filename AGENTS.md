@@ -76,3 +76,9 @@
 
 ## Runtime State Checks
 - For stock selection or ranking work, query `get_runtime_stock_db_status` and `get_rankings_freshness` before using any candidate snapshot.
+
+## MeeMee / TRADEX Operational Rules
+- Chart screenshots must be captured through MeeMee functionality. Do not use ad hoc browser/window screenshots as the authoritative chart image source for research review. Capture only after the weekly and monthly charts are visibly rendered.
+- For short-selling research and judgment, ignore trading costs, fees, slippage, and borrow costs unless the user explicitly asks to study costs.
+- Short-selling candidates are assumed to be margin-shortable / loanable names by default. Do not add loanability filtering or loanability penalties to TRADEX rules unless the user explicitly asks for that axis.
+- Boundary check: MeeMee owns chart display and screenshot capture support. TRADEX owns research, challenger generation, comparison, and validation. Do not move research logic into MeeMee when implementing screenshot capture.

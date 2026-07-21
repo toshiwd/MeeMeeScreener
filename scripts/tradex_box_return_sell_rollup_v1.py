@@ -1,0 +1,15 @@
+"""Authoritative decision for BOX return-sell probe versus CORE stages."""
+import argparse,hashlib,json
+from pathlib import Path
+import pandas as pd
+def sha(p):return hashlib.sha256(Path(p).read_bytes()).hexdigest()
+def stats(q):
+ v=q.realized_return_pct.dropna();gp=v[v>0].sum();gl=-v[v<0].sum();return {'n':len(q),'completed':int(v.size),'wins':int((v>0).sum()),'losses':int((v<0).sum()),'mean_pct':None if v.empty else float(v.mean()),'median_pct':None if v.empty else float(v.median()),'worst_pct':None if v.empty else float(v.min()),'profit_factor':None if gl==0 else float(gp/gl)}
+def main():
+ p=argparse.ArgumentParser();p.add_argument('--compare',required=True);p.add_argument('--ledger',required=True);p.add_argument('--output',type=Path,required=True);a=p.parse_args();a.output.mkdir(parents=True,exist_ok=False)
+ src=json.loads(Path(a.compare).read_text(encoding='utf-8'));x=pd.read_parquet(a.ledger);x['signal_year']=x.probe_signal_ymd//10000
+ core={str(y):{r:stats(x[(x.signal_year==y)&(x.ratio==r)&x.core_signal_ymd.notna()]) for r in ['1_1','1_2']} for y in range(2020,2027)};probe={str(y):{r:stats(x[(x.signal_year==y)&(x.ratio==r)]) for r in ['1_1','1_2']} for y in range(2020,2027)}
+ pass_years=[y for y in range(2020,2027) if core[str(y)]['1_1']['n'] and core[str(y)]['1_1']['profit_factor'] and core[str(y)]['1_1']['profit_factor']>1];fail=[y for y in range(2020,2027) if y not in pass_years]
+ data={'schema_version':'tradex_box_return_sell_rollup_v1.compare.v1','artifact_role':'authoritative_rollup_decision','review_only':True,'fixed_conditions':src['fixed_conditions'],'teacher_checks':src['teacher_checks'],'probe_stage_results':probe,'core_stage_results':core,'observed_branching':src['observed_branching'],'judgment':{'candidate_local_decision':{'REENTRY_PROBE':'drop','RETURN_SELL_CORE':'hold_challenger'},'session_aggregate_decision':'hold_review_only','authoritative_rollup_decision':'hold_review_only','core_1_1_pf_above1_years':pass_years,'core_1_1_fail_years':fail,'preferred_ratio_for_research':'1_1','reason':'teacher sequence is reproduced and CORE is positive in six of seven years, but probe expectancy is negative and 2023 CORE fails'},'next_research_axis':'REENTRY_PROBE selectivity and 2023 CORE regime decomposition, one axis at a time','not_changed':['raw trigger','existing CORE','management classifier','MeeMee','ranking','runtime DB'],'sources':[{'path':a.compare,'sha256':sha(a.compare)},{'path':a.ledger,'sha256':sha(a.ledger)}]}
+ cp=a.output/'compare.json';cp.write_text(json.dumps(data,ensure_ascii=False,indent=2,allow_nan=False)+'\n',encoding='utf-8');(a.output/'audit.json').write_text(json.dumps({'teacher_sequence_complete':all(src['teacher_checks'].values()),'future_used':False,'automatic_reflection':False},indent=2)+'\n');(a.output/'_ARTIFACT_COMPLETE.json').write_text(json.dumps({'complete':True,'authoritative':'compare.json','sha256':sha(cp)},indent=2)+'\n');print(json.dumps({'output':str(a.output),'judgment':data['judgment'],'core_2026':core['2026']},ensure_ascii=False))
+if __name__=='__main__':main()

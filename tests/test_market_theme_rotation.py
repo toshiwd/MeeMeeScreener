@@ -5,8 +5,13 @@ from app.backend.api.routers.market import (
     _render_svg_candles,
     _score_theme_candidate,
     _theme_for_row,
+    _theme_api_cache_get,
+    _theme_api_cache_put,
+    _THEME_API_CACHE,
     _theme_status,
     get_market_baskets,
+    get_market_theme_candidates,
+    get_market_theme_rotation,
 )
 from app.backend.services.market_baskets import market_basket_catalog
 
@@ -30,6 +35,70 @@ def test_market_baskets_endpoint_returns_catalog():
     assert payload["status"] == "ok"
     assert payload["count"] >= 13
     assert any(item["themeId"] == "nikkei_entertainment_content" for item in payload["baskets"])
+
+
+def test_theme_api_cache_returns_copy_and_tracks_hits():
+    _THEME_API_CACHE.clear()
+    key = ("theme_rotation", 12, False, ("4665",), ("db", 1))
+    payload = {"status": "ok", "themes": [{"themeId": "sample"}]}
+
+    _theme_api_cache_put(key, payload)
+    cached = _theme_api_cache_get(key)
+    assert cached == payload
+    assert cached is not payload
+
+    cached["themes"].append({"themeId": "mutated"})
+    cached_again = _theme_api_cache_get(key)
+    assert cached_again == payload
+
+
+def test_theme_rotation_db_unavailable_returns_degraded_payload(monkeypatch):
+    def fake_fetch_theme_rotation(*, limit, exclude_earnings):
+        return {
+            "themes": [],
+            "frames": [],
+            "excludeEarnings": exclude_earnings,
+            "scope": "watchlist",
+            "watchlistCount": 1,
+            "status": "db_unavailable",
+        }
+
+    monkeypatch.setattr(
+        "app.backend.api.routers.market._fetch_theme_rotation",
+        fake_fetch_theme_rotation,
+    )
+
+    payload = get_market_theme_rotation(limit=12, exclude_earnings=False)
+
+    assert payload["status"] == "db_unavailable"
+    assert payload["degraded"] is True
+    assert payload["retryable"] is True
+    assert payload["themes"] == []
+    assert payload["frames"] == []
+
+
+def test_theme_candidates_db_unavailable_returns_degraded_payload(monkeypatch):
+    def fake_fetch_theme_candidates(*, mode, limit, exclude_earnings):
+        return {
+            "items": [],
+            "mode": mode,
+            "excludeEarnings": exclude_earnings,
+            "scope": "watchlist",
+            "watchlistCount": 1,
+            "status": "db_unavailable",
+        }
+
+    monkeypatch.setattr(
+        "app.backend.api.routers.market._fetch_theme_candidates",
+        fake_fetch_theme_candidates,
+    )
+
+    payload = get_market_theme_candidates(mode="entry_ease", limit=12, exclude_earnings=False)
+
+    assert payload["status"] == "db_unavailable"
+    assert payload["degraded"] is True
+    assert payload["retryable"] is True
+    assert payload["items"] == []
 
 
 def test_theme_for_row_uses_market_baskets_before_legacy_theme_fallback():

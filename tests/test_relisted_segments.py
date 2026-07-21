@@ -82,6 +82,28 @@ def test_stock_repo_prefers_yahoo_history_for_sparse_relisted_segment(tmp_path, 
     assert monthly_rows[-1][4] == 149.6
 
 
+def test_stock_repo_source_aware_daily_prefers_yahoo_history_for_sparse_segment(tmp_path, monkeypatch) -> None:
+    db_path = str(tmp_path / "relisted.duckdb")
+    _seed_tables(db_path)
+    repo = StockRepository(db_path)
+
+    yahoo_rows = [
+        (_ts("2025-09-29"), 173.8, 176.0, 172.5, 175.5, 1000.0),
+        (_ts("2025-09-30"), 175.5, 177.0, 174.0, 176.2, 1000.0),
+        (_ts("2026-03-12"), 149.0, 150.0, 148.0, 149.0, 1000.0),
+        (_ts("2026-03-13"), 149.0, 150.3, 148.5, 149.6, 1000.0),
+    ]
+    monkeypatch.setattr(
+        "app.backend.infra.duckdb.stock_repo.get_historical_daily_rows_from_chart",
+        lambda code: yahoo_rows if code == "8729" else [],
+    )
+
+    daily_rows = repo.get_daily_bars_with_source_batch(["8729"], limit=260)["8729"]
+
+    assert [row[0] for row in daily_rows] == [row[0] for row in yahoo_rows]
+    assert {row[6] for row in daily_rows} == {"yahoo_history"}
+
+
 def test_screener_repo_uses_latest_listing_segment(tmp_path, monkeypatch) -> None:
     db_path = str(tmp_path / "relisted.duckdb")
     _seed_tables(db_path)

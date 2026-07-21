@@ -1,0 +1,2 @@
+from scripts.tradex_family_hit_only_rolling_gate_v1 import AXIS_ID
+def test_axis_is_separate():assert AXIS_ID=='tradex_family_hit_only_rolling_gate_v1'

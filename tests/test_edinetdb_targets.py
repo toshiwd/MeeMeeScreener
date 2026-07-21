@@ -44,3 +44,44 @@ def test_load_ranking_codes_keeps_order(monkeypatch):
     )
     out = targets.load_ranking_codes("dummy.duckdb", 10)
     assert out == ["7203", "1301", "6758"]
+
+
+def test_load_ranking_codes_falls_back_when_stock_db_is_busy(monkeypatch):
+    class BusyConn:
+        def __enter__(self):
+            return None
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(
+        targets,
+        "try_get_conn_for_path",
+        lambda *_args, **_kwargs: BusyConn(),
+    )
+    monkeypatch.setattr(
+        targets,
+        "load_ranking_codes_from_rankings_cache",
+        lambda _limit: ["1301", "7203", "1301"],
+    )
+
+    out = targets.load_ranking_codes("busy.duckdb", 10)
+
+    assert out == ["1301", "7203"]
+
+
+def test_load_holdings_codes_returns_empty_when_stock_db_is_busy(monkeypatch):
+    class BusyConn:
+        def __enter__(self):
+            return None
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(
+        targets,
+        "try_get_conn_for_path",
+        lambda *_args, **_kwargs: BusyConn(),
+    )
+
+    assert targets.load_holdings_codes("busy.duckdb") == []

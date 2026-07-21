@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildRangeAroundTime,
   buildRangeEndingAt,
   buildPeriodTerminalDateMap,
   MAX_DAILY_BATCH_BARS_LIMIT,
@@ -95,6 +96,26 @@ describe("buildRangeEndingAt", () => {
       Date.UTC(2026, 2, 31) / 1000
     );
     expect(range?.to).toBe(march);
+  });
+});
+
+describe("buildRangeAroundTime", () => {
+  it("builds a range around the requested center date and clamps to available candles", () => {
+    const january = Date.UTC(2026, 0, 1) / 1000;
+    const june = Date.UTC(2026, 5, 1) / 1000;
+    const december = Date.UTC(2026, 11, 1) / 1000;
+    const range = buildRangeAroundTime(
+      [
+        { time: january, open: 0, high: 0, low: 0, close: 0 },
+        { time: june, open: 0, high: 0, low: 0, close: 0 },
+        { time: december, open: 0, high: 0, low: 0, close: 0 },
+      ],
+      june,
+      3,
+      2
+    );
+    expect(range?.from).toBe(Date.UTC(2026, 2, 1) / 1000);
+    expect(range?.to).toBe(Date.UTC(2026, 7, 1) / 1000);
   });
 });
 

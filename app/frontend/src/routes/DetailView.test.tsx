@@ -361,7 +361,26 @@ vi.mock("./detail/hooks/useDetailDrawings", () => ({
   }),
 }));
 
-import DetailView, { resolveCursorPannedRange } from "./DetailView";
+import DetailView, { parseResearchReviewBand, parseResearchReviewMarkers, resolveCursorPannedRange } from "./DetailView";
+
+describe("parseResearchReviewMarkers", () => {
+  it("accepts only bounded research marker payloads", () => {
+    expect(parseResearchReviewMarkers(JSON.stringify([
+      { date: "2025-01-06", label: "base", kind: "research-neutral" },
+      { date: "bad", label: "ignored", kind: "research-up" },
+      { date: "2025-01-07", label: "ignored", kind: "decision-buy" },
+    ]))).toEqual([{ date: "2025-01-06", label: "base", kind: "research-neutral" }]);
+    expect(parseResearchReviewMarkers("not-json")).toEqual([]);
+  });
+});
+
+describe("parseResearchReviewBand", () => {
+  it("accepts one bounded positive price band", () => {
+    expect(parseResearchReviewBand(JSON.stringify({ startDate: "2025-01-01", endDate: "2025-01-31", lower: 980, upper: 1020 })))
+      .toEqual({ startDate: "2025-01-01", endDate: "2025-01-31", lower: 980, upper: 1020 });
+    expect(parseResearchReviewBand(JSON.stringify({ startDate: "2025-01-01", endDate: "2025-01-31", lower: 1020, upper: 980 }))).toBeNull();
+  });
+});
 
 const flushMicrotasks = async () => {
   await Promise.resolve();
@@ -627,9 +646,10 @@ describe("DetailView", () => {
 
     act(() => {
       if (!input || !form) return;
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, "6758");
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, "６７５８");
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
+    expect(input?.value).toBe("6758");
     act(() => {
       if (!form) return;
       form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));

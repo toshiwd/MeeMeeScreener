@@ -60,6 +60,12 @@ function buildTimeTickIndexes(barCount: number, plotWidth: number) {
   ).filter((index, position, indexes) => position === 0 || indexes[position - 1] !== index);
 }
 
+function resolveDisplaySlotCount(actualBarCount: number, maxBars: number) {
+  if (actualBarCount <= 0) return 0;
+  const requested = Math.max(1, Math.floor(maxBars));
+  return Math.max(actualBarCount, requested);
+}
+
 function buildMaMap(bars: number[][], period: number) {
   const map = new Map<number, number>();
   if (period <= 1) {
@@ -178,6 +184,8 @@ export function drawChart(
     ctx.clearRect(0, 0, width, height);
     return;
   }
+  const displaySlotCount = resolveDisplaySlotCount(bars.length, maxBars);
+  const slotOffset = Math.max(0, displaySlotCount - bars.length);
 
   const pad = THUMBNAIL_PAD;
   const rightPad = showAxes ? THUMBNAIL_AXIS_RIGHT_PAD : pad;
@@ -217,13 +225,15 @@ export function drawChart(
   ctx.clearRect(0, 0, width, height);
   ctx.lineWidth = 1;
 
-  const step = plotWidth / bars.length;
+  const step = plotWidth / displaySlotCount;
   const candleWidth = Math.max(1, Math.min(6, step * 0.6));
 
   let timeTickIndexes: number[] = [];
   let priceTicks: number[] = [];
   if (showAxes) {
-    timeTickIndexes = buildTimeTickIndexes(bars.length, plotWidth);
+    timeTickIndexes = buildTimeTickIndexes(displaySlotCount, plotWidth)
+      .map((slotIndex) => slotIndex - slotOffset)
+      .filter((barIndex) => barIndex >= 0 && barIndex < bars.length);
     const priceTickCount = Math.max(3, Math.min(6, Math.round(plotHeight / 80)));
     priceTicks = Array.from({ length: priceTickCount }, (_, i) => {
       const ratio = priceTickCount === 1 ? 0 : i / (priceTickCount - 1);
@@ -241,7 +251,7 @@ export function drawChart(
       ctx.stroke();
     });
     timeTickIndexes.forEach((index) => {
-      const x = step * index + step / 2;
+      const x = step * (slotOffset + index) + step / 2;
       ctx.beginPath();
       ctx.moveTo(x, 0);
       ctx.lineTo(x, plotHeight);
@@ -252,7 +262,7 @@ export function drawChart(
 
   bars.forEach((bar, index) => {
     const [, o, h, l, c] = bar;
-    const x = step * index + step / 2;
+    const x = step * (slotOffset + index) + step / 2;
     const color = c >= o ? COLORS.up : COLORS.down;
     ctx.strokeStyle = color;
     ctx.fillStyle = color;
@@ -281,7 +291,7 @@ export function drawChart(
     const [, o, , , c] = bar;
     const volume = Math.max(0, Number(bar[5]) || 0);
     if (!volume) return;
-    const x = step * index + step / 2;
+    const x = step * (slotOffset + index) + step / 2;
     const barHeight = Math.max(1, Math.round((volume / volumeMax) * volumeHeight));
     ctx.fillStyle = c >= o ? "rgba(239, 68, 68, 0.36)" : "rgba(34, 197, 94, 0.36)";
     ctx.fillRect(x - volumeBarWidth / 2, volumeBottom - barHeight, volumeBarWidth, barHeight);
@@ -332,8 +342,8 @@ export function drawChart(
       const priceRange = getBoxPriceRange(box);
       if (!priceRange) return;
       const { upper, lower } = priceRange;
-      const x1 = step * startIdx;
-      const x2 = step * (endIdx + 1);
+      const x1 = step * (slotOffset + startIdx);
+      const x2 = step * (slotOffset + endIdx + 1);
       const y1 = toY(upper);
       const y2 = toY(lower);
       const rectX = x1;
@@ -357,7 +367,7 @@ export function drawChart(
       if (value === undefined) {
         return;
       }
-      const x = step * index + step / 2;
+      const x = step * (slotOffset + index) + step / 2;
       const y = toY(value);
       if (!started) {
         ctx.moveTo(x, y);
@@ -390,7 +400,7 @@ export function drawChart(
     timeTickIndexes.forEach((index, idx) => {
       const time = bars[index]?.[0];
       if (!time) return;
-      const x = step * index + step / 2;
+      const x = step * (slotOffset + index) + step / 2;
       if (idx === 0) ctx.textAlign = "left";
       else if (idx === timeTickIndexes.length - 1) ctx.textAlign = "right";
       else ctx.textAlign = "center";
@@ -460,6 +470,8 @@ export default function ThumbnailCanvas({
     if (allBars.length <= maxBarsValue) return allBars;
     return allBars.slice(-maxBarsValue);
   }, [payload, maxBarsValue]);
+  const displaySlotCount = resolveDisplaySlotCount(displayBars.length, maxBarsValue);
+  const displaySlotOffset = Math.max(0, displaySlotCount - displayBars.length);
 
   const renderKey = useMemo(() => {
     const bars = displayBars;
@@ -683,9 +695,10 @@ export default function ThumbnailCanvas({
     const rect = containerRef.current.getBoundingClientRect();
     const x = event.clientX - rect.left;
     if (rect.width <= 0) return;
-    const nextIndex = resolveThumbnailHoverIndex(x, rect.width, displayBars.length, showAxes);
-    if (nextIndex == null) return;
-    scheduleHoverIndex(nextIndex);
+    const nextSlotIndex = resolveThumbnailHoverIndex(x, rect.width, displaySlotCount, showAxes);
+    if (nextSlotIndex == null) return;
+    const nextIndex = nextSlotIndex - displaySlotOffset;
+    scheduleHoverIndex(nextIndex >= 0 && nextIndex < displayBars.length ? nextIndex : null);
   };
 
   const handleMouseLeave = () => {
@@ -710,9 +723,9 @@ export default function ThumbnailCanvas({
         : "down"
       : "flat";
   const crosshairLeft = resolveThumbnailCrosshairLeft(
-    safeHoverIndex,
+    safeHoverIndex == null ? null : displaySlotOffset + safeHoverIndex,
     containerRef.current?.clientWidth ?? 0,
-    displayBars.length,
+    displaySlotCount,
     showAxes
   );
 

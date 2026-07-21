@@ -1912,6 +1912,25 @@ export const buildRangeFromEndTime = (months: number, endTime: number | null) =>
   return { from: Math.floor(startDate.getTime() / 1000), to: endTime };
 };
 
+export const buildRangeAroundTime = (
+  candles: Candle[],
+  centerTime: number | null,
+  lookbackMonths: number,
+  lookaheadMonths: number
+) => {
+  if (!candles.length || !centerTime) return null;
+  const first = candles[0].time;
+  const last = candles[candles.length - 1].time;
+  const centerDate = new Date(centerTime * 1000);
+  const fromDate = new Date(centerDate);
+  fromDate.setMonth(centerDate.getMonth() - lookbackMonths);
+  const toDate = new Date(centerDate);
+  toDate.setMonth(centerDate.getMonth() + lookaheadMonths);
+  const from = Math.max(first, Math.floor(fromDate.getTime() / 1000));
+  const to = Math.min(last, Math.floor(toDate.getTime() / 1000));
+  return { from, to: Math.max(from, to) };
+};
+
 export const RANGE_DRAG_SWITCH_TOLERANCE_SEC = 5 * 24 * 60 * 60;
 
 export const hasSignificantRangeChange = (

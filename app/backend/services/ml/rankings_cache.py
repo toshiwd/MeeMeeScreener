@@ -7,6 +7,7 @@ import json
 import math
 import logging
 import os
+import re
 import time
 from pathlib import Path
 from threading import Condition, Lock
@@ -85,7 +86,7 @@ _CURRENT_RANKINGS_MAX_AGE_DAYS = max(
     1,
     int(os.getenv("MEEMEE_RANK_CURRENT_CANDIDATE_MAX_AGE_DAYS", "5")),
 )
-_ETF_MARKET_CODE = "ETF・ETN"
+_ETF_MARKET_CODE = "ETF\u30fbETN"
 _ETF_TRADE_PRIORITY_HAIRCUT = 0.86
 _TRADE_PREBREAKOUT_ACTIONABILITY_WEIGHT = 0.3
 _TRADE_PREBREAKOUT_RESIDUE_EMPHASIS = 0.15
@@ -510,6 +511,8 @@ _TRADE_DOWN_ENTRY_BEARISH_CLOSE_MAX = -0.0075
 _TRADE_DOWN_ENTRY_RETEST_DROP_MIN = 0.004
 _TRADE_DOWN_ENTRY_STRONG_RETEST_DROP_MIN = 0.012
 _TRADE_THEME_LEADERSHIP_WEIGHT = 0.035
+_TRADE_THEME_LEADERSHIP_MIN_MEMBERS = 4
+_TRADE_HIGH_ZONE_EVIDENCE_MIN_SAMPLES = 100
 
 
 def _is_tradable_rank_item(item: dict[str, Any], *, direction: RankDir) -> bool:
@@ -676,17 +679,73 @@ def _trade_down_positive_entry_block_reasons(item: dict[str, Any]) -> list[str]:
     return ["no_failed_rebound_short_setup"]
 
 
+def _append_trade_risk_watch(item: dict[str, Any], reason: str) -> None:
+    reason = str(reason or "").strip()
+    if not reason:
+        return
+    risk_watch = item.get("tradeRiskWatch")
+    risk_watch_list = list(risk_watch) if isinstance(risk_watch, list) else []
+    if reason not in risk_watch_list:
+        risk_watch_list.append(reason)
+    item["tradeRiskWatch"] = risk_watch_list
+
+
+def _apply_rulebook_display_only_warnings(item: dict[str, Any]) -> None:
+    if bool(item.get("is_provisional")):
+        return
+
+    change_pct = _first_finite(item.get("changePct"))
+    diff20_pct = _first_finite(item.get("diff20_pct"), item.get("diff20Pct"))
+    dist_ma20 = _first_finite(item.get("distMa20Signed"), item.get("dist_ma20_signed"))
+    prev_dist_ma20 = _first_finite(item.get("previousDistMa20Signed"), item.get("prevDistMa20Signed"))
+    upper_wick = _first_finite(item.get("candleUpperWickRatio"))
+    close_pos = _first_finite(item.get("candleClosePosition"), item.get("closePos"), item.get("close_pos"))
+    volume_ratio20 = _first_finite(item.get("volumeRatio20"), item.get("volume_ratio20"))
+
+    if change_pct is not None and change_pct >= 0.10:
+        _append_trade_risk_watch(item, "rulebook_post_10pct_spike_chase_caution")
+
+    if (
+        diff20_pct is not None
+        and diff20_pct >= 0.25
+        and change_pct is not None
+        and change_pct < 0.0
+        and close_pos is not None
+        and close_pos <= 0.40
+        and volume_ratio20 is not None
+        and volume_ratio20 >= 1.2
+    ):
+        _append_trade_risk_watch(item, "rulebook_extended_run_weak_close_caution")
+
+    if (
+        prev_dist_ma20 is not None
+        and prev_dist_ma20 >= 0.08
+        and dist_ma20 is not None
+        and dist_ma20 < 0.0
+    ):
+        _append_trade_risk_watch(item, "rulebook_extended_gain_ma20_break_exit_review")
+
+    if (
+        diff20_pct is not None
+        and diff20_pct >= 0.25
+        and dist_ma20 is not None
+        and dist_ma20 >= 0.30
+        and upper_wick is not None
+        and upper_wick >= 0.40
+        and close_pos is not None
+        and close_pos <= 0.55
+    ):
+        _append_trade_risk_watch(item, "rulebook_extended_run_upper_wick_exit_review")
+
+
 def _annotate_trade_entry_fit(item: dict[str, Any], *, direction: RankDir) -> None:
     reasons = _trade_up_entry_block_reasons(item) if direction == "up" else _trade_down_entry_block_reasons(item)
     item["tradeEntryFitState"] = "blocked" if reasons else "entry_fit"
     item["tradeEntryBlockReasons"] = reasons
     if reasons:
-        risk_watch = item.get("tradeRiskWatch")
-        risk_watch_list = list(risk_watch) if isinstance(risk_watch, list) else []
         for reason in reasons:
-            if reason not in risk_watch_list:
-                risk_watch_list.append(reason)
-        item["tradeRiskWatch"] = risk_watch_list
+            _append_trade_risk_watch(item, reason)
+    _apply_rulebook_display_only_warnings(item)
 
 
 def _has_trade_entry_fit(item: dict[str, Any], *, direction: RankDir) -> bool:
@@ -1734,19 +1793,19 @@ def _decorate_rule_items_with_entry_gate(
             if gate_ok:
                 setup_type = "breakout"
                 trade_entry_class = "box_upper_breakout"
-                decision_reasons.append("月足ボックス上限")
-                decision_reasons.append("週足上放れ優位")
+                decision_reasons.append("monthly_box_upper")
+                decision_reasons.append("weekly_breakout_up_lead")
                 if reclaim60 >= 0.5 or v60_core >= 0.5:
-                    decision_reasons.append("60日線回復")
+                    decision_reasons.append("ma60_reclaim")
                 if bull_marubozu >= 0.5:
-                    decision_reasons.append("強い陽線")
+                    decision_reasons.append("strong_bull_candle")
                 if monthly_breakout_up is not None and monthly_breakout_up >= monthly_gate:
-                    decision_reasons.append("月足上放れ確率")
+                    decision_reasons.append("monthly_breakout_up_confirmed")
             else:
                 if market_risk_off:
-                    risk_watch.append("地合いが弱く買いは厳選")
+                    risk_watch.append("risk_off_buy_strict")
                 if bearish_block:
-                    risk_watch.append("上ヒゲ/陰線で失速")
+                    risk_watch.append("upper_wick_or_bear_candle_rejection")
         else:
             weekly_gate = _STRICT_RULE_TRADE_DOWN_MIN_WEEKLY + (0.03 if market_risk_off else 0.0)
             monthly_gate = _STRICT_RULE_TRADE_DOWN_MIN_MONTHLY + (0.02 if market_risk_off else 0.0)
@@ -1790,55 +1849,55 @@ def _decorate_rule_items_with_entry_gate(
             if gate_ok:
                 setup_type = "breakout"
                 if monthly_box_state == "box_mid":
-                    decision_reasons.append("月足ボックス中段失速")
+                    decision_reasons.append("monthly_box_mid_failure")
                 else:
-                    decision_reasons.append("月足ボックス下限圧力")
-                decision_reasons.append("週足下放れ優位")
+                    decision_reasons.append("monthly_box_upper_pressure")
+                decision_reasons.append("weekly_breakout_down_lead")
                 if shooting_star_like >= 0.5 or upper_wick_ratio >= 0.45:
-                    decision_reasons.append("日足上値拒否")
+                    decision_reasons.append("daily_upper_rejection")
                 if bear_marubozu >= 0.5:
-                    decision_reasons.append("強い陰線")
+                    decision_reasons.append("strong_bear_candle")
                 if monthly_breakout_down is not None and monthly_breakout_down >= _STRICT_RULE_TRADE_DOWN_MIN_MONTHLY:
-                    decision_reasons.append("月足下放れ確率")
+                    decision_reasons.append("monthly_breakout_down_confirmed")
             else:
                 if breakdown_block:
-                    risk_watch.append("60日線をまだ回復維持")
+                    risk_watch.append("ma60_recovery_still_alive")
                 if monthly_box_state == "box_mid":
-                    risk_watch.append("中段は支持割れ確認が必要")
+                    risk_watch.append("box_mid_requires_support_confirmation")
         if direction == "down":
             if gate_ok and upper_rejection_primary:
                 setup_type = "pressure"
                 trade_entry_class = "upper_rejection_primary"
                 decision_reasons = [
-                    "月足ボックス上限付近",
-                    "週足の弱化確認",
-                    "日足の上値拒否",
+                    "monthly_box_upper_nearby",
+                    "weekly_weakening_confirmed",
+                    "daily_upper_rejection",
                 ]
                 if shooting_star_like >= 0.5:
-                    decision_reasons.append("上ヒゲ否定足")
+                    decision_reasons.append("shooting_star_rejection")
                 if upper_wick_ratio >= 0.45:
-                    decision_reasons.append("長い上ヒゲ")
+                    decision_reasons.append("long_upper_wick")
                 if bear_marubozu >= 0.5:
-                    decision_reasons.append("強い陰線")
+                    decision_reasons.append("strong_bear_candle")
             elif gate_ok and strict_breakdown_secondary:
                 setup_type = "breakdown"
                 trade_entry_class = "strict_breakdown_secondary"
                 decision_reasons = [
-                    "月足ボックス下限圧力",
-                    "週足の下放れ優位",
-                    "下抜け継続",
+                    "monthly_box_lower_pressure",
+                    "weekly_breakdown_lead",
+                    "downtrend_continuation",
                 ]
                 if bear_marubozu >= 0.5:
-                    decision_reasons.append("強い陰線")
+                    decision_reasons.append("strong_bear_candle")
                 if monthly_breakout_down is not None and monthly_breakout_down >= monthly_gate:
-                    decision_reasons.append("月足下放れ確率")
+                    decision_reasons.append("monthly_breakout_down_confirmed")
             else:
                 if breakdown_block:
-                    risk_watch.append("60日線回復中で踏み上げ注意")
+                    risk_watch.append("ma60_recovery_still_alive")
                 if monthly_box_state == "box_mid":
-                    risk_watch.append("中段なので下放れ確認が弱い")
+                    risk_watch.append("box_mid_breakdown_confirmation_weak")
                 if monthly_box_months is not None and float(monthly_box_months) < 4.0:
-                    risk_watch.append("箱の期間が短く未成熟")
+                    risk_watch.append("monthly_box_duration_too_short")
                 risk_watch = list(dict.fromkeys(risk_watch))
         item["hybridScore"] = item.get("hybridScore")
         item["entryScore"] = float(entry_score)
@@ -3325,7 +3384,7 @@ def _recommend_invalidation_policy(
                 "invalidationDotenRecommended": False,
                 "invalidationOppositeHoldDays": None,
                 "invalidationExpectedDeltaMean": -0.0030,
-                "invalidationPolicyNote": "否定時は反発が速く、ドテンより撤退を優先",
+                "invalidationPolicyNote": "\u5426\u5b9a\u6642\u306f\u53cd\u767a\u304c\u901f\u304f\u3001\u30c9\u30c6\u30f3\u3088\u308a\u64a4\u9000\u3092\u512a\u5148",
             }
         if (
             setup == "breakdown"
@@ -3342,7 +3401,7 @@ def _recommend_invalidation_policy(
                 "invalidationDotenRecommended": True,
                 "invalidationOppositeHoldDays": 25,
                 "invalidationExpectedDeltaMean": _ENTRY_POLICY_DELTA_SHORT_BOX_DOTEN_OPT,
-                "invalidationPolicyNote": "Box回復で下落否定。守りは撤退、攻めはロングへドテン",
+                "invalidationPolicyNote": "Box\u56de\u5fa9\u3067\u4e0b\u843d\u5426\u5b9a\u3002\u5b88\u308a\u306f\u64a4\u9000\u3001\u653b\u3081\u306f\u30ed\u30f3\u30b0\u3078\u30c9\u30c6\u30f3",
             }
         return {
             "invalidationTrigger": "stop5",
@@ -3351,7 +3410,7 @@ def _recommend_invalidation_policy(
             "invalidationDotenRecommended": False,
             "invalidationOppositeHoldDays": None,
             "invalidationExpectedDeltaMean": -0.0016,
-            "invalidationPolicyNote": "明確な否定時のみ撤退し、ショート継続は避ける",
+            "invalidationPolicyNote": "\u660e\u78ba\u306a\u5426\u5b9a\u6642\u306e\u307f\u64a4\u9000\u3057\u3001\u30b7\u30e7\u30fc\u30c8\u7d99\u7d9a\u306f\u907f\u3051\u308b",
         }
 
     if setup in {"rebound", "turn"} or bool(shape_patterns.get("a3CapitulationRebound")):
@@ -3362,7 +3421,7 @@ def _recommend_invalidation_policy(
             "invalidationDotenRecommended": False,
             "invalidationOppositeHoldDays": None,
             "invalidationExpectedDeltaMean": -0.0055,
-            "invalidationPolicyNote": "反発狙い否定時は撤退。ドテン期待値は低い",
+            "invalidationPolicyNote": "\u53cd\u767a\u72d9\u3044\u5426\u5b9a\u6642\u306f\u64a4\u9000\u3002\u30c9\u30c6\u30f3\u671f\u5f85\u5024\u306f\u4f4e\u3044",
         }
 
     return {
@@ -3372,7 +3431,7 @@ def _recommend_invalidation_policy(
         "invalidationDotenRecommended": False,
         "invalidationOppositeHoldDays": None,
         "invalidationExpectedDeltaMean": _ENTRY_POLICY_DELTA_LONG_BOX_EXIT,
-        "invalidationPolicyNote": "長期上昇取りは継続優位。否定時は守りの撤退のみ",
+        "invalidationPolicyNote": "\u9577\u671f\u4e0a\u6607\u53d6\u308a\u306f\u7d99\u7d9a\u512a\u4f4d\u3002\u5426\u5b9a\u6642\u306f\u5b88\u308a\u306e\u64a4\u9000\u306e\u307f",
     }
 
 
@@ -5874,24 +5933,28 @@ def _calc_trade_theme_leadership(items: list[dict]) -> dict[str, dict[str, Any]]
         score = 0.0
         reasons: list[str] = []
         state = "neutral"
-        if len(changes) >= 4 and adv_ratio >= 0.60 and avg_change >= 0.004 and weak_ratio <= 0.35:
+        sample_sufficient = len(changes) >= _TRADE_THEME_LEADERSHIP_MIN_MEMBERS
+        if not sample_sufficient:
+            state = "insufficient_sample"
+            reasons.append("sample_below_minimum")
+        elif adv_ratio >= 0.60 and avg_change >= 0.004 and weak_ratio <= 0.35:
             score = 1.0
             state = "accel"
             reasons.append("basket_accel")
-        elif len(changes) >= 4 and (adv_ratio <= 0.35 or avg_change <= -0.004 or weak_ratio >= 0.45):
+        elif adv_ratio <= 0.35 or avg_change <= -0.004 or weak_ratio >= 0.45:
             score = -1.0
             state = "fade"
             reasons.append("basket_fade")
-        elif len(changes) >= 4 and (adv_ratio >= 0.52 or avg_change > 0.0):
+        elif adv_ratio >= 0.52 or avg_change > 0.0:
             score = 0.45
             state = "watch_positive"
             reasons.append("basket_watch_positive")
-        elif len(changes) >= 4 and (adv_ratio <= 0.45 or avg_change < 0.0):
+        elif adv_ratio <= 0.45 or avg_change < 0.0:
             score = -0.45
             state = "watch_negative"
             reasons.append("basket_watch_negative")
         else:
-            reasons.append("basket_thin_or_neutral")
+            reasons.append("basket_neutral")
         basket_stats[basket_id] = {
             "themeId": basket_id,
             "themeName": str(basket.get("name") or basket_id),
@@ -5900,6 +5963,8 @@ def _calc_trade_theme_leadership(items: list[dict]) -> dict[str, dict[str, Any]]
             "themeLeadershipScore": float(score),
             "themeLeadershipDelta": float(score * _TRADE_THEME_LEADERSHIP_WEIGHT),
             "themeLeadershipReasons": reasons,
+            "themeLeadershipUsable": bool(sample_sufficient),
+            "themeMinMemberCount": int(_TRADE_THEME_LEADERSHIP_MIN_MEMBERS),
             "themeAdvancerRatio": adv_ratio,
             "themeAvgChangePct": avg_change,
             "themeWeakCloseRatio": weak_ratio,
@@ -5924,8 +5989,13 @@ def _attach_trade_theme_leadership(item: dict[str, Any], stats: dict[str, Any] |
         item["themeLeadershipScore"] = 0.0
         item["themeLeadershipDelta"] = 0.0
         item["themeLeadershipReasons"] = []
+        item["themeLeadershipUsable"] = False
+        item["themeMinMemberCount"] = int(_TRADE_THEME_LEADERSHIP_MIN_MEMBERS)
         return 0.0
     item.update(stats)
+    if not bool(stats.get("themeLeadershipUsable")):
+        item["themeLeadershipDelta"] = 0.0
+        item["themeLeadershipScore"] = 0.0
     return float(stats.get("themeLeadershipDelta") or 0.0)
 
 
@@ -6570,12 +6640,16 @@ def _build_trade_candidate_buckets(items: list[dict[str, Any]]) -> dict[str, lis
     caution_watch_candidates.sort(key=_trade_priority_sort_key)
     long_watch_buckets = _build_long_watch_buckets(caution_watch_candidates)
     momentum_entry_candidates = _build_momentum_entry_candidates(long_watch_buckets.get("momentum_watch_candidates") or [])
+    high_zone_chart_reads = _build_high_zone_chart_reads(long_watch_buckets.get("pullback_watch_candidates") or [])
+    high_zone_research_candidates = _build_high_zone_research_candidates(high_zone_chart_reads)
 
     return {
         "actionable_buy_candidates": actionable_buy_candidates,
         "actionable_short_candidates": actionable_short_candidates,
         "caution_watch_candidates": caution_watch_candidates,
         "momentum_entry_candidates": momentum_entry_candidates,
+        "high_zone_chart_reads": high_zone_chart_reads,
+        "high_zone_research_candidates": high_zone_research_candidates,
         **long_watch_buckets,
     }
 
@@ -6637,6 +6711,167 @@ def _build_momentum_entry_candidates(momentum_watch_candidates: list[dict[str, A
     candidates.sort(
         key=lambda item: (
             -(item.get("momentumEntryScore") or 0.0),
+            _trade_priority_sort_key(item),
+        )
+    )
+    return candidates
+
+
+def _extract_swing_setup_sample_count(item: dict[str, Any]) -> int | None:
+    reasons = item.get("swingReasons")
+    if not isinstance(reasons, list):
+        return None
+    for reason in reasons:
+        match = re.search(r"\bn=(\d+)\b", str(reason or ""))
+        if match:
+            try:
+                return int(match.group(1))
+            except ValueError:
+                return None
+    return None
+
+
+def _build_high_zone_chart_reads(pullback_watch_candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    reads: list[dict[str, Any]] = []
+    allowed_chase_reasons = {
+        "high_zone_extension_risk",
+        "late_buy_chase_risk",
+    }
+    hard_block_reasons = {
+        "already_large_20d_run",
+        "box_top_no_pullback_chase_risk",
+        "breakout_chase_risk",
+        "current_weak_close",
+        "extended_above_ma20",
+        "overextended_chase_risk",
+        "upper_wick_rejection",
+        "weak_10d_profit_expectancy",
+        "weak_5d_profit_expectancy",
+    }
+    for source in pullback_watch_candidates:
+        reasons_raw = source.get("tradeEntryBlockReasons")
+        reasons = {str(reason or "").strip() for reason in reasons_raw if str(reason or "").strip()} if isinstance(reasons_raw, list) else set()
+        if not reasons or not (reasons & allowed_chase_reasons):
+            continue
+
+        momentum_score = _first_finite(source.get("momentumFollowThroughScore"))
+        change_pct = _first_finite(source.get("changePct"))
+        upper_wick = _first_finite(source.get("candleUpperWickRatio"))
+        dist_ma20 = _first_finite(source.get("distMa20Signed"), source.get("dist_ma20_signed"))
+        diff20_pct = _first_finite(source.get("diff20_pct"), source.get("diff20Pct"))
+        ev5 = _first_finite(source.get("mlEv5Net"))
+        ev10 = _first_finite(source.get("mlEv10Net"))
+        priority_score = _first_finite(source.get("tradePriorityScore"))
+        evidence_sample_count = _extract_swing_setup_sample_count(source)
+        evidence_usable = evidence_sample_count is not None and evidence_sample_count >= _TRADE_HIGH_ZONE_EVIDENCE_MIN_SAMPLES
+
+        continuation_points = 0
+        risk_points = 0
+        read_reasons: list[str] = []
+        risk_reasons: list[str] = []
+
+        if _is_tradable_rank_item(source, direction="up"):
+            continuation_points += 1
+            read_reasons.append("qualified_setup")
+        else:
+            risk_points += 1
+            risk_reasons.append("not_qualified_setup")
+        if momentum_score is not None and momentum_score >= 0.92:
+            continuation_points += 2
+            read_reasons.append("strong_momentum_follow_through")
+        elif momentum_score is not None and momentum_score < 0.70:
+            risk_points += 2
+            risk_reasons.append("weak_follow_through")
+        if change_pct is not None and 0.012 <= change_pct <= 0.095:
+            continuation_points += 1
+            read_reasons.append("strong_but_not_limit_chase")
+        elif change_pct is not None and change_pct > 0.12:
+            risk_points += 2
+            risk_reasons.append("one_day_spike_chase")
+        if upper_wick is not None and upper_wick <= 0.22:
+            continuation_points += 1
+            read_reasons.append("limited_upper_wick")
+        elif upper_wick is not None and upper_wick >= 0.35:
+            risk_points += 2
+            risk_reasons.append("upper_wick_rejection")
+        if dist_ma20 is not None and dist_ma20 <= _TRADE_UP_ENTRY_DIST_MA20_MAX:
+            continuation_points += 1
+            read_reasons.append("ma20_extension_tolerable")
+        elif dist_ma20 is not None:
+            risk_points += 2
+            risk_reasons.append("ma20_extension_too_large")
+        if diff20_pct is not None and diff20_pct <= 0.18:
+            continuation_points += 1
+            read_reasons.append("not_already_large_20d_run")
+        elif diff20_pct is not None:
+            risk_points += 2
+            risk_reasons.append("already_large_20d_run")
+        if ev5 is not None and ev5 > 0.0 and ev10 is not None and ev10 > 0.0:
+            continuation_points += 2
+            read_reasons.append("positive_5d_10d_expectancy")
+        elif ev5 is not None or ev10 is not None:
+            risk_points += 2
+            risk_reasons.append("weak_short_expectancy")
+        if priority_score is not None and priority_score >= _TRADE_BUY_MIN_PRIORITY_SCORE:
+            continuation_points += 1
+            read_reasons.append("trade_priority_ok")
+        elif priority_score is not None:
+            risk_points += 1
+            risk_reasons.append("trade_priority_low")
+        research_required = not evidence_usable
+        if evidence_usable:
+            read_reasons.append("sample_count_ok")
+        else:
+            risk_reasons.append("research_sample_needed")
+        if reasons & hard_block_reasons:
+            risk_points += 2
+            risk_reasons.extend(sorted(reasons & hard_block_reasons))
+
+        read = dict(source)
+        score = max(0.0, min(1.0, 0.5 + 0.07 * float(continuation_points - risk_points)))
+        if research_required:
+            state = "research_needed"
+        elif continuation_points >= 8 and risk_points <= 2:
+            state = "trend_follow"
+        elif risk_points >= continuation_points:
+            state = "high_grab_risk"
+        else:
+            state = "wait_for_pullback"
+        read["highZoneChartState"] = state
+        read["highZoneChartScore"] = score
+        read["highZoneChartReasons"] = read_reasons[:8]
+        read["highZoneChartRiskReasons"] = list(dict.fromkeys(risk_reasons))[:8]
+        read["highZoneEvidenceSampleCount"] = evidence_sample_count
+        read["highZoneEvidenceMinSampleCount"] = int(_TRADE_HIGH_ZONE_EVIDENCE_MIN_SAMPLES)
+        read["highZoneEvidenceUsable"] = bool(evidence_usable)
+        read["highZoneEvidenceResearchRequired"] = bool(research_required)
+        reads.append(read)
+    reads.sort(
+        key=lambda item: (
+            -(item.get("highZoneChartScore") or 0.0),
+            _trade_priority_sort_key(item),
+        )
+    )
+    return reads
+
+
+def _build_high_zone_research_candidates(high_zone_chart_reads: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    for source in high_zone_chart_reads:
+        if str(source.get("highZoneChartState") or "").strip() != "research_needed":
+            continue
+        candidate = dict(source)
+        candidate["researchOnly"] = True
+        candidate["researchCandidateKind"] = "high_zone_chase_sample_gap"
+        candidate["researchCandidateReason"] = "high_zone_evidence_sample_below_minimum"
+        candidate["researchCandidateSource"] = "meemee_high_zone_chart_read"
+        candidate["researchCandidateBoundary"] = "TRADEX_REVIEW_ONLY"
+        candidates.append(candidate)
+    candidates.sort(
+        key=lambda item: (
+            item.get("highZoneEvidenceSampleCount") is None,
+            -(item.get("highZoneEvidenceSampleCount") or 0),
+            -(item.get("highZoneChartScore") or 0.0),
             _trade_priority_sort_key(item),
         )
     )
@@ -8699,6 +8934,8 @@ def _build_rankings_response(
                 "actionable_short_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("actionable_short_candidates") or []),
                 "caution_watch_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("caution_watch_candidates") or []),
                 "momentum_entry_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("momentum_entry_candidates") or []),
+                "high_zone_chart_reads": _sanitize_rank_items_for_json(trade_candidate_buckets.get("high_zone_chart_reads") or []),
+                "high_zone_research_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("high_zone_research_candidates") or []),
                 "momentum_watch_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("momentum_watch_candidates") or []),
                 "pullback_watch_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("pullback_watch_candidates") or []),
                 "setup_watch_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("setup_watch_candidates") or []),
@@ -8774,6 +9011,9 @@ def _build_rankings_response(
             "actionable_buy_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("actionable_buy_candidates") or []),
             "actionable_short_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("actionable_short_candidates") or []),
             "caution_watch_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("caution_watch_candidates") or []),
+            "momentum_entry_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("momentum_entry_candidates") or []),
+            "high_zone_chart_reads": _sanitize_rank_items_for_json(trade_candidate_buckets.get("high_zone_chart_reads") or []),
+            "high_zone_research_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("high_zone_research_candidates") or []),
             "momentum_watch_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("momentum_watch_candidates") or []),
             "pullback_watch_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("pullback_watch_candidates") or []),
             "setup_watch_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("setup_watch_candidates") or []),
@@ -8841,6 +9081,16 @@ def _build_rankings_response(
                 ),
                 "momentum_entry_candidates": _mark_provisional_items_by_snapshot(
                     trade_candidate_buckets.get("momentum_entry_candidates") or [],
+                    provisional_snapshot_as_of=provisional_snapshot_as_of,
+                    provisional_covered_codes=provisional_covered_codes,
+                ),
+                "high_zone_chart_reads": _mark_provisional_items_by_snapshot(
+                    trade_candidate_buckets.get("high_zone_chart_reads") or [],
+                    provisional_snapshot_as_of=provisional_snapshot_as_of,
+                    provisional_covered_codes=provisional_covered_codes,
+                ),
+                "high_zone_research_candidates": _mark_provisional_items_by_snapshot(
+                    trade_candidate_buckets.get("high_zone_research_candidates") or [],
                     provisional_snapshot_as_of=provisional_snapshot_as_of,
                     provisional_covered_codes=provisional_covered_codes,
                 ),
@@ -9376,6 +9626,8 @@ def get_rankings_asof(
                 "actionable_short_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("actionable_short_candidates") or []),
                 "caution_watch_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("caution_watch_candidates") or []),
                 "momentum_entry_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("momentum_entry_candidates") or []),
+                "high_zone_chart_reads": _sanitize_rank_items_for_json(trade_candidate_buckets.get("high_zone_chart_reads") or []),
+                "high_zone_research_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("high_zone_research_candidates") or []),
                 "momentum_watch_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("momentum_watch_candidates") or []),
                 "pullback_watch_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("pullback_watch_candidates") or []),
                 "setup_watch_candidates": _sanitize_rank_items_for_json(trade_candidate_buckets.get("setup_watch_candidates") or []),
@@ -9690,6 +9942,8 @@ def get_rankings_session_bundle(
         "confirmed_actionable_short_candidates": list(confirmed.get("actionable_short_candidates") or []),
         "confirmed_caution_watch_candidates": list(confirmed.get("caution_watch_candidates") or []),
         "confirmed_momentum_entry_candidates": list(confirmed.get("momentum_entry_candidates") or []),
+        "confirmed_high_zone_chart_reads": list(confirmed.get("high_zone_chart_reads") or []),
+        "confirmed_high_zone_research_candidates": list(confirmed.get("high_zone_research_candidates") or []),
         "confirmed_momentum_watch_candidates": list(confirmed.get("momentum_watch_candidates") or []),
         "confirmed_pullback_watch_candidates": list(confirmed.get("pullback_watch_candidates") or []),
         "confirmed_setup_watch_candidates": list(confirmed.get("setup_watch_candidates") or []),
@@ -9697,6 +9951,8 @@ def get_rankings_session_bundle(
         "provisional_actionable_short_candidates": list(provisional.get("actionable_short_candidates") or []) if provisional_available else [],
         "provisional_caution_watch_candidates": list(provisional.get("caution_watch_candidates") or []) if provisional_available else [],
         "provisional_momentum_entry_candidates": list(provisional.get("momentum_entry_candidates") or []) if provisional_available else [],
+        "provisional_high_zone_chart_reads": list(provisional.get("high_zone_chart_reads") or []) if provisional_available else [],
+        "provisional_high_zone_research_candidates": list(provisional.get("high_zone_research_candidates") or []) if provisional_available else [],
         "provisional_momentum_watch_candidates": list(provisional.get("momentum_watch_candidates") or []) if provisional_available else [],
         "provisional_pullback_watch_candidates": list(provisional.get("pullback_watch_candidates") or []) if provisional_available else [],
         "provisional_setup_watch_candidates": list(provisional.get("setup_watch_candidates") or []) if provisional_available else [],

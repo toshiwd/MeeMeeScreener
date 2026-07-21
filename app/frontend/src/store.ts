@@ -1,6 +1,7 @@
 ﻿import { create } from "zustand";
 import { api, setApiErrorReporter } from "./api";
 import { normalizeScreenerListResponse } from "./listSnapshot";
+import { normalizeSearchInput } from "./utils/searchInput";
 import {
   applyChartDataVersion,
   getActiveChartDataVersion,
@@ -94,7 +95,7 @@ type ScreenerListCacheEntry = {
   listLoadedAt: number;
 };
 
-const normalizeWatchlistTagsByCode = (value: unknown): Record<string, string[]> => {
+const normalizeTagsByCode = (value: unknown): Record<string, string[]> => {
   if (!value || typeof value !== "object") return {};
   const entries = Object.entries(value as Record<string, unknown>);
   const normalized: Record<string, string[]> = {};
@@ -787,11 +788,13 @@ export const useStore = create<StoreState>((set, get) => ({
       try {
         const resWatch = await api.get("/watchlist");
         const watchlistCodes = (resWatch.data?.codes || []) as string[];
-        const watchlistTagsByCode = normalizeWatchlistTagsByCode(resWatch.data?.tagsByCode);
+        const watchlistTagsByCode = normalizeTagsByCode(resWatch.data?.tagsByCode);
+        const researchTagsByCode = normalizeTagsByCode(resWatch.data?.researchTagsByCode);
         if (tickers.length) {
           tickers = tickers.map((ticker) => ({
             ...ticker,
             watchlistTags: watchlistTagsByCode[ticker.code] ?? [],
+            researchTags: researchTagsByCode[ticker.code] ?? [],
           }));
         }
         if (watchlistCodes.length) {
@@ -826,6 +829,7 @@ export const useStore = create<StoreState>((set, get) => ({
               code,
               name: code,
               watchlistTags: watchlistTagsByCode[code] ?? [],
+              researchTags: researchTagsByCode[code] ?? [],
               stage: "",
               score: null,
               reason: "WATCHLIST_ONLY",
@@ -1306,7 +1310,7 @@ export const useStore = create<StoreState>((set, get) => ({
     set((state) => ({ settings: { ...state.settings, listRangeBars: normalized } }));
   },
   setSearch: (search) => {
-    set((state) => ({ settings: { ...state.settings, search } }));
+    set((state) => ({ settings: { ...state.settings, search: normalizeSearchInput(search) } }));
   },
   setGridScrollTop: (value) => {
     set((state) => ({ settings: { ...state.settings, gridScrollTop: value } }));

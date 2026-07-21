@@ -112,3 +112,29 @@ def test_run_diff_export_tracks_changes(tmp_path) -> None:
     assert "bars_daily_export" in json.loads(meta[0])
     assert json.loads(meta[1])["bars_daily_export"]["updated"] == 1
     assert trade_row == ("SPOT_BUY", "rakuten")
+
+
+def test_run_diff_export_prefers_confirmed_pan_row_over_yahoo_duplicate(tmp_path) -> None:
+    source_db = tmp_path / "source.duckdb"
+    export_db = tmp_path / "export.duckdb"
+    _seed_source_db(str(source_db))
+    conn = duckdb.connect(str(source_db), read_only=False)
+    try:
+        conn.execute(
+            "INSERT INTO daily_bars VALUES ('1301', 20260310, 101, 110, 95, 109, 9999, 'yahoo')"
+        )
+    finally:
+        conn.close()
+    ensure_export_db(str(export_db))
+
+    result = run_diff_export(str(source_db), str(export_db))
+
+    assert result["ok"] is True
+    conn = duckdb.connect(str(export_db), read_only=True)
+    try:
+        rows = conn.execute(
+            "SELECT c, v, source FROM bars_daily_export WHERE code='1301' AND trade_date=20260310"
+        ).fetchall()
+    finally:
+        conn.close()
+    assert rows == [(102.0, 1200, "pan")]

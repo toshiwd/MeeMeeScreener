@@ -1,0 +1,16 @@
+"""One-axis profit-take refinement: lower wick >= 40% at below7 onset."""
+from __future__ import annotations
+import argparse,json
+from datetime import datetime,timezone
+from pathlib import Path
+import pandas as pd
+def rates(x):return {"n":int(len(x)),"further_down_first":None if x.empty else float(x.label.eq(0).mean()),"rebound_first":None if x.empty else float(x.label.eq(1).mean()),"neutral":None if x.empty else float(x.label.eq(2).mean())}
+def main():
+ p=argparse.ArgumentParser();p.add_argument("--below7-ledger",type=Path,required=True);p.add_argument("--features",type=Path,required=True);p.add_argument("--output-root",type=Path,required=True);a=p.parse_args();stamp=datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ");out=a.output_root/f"{stamp}-tradex-profit-take-below7-lower-wick-oos-v1";out.mkdir(parents=True,exist_ok=False)
+ b=pd.read_parquet(a.below7_ledger);f=pd.read_parquet(a.features,columns=["code","ymd","lower_wick_ratio","close_pos"]);x=b.merge(f,on=["code","ymd"],how="left",validate="one_to_one");x["lower_wick_rejection"]=x.lower_wick_ratio.ge(.40);q=x[x.lower_wick_rejection]
+ years={str(y):{"champion":rates(x[x.year.eq(y)]),"challenger":rates(q[q.year.eq(y)])} for y in range(2019,2027)};overall={"champion":rates(x),"challenger":rates(q)}
+ nonworse=all(v["challenger"]["n"]==0 or v["challenger"]["rebound_first"]>=v["challenger"]["further_down_first"] for v in years.values());strict=all(v["challenger"]["n"]==0 or v["challenger"]["rebound_first"]>v["challenger"]["further_down_first"] for v in years.values());improved=overall["challenger"]["rebound_first"]>overall["champion"]["rebound_first"] and overall["challenger"]["further_down_first"]<overall["champion"]["further_down_first"]
+ decision="keep" if strict and improved and len(q)>=100 else ("hold" if nonworse and improved else "drop")
+ data={"schema_version":"tradex_profit_take_below7_lower_wick_oos_v1.compare.v1","artifact_role":"authoritative","axis":"add lower_wick_ratio >=0.40 at below7 onset","threshold_provenance":"existing rejection-veto contract; no sweep","year_results":years,"overall":overall,"judgment":{"decision":decision,"nonworse_all_years":nonworse,"strict_rebound_dominance_all_years":strict,"improved_overall":improved,"reason":"hold when every year is non-worse but at least one year is tied; keep requires strict rebound dominance every year"},"not_changed":["below7 definition","position path","MA/support proximity","close-position filter","monthly environment","MeeMee","ranking","runtime DB"]}
+ (out/"compare.json").write_text(json.dumps(data,ensure_ascii=False,indent=2)+"\n",encoding="utf-8");x.to_parquet(out/"profit_take_below7_lower_wick_ledger.parquet",index=False);audit={"base_rows":int(len(x)),"challenger_rows":int(len(q)),"missing_wick":int(x.lower_wick_ratio.isna().sum()),"duplicates":int(x.duplicated(["code","ymd"]).sum()),"future_used_for_selection":False,"review_only":True};(out/"audit.json").write_text(json.dumps(audit,ensure_ascii=False,indent=2)+"\n",encoding="utf-8");(out/"_ARTIFACT_COMPLETE.json").write_text(json.dumps({"complete":True,"authoritative":"compare.json"},indent=2)+"\n",encoding="utf-8");print(out);print(json.dumps({"years":years,"overall":overall,"judgment":data["judgment"],"audit":audit},ensure_ascii=False,indent=2))
+if __name__=="__main__":main()

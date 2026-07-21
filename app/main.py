@@ -395,6 +395,31 @@ async def lifespan(app: FastAPI):
         data_dir = str(config.DATA_DIR)
         os.environ.setdefault("MEEMEE_DATA_DIR", data_dir)
     os.environ.setdefault("STOCKS_DB_PATH", str(resolve_runtime_stock_db_path()))
+    # Production data is authoritative.  A development process may consume a
+    # local replica, but it must never publish its own DB back to production.
+    try:
+        from pathlib import Path
+        from app.backend.services.dev_db_sync import (
+            development_stock_db_path,
+            production_stock_db_path,
+            sync_confirmed_production_db_to_dev,
+        )
+
+        configured_db = Path(os.environ["STOCKS_DB_PATH"]).expanduser().resolve(strict=False)
+        dev_db = development_stock_db_path().expanduser().resolve(strict=False)
+        if configured_db == dev_db:
+            sync_result = sync_confirmed_production_db_to_dev(
+                source_db_path=production_stock_db_path(),
+                dev_db_path=dev_db,
+            )
+            print(
+                "[main] Production-to-dev DB sync:"
+                f" synced={sync_result.get('synced')}"
+                f" reason={sync_result.get('skipped_reason')}"
+                f" confirmed={sync_result.get('confirmed_latest_date')}"
+            )
+    except Exception as exc:
+        logger.warning("Production-to-dev DB sync failed before startup: %s", exc)
     os.makedirs(data_dir, exist_ok=True)
     if not os.getenv("MEEMEE_RESOLVED_PATHS_LOGGED"):
         if not _LOGGED_RESOLVED_PATHS:

@@ -134,6 +134,33 @@ def _copy_file_with_retry(*, source: Path, target: Path) -> None:
         raise last_error
 
 
+def _copy_source_tables(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    source_database: str = "source_db",
+    target_database: str = "snapshot_db",
+) -> None:
+    tables = conn.execute(
+        """
+        SELECT table_name, sql
+        FROM duckdb_tables()
+        WHERE database_name = ? AND schema_name = 'main'
+        ORDER BY table_name
+        """,
+        [source_database],
+    ).fetchall()
+    conn.execute(f"USE {target_database}")
+    for table_name, create_sql in tables:
+        if not create_sql:
+            continue
+        conn.execute(str(create_sql))
+        quoted_name = str(table_name).replace('"', '""')
+        conn.execute(
+            f'INSERT INTO {target_database}.main."{quoted_name}" '
+            f'SELECT * FROM {source_database}.main."{quoted_name}"'
+        )
+
+
 def _cleanup_old_snapshots(*, snapshot_root: Path, keep_latest: int, retention_days: int = 14) -> None:
     keep = max(1, int(keep_latest))
     cutoff = datetime.now(timezone.utc) - timedelta(days=max(1, int(retention_days)))
@@ -276,7 +303,10 @@ def create_source_snapshot(
     try:
         clone_conn.execute(f"ATTACH '{resolved_source.as_posix()}' AS source_db (READ_ONLY)")
         clone_conn.execute(f"ATTACH '{snapshot_db_path.as_posix()}' AS snapshot_db")
-        clone_conn.execute("COPY FROM DATABASE source_db TO snapshot_db")
+        # DuckDB's database-wide COPY can fail while rebuilding otherwise valid
+        # primary-key indexes. Copying each table preserves the same schema and
+        # data while avoiding that engine-level bulk-copy failure.
+        _copy_source_tables(clone_conn)
         clone_conn.execute("USE snapshot_db")
         feature_frame_payload = materialize_feature_frame_daily(clone_conn)
     finally:

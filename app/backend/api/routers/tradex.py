@@ -3,10 +3,12 @@ from __future__ import annotations
 import csv
 import io
 import json
+import math
 import os
 from pathlib import Path
 from typing import Any
 
+import duckdb
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi import Body
 from fastapi.responses import Response
@@ -55,6 +57,7 @@ from app.backend.services.tradex_experiment_service import (
 from app.backend.services.tradex_experiment_store import find_family_id_by_run_id
 from app.backend.services.tradex_portfolio_replay_service import load_replay_run, run_portfolio_replay
 from external_analysis.results.publish_candidates import list_publish_candidate_bundles, load_publish_candidate_bundle
+from scripts.tradex_intraday_short_preview_v1 import build_intraday_short_preview
 
 router = APIRouter(prefix="/api/tradex", tags=["tradex"])
 OPERATOR_CONSOLE_DEPENDENCIES = [Depends(require_operator_console_access)]
@@ -64,6 +67,31 @@ SHORT_LIFECYCLE_BOARD_ROOT = Path(
 BUY_LIFECYCLE_BOARD_ROOT = Path(
     os.getenv("TRADEX_BUY_LIFECYCLE_BOARD_ROOT", r"G:\Tradex\current_buy_lifecycle_board_v1")
 )
+SHAPE_ENTRY_BOARD_ROOT = Path(
+    os.getenv("TRADEX_SHAPE_ENTRY_BOARD_ROOT", r"G:\Tradex\leaf20_vol3_current_selection_v1")
+)
+ADAPTIVE_RULE_ROUTER_ROOT = Path(
+    os.getenv("TRADEX_ADAPTIVE_RULE_ROUTER_ROOT", r"G:\Tradex\adaptive_rule_router_v1")
+)
+INTEGRATED_ENTRY_BOARD_ROOT = Path(
+    os.getenv("TRADEX_INTEGRATED_ENTRY_BOARD_ROOT", r"G:\Tradex\integrated_entry_board_v1")
+)
+TWO_SIDED_MAIN_RULE_ROOT = Path(
+    os.getenv(
+        "TRADEX_TWO_SIDED_MAIN_RULE_ROOT",
+        r"G:\Tradex\tradex_two_sided_sell_only_exposure_cap_completion_v1",
+    )
+)
+
+
+def _adaptive_json_safe(value: Any) -> Any:
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {key: _adaptive_json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_adaptive_json_safe(item) for item in value]
+    return value
 
 
 class TradexAdoptRequest(BaseModel):
@@ -176,6 +204,120 @@ def _latest_artifact_json(root: Path, file_name: str) -> Path | None:
 
 def _limited_int(value: int, minimum: int, maximum: int) -> int:
     return max(minimum, min(maximum, int(value)))
+
+
+def _load_two_sided_main_rule_readout() -> dict[str, Any]:
+    compare_path = _latest_artifact_json(TWO_SIDED_MAIN_RULE_ROOT, "compare.json")
+    if compare_path is None:
+        return {
+            "available": False,
+            "reason": "two_sided_main_rule_not_found",
+            "artifact_root": str(TWO_SIDED_MAIN_RULE_ROOT),
+        }
+    complete_path = compare_path.parent / "_ARTIFACT_COMPLETE.json"
+    if not complete_path.is_file():
+        return {
+            "available": False,
+            "reason": "two_sided_main_rule_incomplete",
+            "artifact_path": str(compare_path),
+        }
+    try:
+        payload = json.loads(compare_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {
+            "available": False,
+            "reason": "two_sided_main_rule_read_failed",
+            "artifact_path": str(compare_path),
+        }
+    decision = payload.get("decision") if isinstance(payload.get("decision"), dict) else {}
+    selected = payload.get("selected_variant") if isinstance(payload.get("selected_variant"), dict) else {}
+    metrics = payload.get("metrics") if isinstance(payload.get("metrics"), dict) else {}
+    cutoffs = payload.get("data_cutoffs") if isinstance(payload.get("data_cutoffs"), dict) else {}
+    is_keep = decision.get("candidate_local_decision") == "keep"
+    is_review_only = decision.get("authoritative_rollup_decision") == "review_only"
+    if not is_keep or not is_review_only:
+        return {
+            "available": False,
+            "reason": "two_sided_main_rule_not_keep_review_only",
+            "artifact_path": str(compare_path),
+            "candidate_local_decision": decision.get("candidate_local_decision"),
+            "authoritative_rollup_decision": decision.get("authoritative_rollup_decision"),
+        }
+    buy_rank_path = compare_path.parent / "all_buy_ranks.parquet"
+    sell_rank_path = compare_path.parent / "all_sell_ranks.parquet"
+    if not buy_rank_path.is_file() or not sell_rank_path.is_file():
+        return {
+            "available": False,
+            "reason": "two_sided_main_rule_rank_artifacts_missing",
+            "artifact_path": str(compare_path),
+        }
+    try:
+        with duckdb.connect() as conn:
+            buy_rows = conn.execute(
+                """
+                SELECT signal_ymd, code, rank, rank_source,
+                       rank_source = 'meemee_priority' AS actionable
+                FROM read_parquet(?)
+                WHERE signal_ymd = (SELECT max(signal_ymd) FROM read_parquet(?)) AND top10
+                ORDER BY rank, code
+                """,
+                [str(buy_rank_path), str(buy_rank_path)],
+            ).fetchall()
+            sell_rows = conn.execute(
+                """
+                SELECT signal_ymd, code, rank, family_hit AS actionable,
+                       setup_hit, breadth_hit, readiness_hit
+                FROM read_parquet(?)
+                WHERE signal_ymd = (SELECT max(signal_ymd) FROM read_parquet(?)) AND top10
+                ORDER BY rank, code
+                """,
+                [str(sell_rank_path), str(sell_rank_path)],
+            ).fetchall()
+    except Exception:
+        return {
+            "available": False,
+            "reason": "two_sided_main_rule_ranks_read_failed",
+            "artifact_path": str(compare_path),
+        }
+    buy_ranks = [
+        {"signal_ymd": row[0], "code": row[1], "rank": row[2], "rank_source": row[3], "actionable": row[4]}
+        for row in buy_rows
+    ]
+    sell_ranks = [
+        {
+            "signal_ymd": row[0], "code": row[1], "rank": row[2], "actionable": row[3],
+            "setup_hit": row[4], "breadth_hit": row[5], "readiness_hit": row[6],
+        }
+        for row in sell_rows
+    ]
+    buy_active = any(row["actionable"] for row in buy_ranks)
+    sell_active = any(row["actionable"] for row in sell_ranks)
+    current_state = "both" if buy_active and sell_active else "buy_only" if buy_active else "sell_only" if sell_active else "no_entry"
+    sell_only_cap = _num(selected.get("sell_only_exposure_cap"))
+    return _adaptive_json_safe({
+        "available": True,
+        "label": "買い・空売り 統合主力候補",
+        "status": "研究採用候補（表示のみ）",
+        "candidate_local_decision": "keep",
+        "authoritative_rollup_decision": "review_only",
+        "confirmed_as_of": cutoffs.get("runtime_db_max_pan_date"),
+        "allocation": {
+            "buy_only_buy": 1.0,
+            "both_buy": 0.9,
+            "both_sell": 0.1,
+            "sell_only_sell": sell_only_cap,
+            "sell_only_cash": _num(selected.get("sell_only_cash")),
+        },
+        "current_state": current_state,
+        "buy_ranks": buy_ranks,
+        "sell_ranks": sell_ranks,
+        "validation_2025": metrics.get("validation") if isinstance(metrics.get("validation"), dict) else {},
+        "shadow_2026": metrics.get("shadow") if isinstance(metrics.get("shadow"), dict) else {},
+        "artifact_path": str(compare_path),
+        "display_only": True,
+        "production_ranking_changed": False,
+        "runtime_db_write": False,
+    })
 
 
 def _short_lifecycle_candidate(row: dict[str, Any]) -> dict[str, Any]:
@@ -634,6 +776,22 @@ def get_tradex_research_short_lifecycle_board(limit: int = 30):
     }
 
 
+@router.get("/research/intraday-short-preview", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
+def get_tradex_research_intraday_short_preview(limit: int = 30):
+    """Display-only TRADEX preview from persisted Yahoo intraday bars.
+
+    This never changes the production ranking and never promotes a provisional row
+    to a confirmed entry signal.
+    """
+    try:
+        return build_intraday_short_preview(limit=_limited_int(limit, 1, 100))
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail={"ok": False, "reason": "intraday_short_preview_failed", "error": str(exc)},
+        ) from exc
+
+
 @router.get("/research/buy-lifecycle-board", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
 def get_tradex_research_buy_lifecycle_board(limit: int = 100):
     artifact_path = _latest_artifact_json(BUY_LIFECYCLE_BOARD_ROOT, "current_buy_lifecycle_board.json")
@@ -657,6 +815,109 @@ def get_tradex_research_buy_lifecycle_board(limit: int = 100):
         "production_ranking_modified": bool(payload.get("production_ranking_modified")),
         "candidates": [_buy_lifecycle_candidate(row) for row in candidates[: _limited_int(limit, 1, 200)] if isinstance(row, dict)],
     }
+
+
+@router.get("/research/shape-entry-board", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
+def get_tradex_research_shape_entry_board(limit: int = 30):
+    """Read-only operational view of the latest TRADEX leaf-shape board."""
+    artifact_path = _latest_artifact_json(SHAPE_ENTRY_BOARD_ROOT, "current_selection_board.json")
+    if artifact_path is None:
+        return {"available": False, "reason": "shape_entry_board_not_found", "artifact_root": str(SHAPE_ENTRY_BOARD_ROOT), "board": []}
+    try:
+        payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail={"ok": False, "reason": "shape_entry_board_read_failed", "artifact_path": str(artifact_path)}) from exc
+    rows = payload.get("candidates") if isinstance(payload.get("candidates"), list) else []
+    return {
+        "available": True,
+        "artifact_path": str(artifact_path),
+        "confirmed_signal_date": payload.get("confirmed_signal_date"),
+        "default_verdict": payload.get("default_verdict"),
+        "candidate_count": payload.get("candidate_count"),
+        "selection_contract": payload.get("selection_contract") if isinstance(payload.get("selection_contract"), dict) else {},
+        "quality_metrics_2026": payload.get("quality_metrics_2026") if isinstance(payload.get("quality_metrics_2026"), dict) else {},
+        "research_status": "2026_oos_positive_candidate",
+        "automatic_trading": bool(payload.get("automatic_trading")),
+        "production_ranking_changed": bool(payload.get("production_ranking_changed")),
+        "runtime_db_write": bool(payload.get("runtime_db_write")),
+        "candidates": rows[: _limited_int(limit, 1, 100)],
+    }
+
+
+@router.get("/research/adaptive-rule-board", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
+def get_tradex_research_adaptive_rule_board(limit: int = 30):
+    """Display-only view of the latest point-in-time TRADEX rule router."""
+    artifact_path = _latest_artifact_json(ADAPTIVE_RULE_ROUTER_ROOT, "compare.json")
+    if artifact_path is None:
+        return {"available": False, "reason": "adaptive_rule_router_not_found", "artifact_root": str(ADAPTIVE_RULE_ROUTER_ROOT), "current_candidates": []}
+    try:
+        payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail={"ok": False, "reason": "adaptive_rule_router_read_failed", "artifact_path": str(artifact_path)}) from exc
+    reports = payload.get("reports") if isinstance(payload.get("reports"), dict) else {}
+    oos = reports.get("untouched_2026") if isinstance(reports.get("untouched_2026"), dict) else {}
+    return _adaptive_json_safe({
+        "available": True,
+        "artifact_path": str(artifact_path),
+        "current_as_of": payload.get("current_as_of"),
+        "current_regime": payload.get("current_regime"),
+        "selected_policy": payload.get("selected_policy") if isinstance(payload.get("selected_policy"), dict) else {},
+        "quality_2026": oos,
+        "adoption_gate": payload.get("adoption_gate") if isinstance(payload.get("adoption_gate"), dict) else {},
+        "current_rule_states": payload.get("current_rule_states") if isinstance(payload.get("current_rule_states"), list) else [],
+        "current_active_rule_priority": payload.get("current_active_rule_priority") if isinstance(payload.get("current_active_rule_priority"), list) else [],
+        "current_candidates": (payload.get("current_candidates") if isinstance(payload.get("current_candidates"), list) else [])[: _limited_int(limit, 1, 100)],
+        "automatic_trading": bool(payload.get("automatic_trading")),
+        "production_ranking_changed": bool(payload.get("production_ranking_changed")),
+        "runtime_db_write": bool(payload.get("runtime_db_write")),
+    })
+
+
+@router.get("/research/integrated-entry-board", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
+def get_tradex_research_integrated_entry_board(limit: int = 30):
+    """Latest review-only buy/sell board with official and provisional rows separated."""
+    artifact_path = _latest_artifact_json(INTEGRATED_ENTRY_BOARD_ROOT, "integrated_entry_board.json")
+    if artifact_path is None:
+        return {
+            "available": False,
+            "reason": "integrated_entry_board_not_found",
+            "artifact_root": str(INTEGRATED_ENTRY_BOARD_ROOT),
+            "actionable": [],
+            "watch": [],
+            "main_rule": _load_two_sided_main_rule_readout(),
+        }
+    try:
+        payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail={"ok": False, "reason": "integrated_entry_board_read_failed", "artifact_path": str(artifact_path)},
+        ) from exc
+    row_limit = _limited_int(limit, 1, 100)
+    actionable = payload.get("actionable") if isinstance(payload.get("actionable"), list) else []
+    watch = payload.get("watch") if isinstance(payload.get("watch"), list) else []
+    return _adaptive_json_safe({
+        "available": True,
+        "artifact_path": str(artifact_path),
+        "confirmed_as_of": payload.get("confirmed_as_of"),
+        "current_regime": payload.get("current_regime"),
+        "directional_bias": payload.get("directional_bias"),
+        "intraday_short_status": payload.get("intraday_short_status"),
+        "intraday_short_available": bool(payload.get("intraday_short_available")),
+        "decision": payload.get("decision"),
+        "ranking_contract": payload.get("ranking_contract"),
+        "actionable_count": payload.get("actionable_count"),
+        "watch_count": payload.get("watch_count"),
+        # Explicit display boundary. Missing legacy fields fail closed to display-only/current-regime.
+        "display_only": bool(payload.get("display_only", True)),
+        "current_regime_only": bool(payload.get("current_regime_only", True)),
+        "actionable": actionable[:row_limit],
+        "watch": watch[:row_limit],
+        "boundary": payload.get("boundary") if isinstance(payload.get("boundary"), dict) else {},
+        "production_ranking_changed": bool(payload.get("production_ranking_changed")),
+        "runtime_db_write": bool(payload.get("runtime_db_write")),
+        "main_rule": _load_two_sided_main_rule_readout(),
+    })
 
 
 @router.get("/research/state-eval-promotion-review", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)

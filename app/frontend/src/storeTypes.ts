@@ -6,6 +6,7 @@ export type Ticker = {
   sector33Code?: string | null;
   sector33Name?: string | null;
   watchlistTags?: string[] | null;
+  researchTags?: string[] | null;
   stage: string;
   score: number | null;
   displayScore?: number | null;

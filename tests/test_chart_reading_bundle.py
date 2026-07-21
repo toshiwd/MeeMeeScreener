@@ -148,6 +148,35 @@ def test_chart_reading_bundle_returns_notes_annotations_and_position_state() -> 
     assert bundle["ma_role_review"]["schema_version"] == "ma_role_readonly_review_v1"
     assert bundle["ma_role_review"]["read_only"] is True
     assert bundle["ma_role_review"]["ranking_effect"] is False
+
+
+def test_chart_reading_bundle_reads_epoch_month_rows_without_lookahead() -> None:
+    conn = duckdb.connect(":memory:")
+    ensure_schema(conn)
+    march_epoch = 1772323200
+    april_epoch = 1775001600
+    conn.execute(
+        """
+        INSERT INTO daily_bars (code, date, o, h, l, c, v)
+        VALUES ('1001', 1774915200, 100, 110, 95, 105, 1000)
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO monthly_bars (code, month, o, h, l, c, v)
+        VALUES
+          ('1001', ?, 80, 112, 75, 106, 9000),
+          ('1001', ?, 106, 120, 100, 118, 10000)
+        """,
+        [march_epoch, april_epoch],
+    )
+
+    bundle = get_chart_reading_bundle(conn, code="1001", as_of_date="2026-03-31")
+
+    monthly = bundle["chart_context"]["monthly"]
+    assert monthly["bar_count"] == 1
+    assert monthly["selected_bar"]["date"] == "2026-03-01"
+    assert monthly["selected_bar"]["close"] == 106
     assert bundle["ma_role_review"]["automatic_trade_action"] is False
 
 

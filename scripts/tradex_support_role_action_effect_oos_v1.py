@@ -1,0 +1,29 @@
+"""Diagnose support-role effects separately for new core, add, and profit exit actions."""
+from __future__ import annotations
+import argparse,hashlib,json
+from pathlib import Path
+import pandas as pd
+
+YEARS=(2023,2024,2025)
+RISK={"TOUCH_AND_HOLD","BREAK_AND_RECLAIM","UNTOUCHED_NEAR_SUPPORT"};CONT={"DECISIVE_BREAK","RETEST_FROM_BELOW"}
+def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
+def rates(x,success):return {"n":int(len(x)),"codes":int(x.code.nunique()),"success":None if x.empty else float(x.outcome.eq(success).mean()),"adverse":None if x.empty else float(x.outcome.eq("rebound_first" if success=="down_first" else "further_down_first").mean()),"neutral":None if x.empty else float(x.outcome.str.startswith("neutral").mean())}
+def main():
+ p=argparse.ArgumentParser();p.add_argument("--path-ledger",type=Path,required=True);p.add_argument("--support-ledger",type=Path,required=True);p.add_argument("--profit-ledger",type=Path,required=True);p.add_argument("--output",type=Path,required=True);a=p.parse_args();a.output.mkdir(parents=True,exist_ok=False)
+ s=pd.read_parquet(a.support_ledger);s["risk"]=s.state.isin(RISK);s["continuation"]=s.state.isin(CONT);agg=s.groupby(["code","ymd"],as_index=False).agg(risk_support_count=("risk","sum"),continuation_state_count=("continuation","sum"),touch_hold_count=("state",lambda z:int(z.eq("TOUCH_AND_HOLD").sum())),reclaim_count=("state",lambda z:int(z.eq("BREAK_AND_RECLAIM").sum())),near_support_count=("state",lambda z:int(z.eq("UNTOUCHED_NEAR_SUPPORT").sum())),decisive_break_count=("state",lambda z:int(z.eq("DECISIVE_BREAK").sum())),retest_below_count=("state",lambda z:int(z.eq("RETEST_FROM_BELOW").sum())),support_profile=("state",lambda z:"|".join(sorted(set(z)))))
+ pth=pd.read_parquet(a.path_ledger);acts=[]
+ for fam,date_col,out_col,action in [("IMMEDIATE_CONTINUATION_MA7_ADD","ma7_recross_failure_ymd","ma7_recross_outcome_fixed3_h5","ADD"),("WEAK_REBOUND_MA20_REBREAK_CORE","ma20_rebreak_ymd","ma20_rebreak_outcome_fixed3_h5","NEW_CORE")]:
+  z=pth[pth.path_family.eq(fam)].copy();z["action_ymd"]=z[date_col].astype(int);z["outcome"]=z[out_col];z["action_type"]=action;z["desired_success"]="down_first";acts.append(z[["code","year","action_ymd","action_type","desired_success","outcome","path_family"]])
+ pr=pd.read_parquet(a.profit_ledger);pr["code"]=pr.code.astype(str).str.zfill(4);pr["year"]=pr.ymd.astype(str).str[:4].astype(int);pr["action_ymd"]=pr.ymd.astype(int);pr["action_type"]="PROFIT_EXIT";pr["desired_success"]="rebound_first";pr["outcome"]=pr.outcome_fixed3_h5;pr["path_family"]=pr.exit_reason;acts.append(pr[["code","year","action_ymd","action_type","desired_success","outcome","path_family"]])
+ x=pd.concat(acts,ignore_index=True);x["code"]=x.code.astype(str).str.zfill(4);x=x[x.year.isin(YEARS)].merge(agg,left_on=["code","action_ymd"],right_on=["code","ymd"],how="left",validate="many_to_one");x["risk_support_present"]=x.risk_support_count.gt(0);x["continuation_state_present"]=x.continuation_state_count.gt(0)
+ results={}
+ for action,success in [("NEW_CORE","down_first"),("ADD","down_first"),("PROFIT_EXIT","rebound_first")]:
+  results[action]={}
+  for y in YEARS:
+   z=x[x.action_type.eq(action)&x.year.eq(y)];results[action][str(y)]={"all":rates(z,success),"risk_support_present":rates(z[z.risk_support_present],success),"risk_support_absent":rates(z[~z.risk_support_present],success),"continuation_state_present":rates(z[z.continuation_state_present],success),"continuation_state_absent":rates(z[~z.continuation_state_present],success)}
+ anchors={}
+ for code,ymd in [("2802",20240216),("6532",20230704),("6702",20250311),("6526",20251014)]:
+  z=agg[(agg.code==code)&agg.ymd.eq(ymd)];anchors[code]={"ymd":ymd,"rows":z.where(pd.notna(z),None).to_dict("records")}
+ data={"schema_version":"tradex_support_role_action_effect_oos_v1.compare.v1","artifact_role":"authoritative_diagnostic","axis":"support-role effect by action type","fixed_conditions":{"risk_support_states":sorted(RISK),"continuation_states":sorted(CONT),"entry_success":"down_first fixed3 h5","profit_success":"rebound_first fixed3 h5","years":list(YEARS),"threshold_selection":"none"},"year_action_results":results,"human_anchor_profiles":anchors,"observed_branching":{"action_rows":int(len(x)),"new_core_rows":int(x.action_type.eq("NEW_CORE").sum()),"add_rows":int(x.action_type.eq("ADD").sum()),"profit_rows":int(x.action_type.eq("PROFIT_EXIT").sum()),"changed_top5_members_count":None,"changed_top10_members_count":None,"changed_rank_count":4,"selection_divergence_reason":"identical support states are measured separately for entry, add, and exit"},"judgment":{"decision":"hold","reason":"diagnostic only; the next challenger may move one action-specific support-state axis after checking year-direction consistency"},"not_changed":["support state contract","sequence paths","profit events","position lifecycle","MeeMee","ranking","runtime DB"]}
+ cp=a.output/"compare.json";cp.write_text(json.dumps(data,ensure_ascii=False,indent=2)+"\n",encoding="utf-8");x.to_parquet(a.output/"action_support_role_ledger.parquet",index=False);audit={"action_rows":int(len(x)),"missing_support_join":int(x.risk_support_count.isna().sum()),"duplicates":int(x.duplicated(["code","action_ymd","action_type","path_family"]).sum()),"future_used_for_selection":False,"review_only":True,"support_sha256":sha(a.support_ledger),"path_sha256":sha(a.path_ledger),"profit_sha256":sha(a.profit_ledger)};(a.output/"audit.json").write_text(json.dumps(audit,ensure_ascii=False,indent=2)+"\n",encoding="utf-8");(a.output/"_ARTIFACT_COMPLETE.json").write_text(json.dumps({"complete":True,"authoritative":"compare.json","sha256":sha(cp)},indent=2)+"\n",encoding="utf-8");print(json.dumps({"output":str(a.output),"results":results,"anchors":anchors,"judgment":data["judgment"]},ensure_ascii=False,indent=2))
+if __name__=="__main__":main()

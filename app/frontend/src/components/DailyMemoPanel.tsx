@@ -278,19 +278,19 @@ export default function DailyMemoPanel({
           </div>
           <div className="ohlc-grid" aria-label="選択日の価格情報">
             <div className="ohlc-item">
-              <span>O</span>
+              <span>始値</span>
               <span>{formatNumber(selectedBarData.open, 0)}</span>
             </div>
             <div className="ohlc-item">
-              <span>H</span>
+              <span>高値</span>
               <span>{formatNumber(selectedBarData.high, 0)}</span>
             </div>
             <div className="ohlc-item">
-              <span>L</span>
+              <span>安値</span>
               <span>{formatNumber(selectedBarData.low, 0)}</span>
             </div>
             <div className="ohlc-item">
-              <span>C</span>
+              <span>終値</span>
               <span>{formatNumber(selectedBarData.close, 0)}</span>
             </div>
             <div className="ohlc-item">

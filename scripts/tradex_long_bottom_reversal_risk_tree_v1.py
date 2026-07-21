@@ -1,0 +1,27 @@
+from __future__ import annotations
+import argparse,json,sys
+from datetime import datetime,timezone
+from pathlib import Path
+import numpy as np,pandas as pd
+from sklearn.impute import SimpleImputer
+from sklearn.tree import DecisionTreeRegressor,_tree
+from tradex_long_gap_guard_protective_stop_v1 import metrics
+
+FEATURES=['ret1','ret5','ret20','ret60','vol20','dist_ma20','dist_ma60','close_pos20','close_range_pos','lower_wick_share','upper_wick_share','body_share','volume_ratio20','market_median_ret20','market_above_ma60_rate','market_ma60_slope20_median','log_price']
+def paths(tree):
+ t=tree.tree_;o={}
+ def w(n,c):
+  if t.feature[n]==_tree.TREE_UNDEFINED:o[int(n)]=c;return
+  f=FEATURES[t.feature[n]];q=float(t.threshold[n]);w(t.children_left[n],c+[f'{f} <= {q:.8g}']);w(t.children_right[n],c+[f'{f} > {q:.8g}'])
+ w(0,[]);return o
+def main():
+ p=argparse.ArgumentParser();p.add_argument('--output',required=True);p.add_argument('--source',default=r'G:\Tradex\long_selector_10y_research_v1\20260626T054716Z-long_selector_10y_research_v1\strict_bottom_reversal_top3_events.csv');p.add_argument('--ledger',default=r'G:\Tradex\tradex_long_bottom_reversal_invalidation_exit_v1\20260720T-authoritative-v1\ordinary_breakout_exit_ledger.parquet');a=p.parse_args();out=Path(a.output);out.mkdir(parents=True,exist_ok=False)
+ src=pd.read_csv(a.source,dtype={'code':str});src['event_id']=range(len(src));led=pd.read_parquet(a.ledger);d=led.merge(src[['event_id']+[x for x in FEATURES if x!='log_price']+['c']],on='event_id',how='inner');d['log_price']=np.log(d.c.clip(lower=1));d['realized_ret']=d['20日固定'];d['signal_dt']=pd.to_datetime(d.date,unit='s');d['year']=d.signal_dt.dt.year
+ dev=d[d.year.between(2016,2023)];imp=SimpleImputer(strategy='median');x=imp.fit_transform(dev[FEATURES]);tree=DecisionTreeRegressor(max_depth=3,min_samples_leaf=45,random_state=20260720);tree.fit(x,dev.realized_ret);d['leaf']=tree.apply(imp.transform(d[FEATURES])).astype(int);rules=paths(tree);rows=[];eligible=[]
+ for leaf,g in d.groupby('leaf'):
+  a1=g[g.year.between(2016,2023)];v=g[g.year.between(2024,2025)];ym={str(y):metrics(a1[a1.year.eq(y)]) for y in range(2016,2024)};row={'leaf':int(leaf),'rule':rules[int(leaf)],'distinct_features':len({x.split()[0] for x in rules[int(leaf)]}),'development':metrics(a1),'development_years':ym,'positive_development_years':sum((m['mean_return_pct'] or -99)>0 for m in ym.values() if m['n']>0),'validation_2024_2025':metrics(v),'validation_years':{str(y):metrics(v[v.year.eq(y)]) for y in [2024,2025]}};rows.append(row)
+  if row['distinct_features']>=2 and row['development']['n']>=90 and row['development']['mean_return_pct']>0 and row['development']['win_rate']>=.50 and row['development']['severe_loss5_rate']<=.03 and row['positive_development_years']>=6 and row['validation_2024_2025']['n']>=25 and row['validation_2024_2025']['mean_return_pct']>0 and row['validation_2024_2025']['win_rate']>=.50 and row['validation_2024_2025']['severe_loss5_rate']<=.03 and row['validation_2024_2025']['top3_positive_profit_share']<=.35:eligible.append(int(leaf))
+ test=d[d.year.eq(2026)&d.leaf.isin(eligible)].copy();sm=metrics(test);monthly={str(m):metrics(g) for m,g in test.groupby(test.signal_dt.dt.to_period('M'))};pos=sum((x['mean_return_pct'] or -99)>0 for x in monthly.values());checks={'selected_without_2026':bool(eligible),'test_n250_or_full_audit':bool(eligible),'test_mean_positive':(sm['mean_return_pct'] or -99)>0,'test_win_at_least_50pct':(sm['win_rate'] or 0)>=.50,'test_severe5_at_most_3pct':(sm['severe_loss5_rate'] or 1)<=.03,'test_months_majority_positive':bool(monthly) and pos>len(monthly)/2,'profit_not_concentrated':(sm['top3_positive_profit_share'] or 1)<=.35};decision='hold_for_portfolio_gate' if all(checks.values()) else 'drop'
+ payload={'schema_version':'tradex_long_bottom_reversal_risk_tree_v1.compare.v1','artifact_role':'authoritative','generated_at':datetime.now(timezone.utc).isoformat(),'fixed_evaluation_conditions':{'universe':'ordinary domestic stocks only inherited from authoritative ledger','family':'strict_bottom_reversal_top3 fixed','entry':'next session open','exit':'session-20 close','round_trip_cost_pct':.3,'axis_changed':'compound price and path risk state only','features':FEATURES,'tree':{'max_depth':3,'min_samples_leaf':45,'random_state':20260720},'development':'2016-2023','validation':'2024-2025','full_audit_test':'2026 matured events','production_changed':False},'authoritative_result':{'leaves':rows,'eligible_without_2026':eligible,'test_2026':sm,'monthly_2026':monthly,'checks':checks},'observed_branching':{'changed_top5_members_count':None,'changed_top10_members_count':None,'changed_rank_count':sm['n'],'selection_divergence_reason':'bottom reversal family compound price/path risk leaves'},'judgment':{'candidate_local_decision':decision,'authoritative_rollup_decision':decision,'reason_type':'long_history_bottom_reversal_risk_tree_gate'},'remaining_risks':['portfolio overlap and capital allocation pending only if event gate passes']}
+ test.to_parquet(out/'test_2026_ledger.parquet',index=False);(out/'compare.json').write_text(json.dumps(payload,ensure_ascii=False,indent=2,default=str),encoding='utf-8');(out/'_ARTIFACT_COMPLETE.json').write_text(json.dumps({'complete':True,'authoritative':'compare.json'}),encoding='utf-8');print(json.dumps({'eligible':eligible,'test':sm,'monthly':monthly,'checks':checks,'decision':decision},ensure_ascii=False))
+if __name__=='__main__':main()

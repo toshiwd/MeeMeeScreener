@@ -196,12 +196,41 @@ def delete_practice_sessions(code: str) -> int:
 
 
 def delete_ticker_db_rows(code: str) -> dict[str, int]:
-    tables = ["daily_bars", "daily_ma", "monthly_bars", "monthly_ma", "stock_meta", "tickers"]
+    tables = [
+        "daily_bars",
+        "daily_ma",
+        "monthly_bars",
+        "monthly_ma",
+        "stock_meta",
+        "tickers",
+        "feature_snapshot_daily",
+        "ml_feature_daily",
+        "ml_label_20d",
+        "ml_pred_20d",
+        "label_20d",
+        "phase_pred_daily",
+        "sell_analysis_daily",
+        "signal_basis_daily",
+        "signal_decision_daily",
+        "signal_occurrence",
+        "ranking_appearance_daily",
+        "ranking_candidate_decisions",
+    ]
     counts: dict[str, int] = {}
     with get_conn() as conn:
+        existing_tables = {
+            str(row[0])
+            for row in conn.execute(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'"
+            ).fetchall()
+        }
         for table in tables:
+            if table not in existing_tables:
+                continue
             count = conn.execute(f"SELECT COUNT(*) FROM {table} WHERE code = ?", [code]).fetchone()[0]
             counts[table] = int(count or 0)
         for table in tables:
+            if table not in existing_tables:
+                continue
             conn.execute(f"DELETE FROM {table} WHERE code = ?", [code])
     return counts

@@ -36,10 +36,14 @@ Same-condition compare must enforce:
 - same period
 - same top-K
 - same regime
-- same cost
+- same cost policy
 - same artifact detail level
 
 If any of those differ, compare must fail fast.
+
+For short-selling research, the default cost policy is `ignored_by_user_rule`: trading costs, fees, slippage, and borrow costs are not modeled unless the user explicitly asks to evaluate them. The same-condition compare requirement is therefore that every compared short-side candidate uses the same zero/ignored cost policy, not that a realistic cost model is applied.
+
+Short-side research assumes candidates are margin-shortable / loanable by default. Loanability is not a ranking, filter, penalty, or comparison axis unless explicitly requested.
 
 ## Required environment states
 
@@ -103,3 +107,4 @@ Research fallback must never silently become authoritative.
 The numeric branch remains primary.
 The image branch is auxiliary only and may rerank, veto, or boost.
 Image-only ranking semantics are forbidden.
+Chart screenshots used by the image branch must be captured through MeeMee functionality, and only after the weekly and monthly charts are visibly rendered. Every research screenshot, regardless of capture timing or research phase, must use the MeeMee detail screenshot format that visibly includes: ticker code and name; basis date (with confirmed/provisional status when available); latest daily OHLC; 7/20/60MA; volume relative to its 20-day average; and the next earnings date. External ad hoc browser/window screenshots may be used only as explicitly labeled `research-fallback` material and must not become authoritative.

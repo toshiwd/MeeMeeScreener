@@ -66,8 +66,8 @@ export function buildConsultCopyText(data: ConsultCopyData): string {
         lines.push(`【シグナル】—`);
     }
 
-    // OHLC
-    lines.push(`【OHLC】始値:${data.ohlc.open} 高値:${data.ohlc.high} 安値:${data.ohlc.low} 終値:${data.ohlc.close}`);
+    // 四本値
+    lines.push(`【四本値】始値:${data.ohlc.open} 高値:${data.ohlc.high} 安値:${data.ohlc.low} 終値:${data.ohlc.close}`);
 
     // 出来高
     if (data.volume != null) {

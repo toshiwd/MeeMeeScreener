@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from typing import Any
+from copy import deepcopy
 from datetime import datetime, timezone
 import logging
 import math
 import os
+import time
 from urllib.parse import quote
 
 import duckdb
@@ -17,6 +19,9 @@ from app.db.session import try_get_conn_for_path
 
 router = APIRouter(prefix="/api/market", tags=["market"])
 logger = logging.getLogger(__name__)
+_THEME_API_CACHE_TTL_SEC = 20.0
+_THEME_API_CACHE_MAX_ENTRIES = 24
+_THEME_API_CACHE: dict[tuple[Any, ...], tuple[float, dict[str, Any]]] = {}
 
 _SECTOR_FALLBACK = [
     {"sector33_code": "01", "name": "水産・農林業"},
@@ -955,6 +960,31 @@ def _fetch_detail_visual_check(code: str) -> dict[str, Any] | None:
         return None
 
 
+def _theme_api_cache_marker(db_path: str) -> tuple[str, int | None]:
+    try:
+        return (str(db_path), int(os.path.getmtime(db_path) * 1000))
+    except Exception:
+        return (str(db_path), None)
+
+
+def _theme_api_cache_get(key: tuple[Any, ...]) -> dict[str, Any] | None:
+    entry = _THEME_API_CACHE.get(key)
+    if entry is None:
+        return None
+    expires_at, payload = entry
+    if expires_at < time.monotonic():
+        _THEME_API_CACHE.pop(key, None)
+        return None
+    return deepcopy(payload)
+
+
+def _theme_api_cache_put(key: tuple[Any, ...], payload: dict[str, Any]) -> None:
+    if len(_THEME_API_CACHE) >= _THEME_API_CACHE_MAX_ENTRIES:
+        oldest_key = min(_THEME_API_CACHE.items(), key=lambda item: item[1][0])[0]
+        _THEME_API_CACHE.pop(oldest_key, None)
+    _THEME_API_CACHE[key] = (time.monotonic() + _THEME_API_CACHE_TTL_SEC, deepcopy(payload))
+
+
 def _fetch_theme_candidates(*, mode: str, limit: int, exclude_earnings: bool) -> dict[str, Any] | None:
     db_path = str(config.DB_PATH)
     safe_mode = mode if mode in ("entry_ease", "value_range", "continuation") else "entry_ease"
@@ -969,6 +999,18 @@ def _fetch_theme_candidates(*, mode: str, limit: int, exclude_earnings: bool) ->
             "watchlistCount": 0,
             "status": "watchlist_empty",
         }
+    cache_key = (
+        "theme_candidates",
+        safe_mode,
+        safe_limit,
+        bool(exclude_earnings),
+        tuple(watchlist_codes),
+        _theme_api_cache_marker(db_path),
+    )
+    cached = _theme_api_cache_get(cache_key)
+    if cached is not None:
+        cached["cache"] = "memory"
+        return cached
     try:
         with try_get_conn_for_path(db_path, timeout_sec=2.5, read_only=True) as conn:
             if conn is None:
@@ -980,6 +1022,8 @@ def _fetch_theme_candidates(*, mode: str, limit: int, exclude_earnings: bool) ->
                     "scope": "watchlist",
                     "watchlistCount": len(watchlist_codes),
                     "status": "db_unavailable",
+                    "degraded": True,
+                    "retryable": True,
                 }
             if not _has_industry_master(conn) or not _table_exists(conn, "daily_bars"):
                 return None
@@ -987,7 +1031,17 @@ def _fetch_theme_candidates(*, mode: str, limit: int, exclude_earnings: bool) ->
             earnings_by_code = _load_earnings_dates(conn)
             rows = conn.execute(
                 f"""
-                WITH raw AS (
+                WITH candidate_threshold AS (
+                    SELECT MIN(date) AS min_date
+                    FROM (
+                        SELECT DISTINCT b.date
+                        FROM daily_bars b
+                        WHERE b.code IN ({watchlist_values})
+                        ORDER BY b.date DESC
+                        LIMIT 61
+                    )
+                ),
+                raw AS (
                     SELECT
                         b.code,
                         COALESCE(im.name, b.code) AS name,
@@ -1011,8 +1065,9 @@ def _fetch_theme_candidates(*, mode: str, limit: int, exclude_earnings: bool) ->
                         AVG(b.v) OVER (PARTITION BY b.code ORDER BY b.date ROWS BETWEEN 20 PRECEDING AND 1 PRECEDING) AS avg_volume20,
                         ROW_NUMBER() OVER (PARTITION BY b.code ORDER BY b.date DESC) AS rn
                     FROM daily_bars b
+                    CROSS JOIN candidate_threshold ct
                     LEFT JOIN industry_master im ON im.code = b.code
-                    WHERE b.code IN ({watchlist_values})
+                    WHERE b.code IN ({watchlist_values}) AND b.date >= ct.min_date
                 )
                 SELECT
                     epoch(asof_dt)::BIGINT AS asof_ts,
@@ -1034,7 +1089,7 @@ def _fetch_theme_candidates(*, mode: str, limit: int, exclude_earnings: bool) ->
                 FROM raw
                 WHERE rn = 1 AND prev_close IS NOT NULL
                 """,
-                watchlist_codes,
+                [*watchlist_codes, *watchlist_codes],
             ).fetchall()
             if not rows:
                 return {
@@ -1150,7 +1205,7 @@ def _fetch_theme_candidates(*, mode: str, limit: int, exclude_earnings: bool) ->
             scored.sort(key=lambda item: (float(item["score"]), float(item["changePct"])), reverse=True)
             for index, item in enumerate(scored, start=1):
                 item["rank"] = index
-            return {
+            payload = {
                 "asof": asof_ts,
                 "label": _format_timeline_label("1d", asof_ts),
                 "items": scored[:safe_limit],
@@ -1160,6 +1215,8 @@ def _fetch_theme_candidates(*, mode: str, limit: int, exclude_earnings: bool) ->
                 "watchlistCount": len(watchlist_codes),
                 "status": "ok",
             }
+            _theme_api_cache_put(cache_key, payload)
+            return payload
     except Exception as exc:
         logger.exception("theme candidates fetch failed: %s", exc)
         return None
@@ -1178,6 +1235,17 @@ def _fetch_theme_rotation(*, limit: int, exclude_earnings: bool) -> dict[str, An
             "watchlistCount": 0,
             "status": "watchlist_empty",
         }
+    cache_key = (
+        "theme_rotation",
+        safe_limit,
+        bool(exclude_earnings),
+        tuple(watchlist_codes),
+        _theme_api_cache_marker(db_path),
+    )
+    cached = _theme_api_cache_get(cache_key)
+    if cached is not None:
+        cached["cache"] = "memory"
+        return cached
     try:
         with try_get_conn_for_path(db_path, timeout_sec=2.5, read_only=True) as conn:
             if conn is None:
@@ -1189,6 +1257,8 @@ def _fetch_theme_rotation(*, limit: int, exclude_earnings: bool) -> dict[str, An
                     "scope": "watchlist",
                     "watchlistCount": len(watchlist_codes),
                     "status": "db_unavailable",
+                    "degraded": True,
+                    "retryable": True,
                 }
             if not _has_industry_master(conn) or not _table_exists(conn, "daily_bars"):
                 return None
@@ -1196,7 +1266,17 @@ def _fetch_theme_rotation(*, limit: int, exclude_earnings: bool) -> dict[str, An
             earnings_by_code = _load_earnings_dates(conn)
             rows = conn.execute(
                 f"""
-                WITH base AS (
+                WITH frame_threshold AS (
+                    SELECT MIN(date) AS min_date
+                    FROM (
+                        SELECT DISTINCT b.date
+                        FROM daily_bars b
+                        WHERE b.code IN ({watchlist_values})
+                        ORDER BY b.date DESC
+                        LIMIT (? + 21)
+                    )
+                ),
+                base AS (
                     SELECT
                         b.code,
                         COALESCE(im.name, b.code) AS name,
@@ -1211,8 +1291,9 @@ def _fetch_theme_rotation(*, limit: int, exclude_earnings: bool) -> dict[str, An
                         LAG(b.c) OVER (PARTITION BY b.code ORDER BY b.date) AS prev_close,
                         AVG(b.v) OVER (PARTITION BY b.code ORDER BY b.date ROWS BETWEEN 20 PRECEDING AND 1 PRECEDING) AS avg_volume20
                     FROM daily_bars b
+                    CROSS JOIN frame_threshold ft
                     LEFT JOIN industry_master im ON im.code = b.code
-                    WHERE b.code IN ({watchlist_values})
+                    WHERE b.code IN ({watchlist_values}) AND b.date >= ft.min_date
                 ),
                 frames AS (
                     SELECT DISTINCT asof_dt
@@ -1242,7 +1323,7 @@ def _fetch_theme_rotation(*, limit: int, exclude_earnings: bool) -> dict[str, An
                 WHERE b.prev_close IS NOT NULL
                 ORDER BY b.asof_dt ASC, b.code ASC
                 """,
-                [*watchlist_codes, safe_limit],
+                [*watchlist_codes, safe_limit, *watchlist_codes, safe_limit],
             ).fetchall()
             if not rows:
                 return {
@@ -1382,7 +1463,7 @@ def _fetch_theme_rotation(*, limit: int, exclude_earnings: bool) -> dict[str, An
                 clone["status"] = _theme_status(strength, baseline, previous_strength)
                 latest_themes.append(clone)
             latest_themes.sort(key=lambda item: float(item["strength"]), reverse=True)
-            return {
+            payload = {
                 "asof": latest["asof"],
                 "label": latest["label"],
                 "themes": latest_themes[:16],
@@ -1392,6 +1473,8 @@ def _fetch_theme_rotation(*, limit: int, exclude_earnings: bool) -> dict[str, An
                 "watchlistCount": len(watchlist_codes),
                 "status": "ok",
             }
+            _theme_api_cache_put(cache_key, payload)
+            return payload
     except Exception as exc:
         logger.exception("theme rotation fetch failed: %s", exc)
         return None
@@ -1936,7 +2019,12 @@ def get_market_theme_rotation(
     if payload is None:
         payload = {"themes": [], "frames": [], "excludeEarnings": exclude_earnings}
     if payload.get("status") == "db_unavailable":
-        raise HTTPException(status_code=503, detail="market_theme_rotation_db_unavailable")
+        computed_from = "db_unavailable_fallback"
+        payload = {
+            **payload,
+            "degraded": True,
+            "retryable": True,
+        }
     diagnostics = (
         _build_heatmap_diagnostics("1d")
         if os.getenv("MEEMEE_DEV", "").lower() in ("1", "true", "yes", "on")
@@ -1966,7 +2054,12 @@ def get_market_theme_candidates(
     if payload is None:
         payload = {"items": [], "mode": mode, "excludeEarnings": exclude_earnings}
     if payload.get("status") == "db_unavailable":
-        raise HTTPException(status_code=503, detail="market_theme_candidates_db_unavailable")
+        computed_from = "db_unavailable_fallback"
+        payload = {
+            **payload,
+            "degraded": True,
+            "retryable": True,
+        }
     diagnostics = (
         _build_heatmap_diagnostics("1d")
         if os.getenv("MEEMEE_DEV", "").lower() in ("1", "true", "yes", "on")

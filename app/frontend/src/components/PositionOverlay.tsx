@@ -709,13 +709,13 @@ export default function PositionOverlay({
           )}
         </div>
         <div className="position-overlay-grid">
-          <div className="position-overlay-label">O</div>
+          <div className="position-overlay-label">始値</div>
           <div className="position-overlay-value">{formatNumber(activeBar.open)}</div>
-          <div className="position-overlay-label">H</div>
+          <div className="position-overlay-label">高値</div>
           <div className="position-overlay-value">{formatNumber(activeBar.high)}</div>
-          <div className="position-overlay-label">L</div>
+          <div className="position-overlay-label">安値</div>
           <div className="position-overlay-value">{formatNumber(activeBar.low)}</div>
-          <div className="position-overlay-label">C</div>
+          <div className="position-overlay-label">終値</div>
           <div className="position-overlay-value">{formatNumber(activeBar.close)}</div>
           <div className="position-overlay-label">出来高</div>
           <div className="position-overlay-value">{volumeText}</div>

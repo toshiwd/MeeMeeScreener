@@ -41,8 +41,25 @@ _BATCH_V3_CACHE_MAX_ENTRIES = 512
 _WEEKLY_PATCH_DAILY_LIMIT = 10
 _MONTHLY_PATCH_DAILY_LIMIT = 45
 _batch_v3_cache_lock = Lock()
+_batch_v3_read_gate = Lock()
 _batch_v3_cache: "OrderedDict[tuple[Any, ...], tuple[float, Dict[str, Dict[str, Dict[str, Any]]]]]" = OrderedDict()
 _batch_v3_inflight: dict[tuple[Any, ...], Event] = {}
+_BATCH_V3_READ_GATE_TIMEOUT_SEC = 5.0
+_BATCH_V3_DB_BUSY_RETRY_DELAYS_SEC = (0.2, 0.5)
+_batch_v3_observability_lock = Lock()
+_batch_v3_observability: dict[str, Any] = {
+    "request_count": 0,
+    "success_count": 0,
+    "cache_hit_count": 0,
+    "inflight_wait_count": 0,
+    "stale_display_cache_hit_count": 0,
+    "db_busy_count": 0,
+    "db_busy_retry_count": 0,
+    "read_gate_timeout_count": 0,
+    "read_gate_wait_ms_last": None,
+    "read_gate_wait_ms_max": 0.0,
+    "last_db_busy_at": None,
+}
 
 
 class BatchBarsRequest(BaseModel):
@@ -61,6 +78,61 @@ class BatchBarsV3Request(BaseModel):
     asof: str | int | None = None
     forwardBars: Dict[str, int] = Field(default_factory=dict)
     forceRefresh: bool = False
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _inc_batch_v3_observability(key: str, delta: int = 1) -> None:
+    with _batch_v3_observability_lock:
+        _batch_v3_observability[key] = int(_batch_v3_observability.get(key) or 0) + int(delta)
+
+
+def _record_batch_v3_read_gate_wait(wait_ms: float) -> None:
+    with _batch_v3_observability_lock:
+        _batch_v3_observability["read_gate_wait_ms_last"] = round(float(wait_ms), 3)
+        _batch_v3_observability["read_gate_wait_ms_max"] = round(
+            max(float(_batch_v3_observability.get("read_gate_wait_ms_max") or 0.0), float(wait_ms)),
+            3,
+        )
+
+
+def _record_batch_v3_db_busy(*, retry_count: int = 0, read_gate_timeout: bool = False) -> None:
+    with _batch_v3_observability_lock:
+        _batch_v3_observability["db_busy_count"] = int(_batch_v3_observability.get("db_busy_count") or 0) + 1
+        _batch_v3_observability["db_busy_retry_count"] = (
+            int(_batch_v3_observability.get("db_busy_retry_count") or 0) + int(max(0, retry_count))
+        )
+        if read_gate_timeout:
+            _batch_v3_observability["read_gate_timeout_count"] = (
+                int(_batch_v3_observability.get("read_gate_timeout_count") or 0) + 1
+            )
+        _batch_v3_observability["last_db_busy_at"] = _utc_now_iso()
+
+
+def get_batch_bars_v3_observability(*, reset: bool = False) -> dict[str, Any]:
+    with _batch_v3_observability_lock:
+        snapshot = dict(_batch_v3_observability)
+        snapshot["cache_entries"] = len(_batch_v3_cache)
+        snapshot["inflight_entries"] = len(_batch_v3_inflight)
+        if reset:
+            _batch_v3_observability.update(
+                {
+                    "request_count": 0,
+                    "success_count": 0,
+                    "cache_hit_count": 0,
+                    "inflight_wait_count": 0,
+                    "stale_display_cache_hit_count": 0,
+                    "db_busy_count": 0,
+                    "db_busy_retry_count": 0,
+                    "read_gate_timeout_count": 0,
+                    "read_gate_wait_ms_last": None,
+                    "read_gate_wait_ms_max": 0.0,
+                    "last_db_busy_at": None,
+                }
+            )
+        return snapshot
 
 
 def _normalize_bar_time(value: Any) -> int | None:
@@ -186,7 +258,7 @@ def _split_daily_rows_by_source(rows: List[tuple] | None) -> tuple[List[tuple], 
     provisional: List[tuple] = []
     for row in rows or []:
         stripped = tuple(row[:6]) if len(row) >= 7 else tuple(row)
-        if _daily_row_source(tuple(row)) == "yahoo":
+        if _daily_row_source(tuple(row)).startswith("yahoo"):
             provisional.append(stripped)
         else:
             confirmed.append(stripped)
@@ -538,6 +610,64 @@ def _finish_batch_v3_inflight(cache_key: tuple[Any, ...]) -> None:
         event.set()
 
 
+def _fetch_multi_timeframe_items_with_read_gate(
+    *,
+    repo: StockRepository,
+    codes: List[str],
+    requested_frames: List[str],
+    limit: int,
+    timeframe_limits: Dict[str, int] | None,
+    include_provisional: bool,
+    include_boxes: bool,
+    asof_dt: int | None,
+    forward_bars: Dict[str, int] | None = None,
+    force_refresh: bool = False,
+    timings_ms: Dict[str, float] | None = None,
+) -> Dict[str, Dict[str, Dict[str, Any]]]:
+    queue_started_at = time.perf_counter()
+    acquired = _batch_v3_read_gate.acquire(timeout=_BATCH_V3_READ_GATE_TIMEOUT_SEC)
+    if timings_ms is not None:
+        timings_ms["read_gate_wait_ms"] = round((time.perf_counter() - queue_started_at) * 1000.0, 3)
+        _record_batch_v3_read_gate_wait(timings_ms["read_gate_wait_ms"])
+    if not acquired:
+        if timings_ms is not None:
+            timings_ms["read_gate_timeout"] = 1.0
+        raise DatabaseAccessBusyError("batch_bars_v3_read_gate", timeout_sec=_BATCH_V3_READ_GATE_TIMEOUT_SEC)
+    try:
+        for attempt_index in range(len(_BATCH_V3_DB_BUSY_RETRY_DELAYS_SEC) + 1):
+            try:
+                if timings_ms is not None:
+                    timings_ms["read_gate_attempts"] = float(attempt_index + 1)
+                return _fetch_multi_timeframe_items(
+                    repo=repo,
+                    codes=codes,
+                    requested_frames=requested_frames,
+                    limit=limit,
+                    timeframe_limits=timeframe_limits,
+                    include_provisional=include_provisional,
+                    include_boxes=include_boxes,
+                    asof_dt=asof_dt,
+                    forward_bars=forward_bars,
+                    force_refresh=force_refresh,
+                    timings_ms=timings_ms,
+                )
+            except DatabaseAccessBusyError:
+                if attempt_index >= len(_BATCH_V3_DB_BUSY_RETRY_DELAYS_SEC):
+                    raise
+                delay_sec = _BATCH_V3_DB_BUSY_RETRY_DELAYS_SEC[attempt_index]
+                _record_batch_v3_db_busy(retry_count=1)
+                if timings_ms is not None:
+                    timings_ms["db_busy_retry_count"] = float(attempt_index + 1)
+                    timings_ms["db_busy_retry_sleep_ms"] = round(
+                        float(timings_ms.get("db_busy_retry_sleep_ms") or 0.0) + delay_sec * 1000.0,
+                        3,
+                    )
+                time.sleep(delay_sec)
+        raise DatabaseAccessBusyError("batch_bars_v3_read_gate", timeout_sec=_BATCH_V3_READ_GATE_TIMEOUT_SEC)
+    finally:
+        _batch_v3_read_gate.release()
+
+
 def _fetch_multi_timeframe_items(
     *,
     repo: StockRepository,
@@ -838,6 +968,7 @@ def batch_bars_v3(
 ) -> Dict[str, Dict]:
     request_started_at = time.perf_counter()
     timings_ms: Dict[str, float] = {}
+    _inc_batch_v3_observability("request_count")
     requested_frames = _normalize_requested_frames(payload.timeframes)
     valid_codes = _normalize_codes(payload.codes)
     asof_dt = _parse_asof(payload.asof)
@@ -881,6 +1012,7 @@ def batch_bars_v3(
     )
     cached_items = None if force_refresh else _get_cached_batch_v3_items(cache_key)
     if cached_items is not None:
+        _inc_batch_v3_observability("cache_hit_count")
         timings_ms["cache_hit_ms"] = round((time.perf_counter() - request_started_at) * 1000.0, 3)
         meta["timings_ms"] = timings_ms
         meta["data_freshness_contract"] = build_chart_data_freshness_contract(
@@ -895,6 +1027,7 @@ def batch_bars_v3(
     if not force_refresh:
         inflight_event, is_owner = _claim_batch_v3_inflight(cache_key)
         if not is_owner:
+            _inc_batch_v3_observability("inflight_wait_count")
             wait_started_at = time.perf_counter()
             inflight_event.wait(timeout=15.0)
             timings_ms["inflight_wait_ms"] = round((time.perf_counter() - wait_started_at) * 1000.0, 3)
@@ -909,7 +1042,7 @@ def batch_bars_v3(
                 return {"items": cached_items, "meta": meta}
 
     try:
-        items = _fetch_multi_timeframe_items(
+        items = _fetch_multi_timeframe_items_with_read_gate(
             repo=repo,
             codes=valid_codes,
             requested_frames=requested_frames,
@@ -924,11 +1057,17 @@ def batch_bars_v3(
         )
         if not force_refresh:
             _store_cached_batch_v3_items(cache_key, items)
+        _inc_batch_v3_observability("success_count")
     except DatabaseAccessBusyError as exc:
+        _record_batch_v3_db_busy(
+            retry_count=0,
+            read_gate_timeout=bool(timings_ms.get("read_gate_timeout")),
+        )
         timings_ms["db_busy_ms"] = round((time.perf_counter() - request_started_at) * 1000.0, 3)
         meta["timings_ms"] = timings_ms
         stale = load_chart_display_cache(display_cache_key)
         if stale is not None:
+            _inc_batch_v3_observability("stale_display_cache_hit_count")
             stale_payload = stale["payload"]
             stale_meta = dict(stale_payload.get("meta") or {})
             stale_meta["timings_ms"] = timings_ms

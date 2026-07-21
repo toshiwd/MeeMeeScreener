@@ -1225,6 +1225,125 @@ def _calc_lower_shadow(open_: float, low: float, close: float) -> float:
     return min(open_, close) - low
 
 
+def _detect_long_term_support(monthly_rows: list[tuple]) -> dict | None:
+    bars: list[dict] = []
+    for row in monthly_rows[-144:]:
+        if len(row) < 5:
+            continue
+        month_value, _open, high, low, close = row[:5]
+        if month_value is None or high is None or low is None or close is None:
+            continue
+        try:
+            low_value = float(low)
+            close_value = float(close)
+            high_value = float(high)
+        except (TypeError, ValueError):
+            continue
+        if low_value <= 0 or close_value <= 0:
+            continue
+        bars.append(
+            {
+                "month": month_value,
+                "low": low_value,
+                "high": high_value,
+                "close": close_value,
+            }
+        )
+
+    if len(bars) < 96:
+        return None
+
+    lows = [item["low"] for item in bars]
+    closes = [item["close"] for item in bars]
+    highs = [item["high"] for item in bars]
+    pivots: list[int] = []
+    for idx in range(2, len(bars) - 2):
+        if lows[idx] == min(lows[idx - 2 : idx + 3]):
+            pivots.append(idx)
+
+    best: dict | None = None
+    for anchor_idx in pivots:
+        if anchor_idx > len(bars) - 72:
+            continue
+        for second_idx in pivots:
+            if second_idx <= anchor_idx + 36 or second_idx > len(bars) - 6:
+                continue
+            slope = (lows[second_idx] - lows[anchor_idx]) / (second_idx - anchor_idx)
+            if slope <= 0:
+                continue
+            line = [lows[anchor_idx] + slope * (idx - anchor_idx) for idx in range(len(bars))]
+            if line[-1] <= 0:
+                continue
+
+            closes_below = sum(
+                1 for idx in range(anchor_idx, len(bars)) if closes[idx] < line[idx] * 0.94
+            )
+            lows_below = sum(
+                1 for idx in range(anchor_idx, len(bars)) if lows[idx] < line[idx] * 0.88
+            )
+            if closes_below > 5 or lows_below > 4:
+                continue
+
+            touch_indexes = [
+                idx
+                for idx in range(anchor_idx, len(bars))
+                if 0 <= (lows[idx] - line[idx]) / line[idx] <= 0.10
+            ]
+            if len(touch_indexes) < 3:
+                continue
+
+            latest_distance = (closes[-1] - line[-1]) / line[-1]
+            latest_low_distance = (lows[-1] - line[-1]) / line[-1]
+            if latest_distance < -0.05 or latest_distance > 0.18:
+                continue
+
+            annualized_slope = (line[-1] / line[anchor_idx]) ** (12 / (len(bars) - 1 - anchor_idx)) - 1
+            if annualized_slope < 0.04:
+                continue
+
+            drawdown_24m = closes[-1] / max(highs[-24:]) - 1 if highs[-24:] else None
+            score = 0.0
+            score += max(0.0, 30.0 - abs(latest_distance) * 180.0)
+            score += min(25.0, len(touch_indexes) * 4.0)
+            score += max(0.0, 20.0 - closes_below * 4.0 - lows_below * 3.0)
+            score += min(15.0, annualized_slope * 100.0)
+            if drawdown_24m is not None and drawdown_24m < -0.2:
+                score += 8.0
+            if max(touch_indexes) >= len(bars) - 4:
+                score += 12.0
+
+            if latest_distance <= 0.03:
+                tag = "長期支持線接近"
+            elif latest_distance <= 0.10:
+                tag = "長期支持線上"
+            else:
+                tag = "長期支持線監視"
+
+            candidate = {
+                "tag": tag,
+                "score": round(score, 1),
+                "supportLine": round(line[-1], 2),
+                "latestDistancePct": round(latest_distance * 100, 1),
+                "latestLowDistancePct": round(latest_low_distance * 100, 1),
+                "drawdownFrom24mHighPct": round(drawdown_24m * 100, 1) if drawdown_24m is not None else None,
+                "anchor1": _format_month_label(bars[anchor_idx]["month"]),
+                "anchor1Low": round(lows[anchor_idx], 2),
+                "anchor2": _format_month_label(bars[second_idx]["month"]),
+                "anchor2Low": round(lows[second_idx], 2),
+                "touchCount": len(touch_indexes),
+                "lastTouch": _format_month_label(bars[max(touch_indexes)]["month"]),
+                "closesBelowSupportCount": closes_below,
+                "lowsBelowSupportCount": lows_below,
+                "annualizedLineSlopePct": round(annualized_slope * 100, 1),
+                "basis": "monthly_bars",
+                "signalRole": "watch_only",
+            }
+            if best is None or candidate["score"] > best["score"]:
+                best = candidate
+
+    return best
+
+
 def _detect_body_box(monthly_rows: list[tuple], config: dict) -> dict | None:
     thresholds = _get_config_value(config, ["monthly", "thresholds"], {})
     min_months = int(thresholds.get("min_months", 3))
@@ -1638,6 +1757,7 @@ def _compute_screener_metrics(
     box_monthly, box_state, box_end_month, breakout_month, box_direction = _build_box_metrics(
         monthly_rows, last_close
     )
+    long_term_support = _detect_long_term_support(monthly_rows)
 
     latest_month_label = _format_month_label(confirmed_monthly[-1][0]) if confirmed_monthly else None
     prev_month_label = _format_month_label(confirmed_monthly[-2][0]) if len(confirmed_monthly) >= 2 else None
@@ -1988,6 +2108,10 @@ def _compute_screener_metrics(
         "box_end_month": box_end_month,
         "breakout_month": breakout_month,
         "box_active": box_active,
+        "longTermSupport": long_term_support,
+        "longTermSupportTag": long_term_support.get("tag") if long_term_support else None,
+        "long_term_support": long_term_support,
+        "long_term_support_tag": long_term_support.get("tag") if long_term_support else None,
         "buyState": buy_state,
         "buyStateRank": buy_state_rank,
         "buyStateScore": buy_state_score,

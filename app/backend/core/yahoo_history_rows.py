@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
 import urllib.parse
 import urllib.request
@@ -57,9 +58,11 @@ def _user_agent() -> str:
 
 def _code_to_symbol(code: str) -> str | None:
     value = str(code or "").strip()
-    if len(value) != 4 or not value.isdigit():
+    # JPX introduced alphanumeric security codes (for example 285A and 543A).
+    # Yahoo uses the same code plus the .T suffix.
+    if not re.fullmatch(r"(?:\d{4}|\d{3}[A-Z])", value.upper()):
         return None
-    return f"{value}.T"
+    return f"{value.upper()}.T"
 
 
 def _to_float(value: Any) -> float | None:

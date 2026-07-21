@@ -790,6 +790,17 @@ def get_screener_rows(
         screener_repo=screener_repo,
         stock_repo=stock_repo,
     )
+    # The persisted screener snapshot can briefly outlive a watchlist removal.
+    # Treat code.txt as the authoritative active universe at response time so an
+    # excluded code cannot leak back from either the memory or DuckDB snapshot.
+    watchlist_path = resolve_watchlist_path()
+    with watchlist_lock:
+        active_codes = set(load_watchlist_codes(watchlist_path)) if os.path.isfile(watchlist_path) else set()
+    items = response.get("items") if isinstance(response, dict) else None
+    if isinstance(items, list):
+        response = dict(response)
+        response["items"] = [item for item in items if str(item.get("code") or "") in active_codes]
+        response["rowCount"] = len(response["items"])
     return response
 
 @router.get("/ranking", response_model=Dict[str, Any])

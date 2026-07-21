@@ -4,9 +4,8 @@ import re
 import sqlite3
 from pathlib import Path
 
-import duckdb
-
 from app.core.config import DATA_DIR, FAVORITES_DB_PATH, find_code_txt_path, resolve_pan_code_txt_path
+from app.db.session import try_get_conn_for_path
 
 
 _SEC_CODE_RE = re.compile(r"(\d{4})")
@@ -68,13 +67,14 @@ def load_holdings_codes(db_path: str | Path) -> list[str]:
         WHERE COALESCE(buy_qty, 0) > 0 OR COALESCE(sell_qty, 0) > 0
     """
     codes: list[str] = []
-    conn = duckdb.connect(str(Path(db_path).expanduser().resolve()))
-    try:
-        rows = conn.execute(query).fetchall()
-    except Exception:
-        rows = []
-    finally:
-        conn.close()
+    with try_get_conn_for_path(str(Path(db_path).expanduser().resolve()), timeout_sec=2.5, read_only=True) as conn:
+        if conn is None:
+            rows = []
+        else:
+            try:
+                rows = conn.execute(query).fetchall()
+            except Exception:
+                rows = []
     for row in rows:
         code = normalize_sec_code(row[0] if row else None)
         if code:
@@ -100,21 +100,22 @@ def load_favorites_codes(favorites_db_path: str | Path = FAVORITES_DB_PATH) -> l
 
 
 def load_ranking_codes_from_stock_scores(db_path: str | Path, limit: int) -> list[str]:
-    conn = duckdb.connect(str(Path(db_path).expanduser().resolve()))
-    try:
-        rows = conn.execute(
-            """
-            SELECT code
-            FROM stock_scores
-            ORDER BY score_a DESC NULLS LAST, score_b DESC NULLS LAST, updated_at DESC NULLS LAST
-            LIMIT ?
-            """,
-            [int(limit)],
-        ).fetchall()
-    except Exception:
-        rows = []
-    finally:
-        conn.close()
+    with try_get_conn_for_path(str(Path(db_path).expanduser().resolve()), timeout_sec=2.5, read_only=True) as conn:
+        if conn is None:
+            rows = []
+        else:
+            try:
+                rows = conn.execute(
+                    """
+                    SELECT code
+                    FROM stock_scores
+                    ORDER BY score_a DESC NULLS LAST, score_b DESC NULLS LAST, updated_at DESC NULLS LAST
+                    LIMIT ?
+                    """,
+                    [int(limit)],
+                ).fetchall()
+            except Exception:
+                rows = []
     codes: list[str] = []
     for row in rows:
         code = normalize_sec_code(row[0] if row else None)

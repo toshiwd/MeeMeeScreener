@@ -857,6 +857,7 @@ def get_system_status(config: ConfigRepository = Depends(get_config_repo)):
             "message": state.get("last_pipeline_message"),
             "started_at": state.get("last_pipeline_started_at"),
             "finished_at": state.get("last_pipeline_finished_at"),
+            "durations": state.get("last_pipeline_stage_durations") if isinstance(state.get("last_pipeline_stage_durations"), dict) else {},
         },
         "walkforward_run": walkforward_run,
         "walkforward_gate": walkforward_gate,

@@ -359,7 +359,7 @@ describe("ThumbnailCanvas", () => {
     } as DOMRect);
 
     act(() => {
-      thumb?.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientX: 145, clientY: 40 }));
+      thumb?.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientX: 192, clientY: 40 }));
     });
 
     await act(async () => {
@@ -368,7 +368,7 @@ describe("ThumbnailCanvas", () => {
 
     const crosshair = render?.container.querySelector(".thumb-crosshair") as HTMLDivElement | null;
     expect(crosshair).not.toBeNull();
-    expect(crosshair?.style.left).toBe(resolveThumbnailCrosshairLeft(1, 240, 2, true));
+    expect(crosshair?.style.left).toBe(resolveThumbnailCrosshairLeft(59, 240, 60, true));
   });
 
   it("keeps the value overlay hidden until the user hovers the chart", async () => {
@@ -394,7 +394,7 @@ describe("ThumbnailCanvas", () => {
     } as DOMRect);
 
     act(() => {
-      thumb?.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientX: 145, clientY: 40 }));
+      thumb?.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientX: 192, clientY: 40 }));
     });
 
     await act(async () => {

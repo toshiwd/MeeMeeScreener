@@ -4,6 +4,7 @@ import { recordPerfEvent } from "../perfDiagnostics";
 import { preloadRoute } from "../routePreload";
 
 const navItems = [
+  { to: "/forecast", label: "日々予測" },
   { to: "/", label: "一覧", end: true },
   { to: "/ranking", label: "ランキング" },
   { to: "/market", label: "市場" },

@@ -239,6 +239,36 @@ describe("store.loadList", () => {
     expect(useStore.getState().tickers[0]?.watchlistTags).toEqual(["日経225"]);
   });
 
+  it("applies research tags from the watchlist API to screener rows separately", async () => {
+    apiGet.mockImplementation((url: string) => {
+      if (url === "/grid/screener") {
+        return Promise.resolve({
+          data: {
+            items: [{ code: "9147", name: "NIPPON EXPRESS", stage: "WATCH", score: 10, reason: "" }],
+          },
+        });
+      }
+      if (url === "/watchlist") {
+        return Promise.resolve({
+          data: {
+            codes: [],
+            tagsByCode: {},
+            researchTagsByCode: {
+              "9147": ["short research match:triggered"],
+            },
+          },
+        });
+      }
+      return Promise.reject(new Error(`unexpected url ${url}`));
+    });
+
+    const { useStore } = await import("./store");
+    await useStore.getState().loadList();
+
+    expect(useStore.getState().tickers[0]?.watchlistTags).toEqual([]);
+    expect(useStore.getState().tickers[0]?.researchTags).toEqual(["short research match:triggered"]);
+  });
+
   it("keeps cached screener rows when the refresh request fails", async () => {
     apiGet.mockImplementation((url: string) => {
       if (url === "/grid/screener") {

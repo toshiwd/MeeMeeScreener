@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 from datetime import datetime, timezone
 
 from fastapi import APIRouter
@@ -17,6 +18,7 @@ from app.backend.services.operator_mutation_lock import (
     get_operator_mutation_observability,
     get_operator_mutation_state,
 )
+from app.backend.api.routers.bars import get_batch_bars_v3_observability
 from app.core.config import (
     APP_ENV,
     APP_VERSION,
@@ -28,6 +30,8 @@ from app.core.config import (
 
 router = APIRouter()
 _HEALTH_LIGHT = os.getenv("HEALTH_LIGHT", "1").lower() in {"1", "true", "yes", "on"}
+_ML_MAINTENANCE_CACHE_TTL_SEC = 15.0
+_ml_maintenance_cache: tuple[float, dict] | None = None
 
 
 def _utc_now_iso() -> str:
@@ -88,6 +92,25 @@ def _runtime_observability_extra() -> dict:
     except Exception as exc:
         extra["job_lanes"] = {"error": str(exc)[:200]}
     return extra
+
+
+def _ml_maintenance_extra() -> dict:
+    global _ml_maintenance_cache
+    now = time.monotonic()
+    if _ml_maintenance_cache is not None:
+        expires_at, payload = _ml_maintenance_cache
+        if expires_at > now:
+            return dict(payload)
+    try:
+        from app.backend.db import get_conn
+        from app.backend.services.ml.ml_service import get_ml_maintenance_status
+
+        with get_conn() as conn:
+            payload = {"ml_maintenance": get_ml_maintenance_status(conn)}
+    except Exception as exc:
+        payload = {"ml_maintenance": {"error": str(exc)[:200]}}
+    _ml_maintenance_cache = (now + _ML_MAINTENANCE_CACHE_TTL_SEC, dict(payload))
+    return payload
 
 
 @router.get("/health")
@@ -159,6 +182,7 @@ def health():
             "last_updated": None,
             "code_txt_missing": None,
             **_runtime_observability_extra(),
+            **_ml_maintenance_extra(),
             **_resolved_runtime_extra(),
         },
     )
@@ -219,6 +243,7 @@ def health_deep():
             "transient_db_busy": transient_db_busy,
             "readiness_state": readiness_state,
             **_runtime_observability_extra(),
+            **_ml_maintenance_extra(),
             **_resolved_runtime_extra(),
         },
     )
@@ -249,6 +274,7 @@ def diagnostics():
         "stats": stats,
         "db_retryable": bool(stats.get("db_retryable")),
         "db_connect_stats": stats.get("db_connect_stats"),
+        "batch_bars_v3_observability": get_batch_bars_v3_observability(),
         **_runtime_observability_extra(),
         **_resolved_runtime_extra(),
     }

@@ -18,6 +18,7 @@ from app.backend.services.tradex_analysis_service import build_tradex_detail_ana
 from app.backend.services.tradex_research_bridge_service import get_internal_state_eval_promotion_review
 from app.backend.tdnetdb.repository import TdnetdbRepository
 from app.core.config import config as app_config
+from app.db.session import get_conn_for_path
 
 _DEFAULT_RANKINGS_THRESHOLD_DAYS = 5
 _MAX_SCREENING_TOP_N = 20
@@ -164,10 +165,7 @@ def _inspect_latest_table_dates(db_path: Path) -> dict[str, Any]:
             "feature_snapshot_daily": None,
             "ml_pred_20d": None,
         }
-    import duckdb
-
-    conn = duckdb.connect(str(db_path), read_only=True)
-    try:
+    with get_conn_for_path(str(db_path), timeout_sec=2.5, read_only=True) as conn:
         def _table_columns(table_name: str) -> set[str]:
             rows = conn.execute(
                 """
@@ -256,8 +254,6 @@ def _inspect_latest_table_dates(db_path: Path) -> dict[str, Any]:
             "feature_snapshot_daily": _latest_ymd_from_table("feature_snapshot_daily"),
             "ml_pred_20d": _latest_ymd_from_table("ml_pred_20d"),
         }
-    finally:
-        conn.close()
 
 
 def get_runtime_stock_db_status() -> dict[str, Any]:

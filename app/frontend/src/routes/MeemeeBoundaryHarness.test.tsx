@@ -310,7 +310,8 @@ describe("MeeMee boundary harness", () => {
     resetMocks();
     window.localStorage.clear();
     window.sessionStorage.clear();
-    mocks.apiGet.mockImplementation((url: string) => {
+    mocks.apiGet.mockImplementation((url: string, config?: { params?: Record<string, unknown> }) => {
+      const isDownRanking = config?.params?.dir === "down";
       if (url === "/system/runtime-selection") {
         return Promise.resolve({
           data: {
@@ -339,7 +340,7 @@ describe("MeeMee boundary harness", () => {
             current_candidate_available: false,
             stale: true,
             actionable_buy_candidates: [
-              {
+              ...(isDownRanking ? [] : [{
                 code: "1301",
                 name: "MeeMee Electric",
                 asOf: "2026-03-19",
@@ -349,10 +350,24 @@ describe("MeeMee boundary harness", () => {
                 setupType: "breakout",
                 reason: "confirmed momentum",
                 is_favorite: false,
-              },
+              }]),
             ],
-            actionable_short_candidates: [],
-            caution_watch_candidates: [
+            actionable_short_candidates: isDownRanking
+              ? [
+                  {
+                    code: "2269",
+                    name: "Meiji",
+                    asOf: "2026-03-19",
+                    score: 0.82,
+                    changePct: -0.02,
+                    changeAbs: -50,
+                    setupType: "failed_high_retest",
+                    reason: "confirmed short",
+                    is_favorite: false,
+                  },
+                ]
+              : [],
+            caution_watch_candidates: isDownRanking ? [] : [
               {
                 code: "7203",
                 name: "Toyota",
@@ -365,7 +380,19 @@ describe("MeeMee boundary harness", () => {
                 is_favorite: false,
               },
             ],
-            items: [
+            items: isDownRanking ? [
+              {
+                code: "2269",
+                name: "Meiji",
+                asOf: "2026-03-19",
+                score: 0.82,
+                changePct: -0.02,
+                changeAbs: -50,
+                setupType: "failed_high_retest",
+                reason: "confirmed short",
+                is_favorite: false,
+              },
+            ] : [
               {
                 code: "1301",
                 name: "MeeMee Electric",
@@ -576,7 +603,28 @@ describe("MeeMee boundary harness", () => {
     expect(render.container.textContent).toContain("未取得 1");
     expect(render.container.textContent).toContain("当日一致 1/1");
     expect(render.container.textContent).toContain("当日候補 1件");
-    expect(render.container.querySelectorAll("[data-testid='chart-card']")).toHaveLength(2);
+    expect(render.container.querySelectorAll("[data-testid='chart-card']")).toHaveLength(3);
+
+    render.cleanup();
+  }, 15000);
+
+  it("renders actionable short candidates as enter-now sell chips", async () => {
+    window.sessionStorage.setItem("rankingViewState", JSON.stringify({
+      stateVersion: 6,
+      dir: "down",
+      filterSignalsOnly: false,
+      filterDataOnly: false,
+      filterBuySignalsOnly: false,
+      filterSellSignalsOnly: false,
+    }));
+
+    const render = await renderRankingRoute();
+    await flush();
+
+    await waitForText(render.container, "\u4eca\u5165\u308b \u58f2\u308a", 12000);
+
+    expect(render.container.textContent).toContain("2269");
+    expect(render.container.textContent).toContain("\u4eca\u5165\u308b \u58f2\u308a");
 
     render.cleanup();
   }, 15000);

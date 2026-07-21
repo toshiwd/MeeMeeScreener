@@ -9,7 +9,6 @@ import { api } from "../api";
 import { useBackendReadyState } from "../backendReady";
 import ChartListCard from "../components/ChartListCard";
 import TradexListSummary from "../components/TradexListSummary";
-import TradexShortLifecycleStrip from "../components/TradexShortLifecycleStrip";
 import Toast from "../components/Toast";
 import UnifiedListHeader from "../components/UnifiedListHeader";
 import VirtualizedCardGrid from "../components/VirtualizedCardGrid";
@@ -37,7 +36,6 @@ import { ResearchPatternBadges } from "./list/ResearchPatternBadges";
 import { recordPerfEvent } from "../perfDiagnostics";
 import { useVisibleCodesPrefetch } from "./list/useVisibleCodesPrefetch";
 import {
-  formatTradeStrengthCaption,
   formatTradeStrengthPoints,
   tradeStrengthToneClass,
 } from "../utils/tradeStrength";
@@ -184,8 +182,133 @@ type RankItem = {
   momentumEntryScore?: number | null;
   momentumEntryState?: string | null;
   momentumEntryReason?: string | null;
-  tradeReviewBucket?: "actionable_buy" | "actionable_short" | "caution_watch" | "momentum_entry" | null;
+  highZoneChartScore?: number | null;
+  highZoneChartState?: "trend_follow" | "high_grab_risk" | "wait_for_pullback" | "research_needed" | string | null;
+  highZoneChartReasons?: string[] | null;
+  highZoneChartRiskReasons?: string[] | null;
+  highZoneEvidenceSampleCount?: number | null;
+  highZoneEvidenceMinSampleCount?: number | null;
+  highZoneEvidenceUsable?: boolean | null;
+  highZoneEvidenceResearchRequired?: boolean | null;
+  researchOnly?: boolean | null;
+  researchCandidateKind?: string | null;
+  researchCandidateReason?: string | null;
+  researchCandidateSource?: string | null;
+  researchCandidateBoundary?: string | null;
+  tradeReviewBucket?: "actionable_buy" | "actionable_short" | "caution_watch" | "momentum_entry" | "high_zone_chart" | null;
   tradeReviewRank?: number | null;
+  longTermSupportTag?: string | null;
+  long_term_support_tag?: string | null;
+  longTermSupport?: {
+    tag?: string | null;
+    supportLine?: number | null;
+    latestDistancePct?: number | null;
+    latestLowDistancePct?: number | null;
+    touchCount?: number | null;
+    lastTouch?: string | null;
+    signalRole?: string | null;
+  } | null;
+  long_term_support?: RankItem["longTermSupport"];
+  integratedEntryRank?: number | null;
+  integratedEntryDisplayPriority?: number | null;
+  integratedEntryState?: "official" | "provisional" | "watch" | null;
+  integratedEntryRule?: string | null;
+  integratedEntrySide?: "buy" | "sell" | null;
+  integratedEntryActionable?: boolean | null;
+  integratedEntryReason?: string | null;
+  integratedEntryAvoidReason?: string | null;
+  integratedEntrySevereLossProbability?: number | null;
+  integratedEntryDisplayOnly?: boolean | null;
+  integratedEntryCurrentRegimeOnly?: boolean | null;
+  integratedEntryCurrentRegime?: string | null;
+};
+
+type IntegratedEntryRow = {
+  integrated_rank?: number | null;
+  side: "buy" | "sell";
+  code: string;
+  rule: string;
+  rule_priority?: number | null;
+  data_state?: string | null;
+  rule_state?: string | null;
+  reason?: string | null;
+  avoid_reason?: string | null;
+  severe_loss_probability?: number | null;
+  display_only?: boolean | null;
+  current_regime_only?: boolean | null;
+  current_regime?: string | null;
+  is_actionable?: boolean;
+};
+
+type IntegratedEntryBoardPayload = {
+  available?: boolean;
+  actionable?: IntegratedEntryRow[];
+  watch?: IntegratedEntryRow[];
+  display_only?: boolean;
+  current_regime_only?: boolean;
+  current_regime?: string | null;
+  main_rule?: TwoSidedMainRuleReadout;
+};
+
+type PortfolioMetrics = {
+  calendar_profit_factor?: number | null;
+  calendar_expectancy?: number | null;
+  calendar_max_drawdown?: number | null;
+};
+
+type TwoSidedMainRuleReadout = {
+  available?: boolean;
+  label?: string;
+  status?: string;
+  confirmed_as_of?: number | string | null;
+  allocation?: {
+    buy_only_buy?: number | null;
+    both_buy?: number | null;
+    both_sell?: number | null;
+    sell_only_sell?: number | null;
+    sell_only_cash?: number | null;
+  };
+  current_state?: "buy_only" | "sell_only" | "both" | "no_entry";
+  buy_ranks?: MainRuleRankRow[];
+  sell_ranks?: MainRuleRankRow[];
+  validation_2025?: { portfolio?: PortfolioMetrics };
+  shadow_2026?: { portfolio?: PortfolioMetrics };
+  display_only?: boolean;
+  production_ranking_changed?: boolean;
+};
+
+type MainRuleRankRow = {
+  signal_ymd?: number | null;
+  code: string;
+  rank: number;
+  actionable?: boolean;
+  rank_source?: string | null;
+};
+
+export const resolveIntegratedEntryAnnotation = (item: RankItem) => {
+  if (!item.integratedEntryState || !item.integratedEntrySide) return null;
+  const direction = item.integratedEntrySide === "buy" ? "買い候補" : "空売り候補";
+  const priority = item.integratedEntryDisplayPriority;
+  const isWatch = item.integratedEntryActionable !== true || (item.integratedEntryRank ?? 0) > 3;
+  const context = item.integratedEntryDisplayOnly || item.integratedEntryCurrentRegimeOnly
+    ? "現行相場のみ・表示補助"
+    : null;
+  const severeLoss = Number.isFinite(item.integratedEntrySevereLossProbability ?? NaN)
+    ? `大損確率 ${(Number(item.integratedEntrySevereLossProbability) * 100).toFixed(1)}%`
+    : null;
+  return {
+    header: `${direction}${isWatch ? "・見送り" : ""}`,
+    isWatch,
+    priority: priority != null ? `表示優先 #${priority}` : "表示優先順位なし",
+    context,
+    reason: item.integratedEntryReason || item.integratedEntryRule
+      ? `理由: ${item.integratedEntryReason || item.integratedEntryRule}`
+      : null,
+    avoidReason: isWatch
+      ? `見送り理由: ${item.integratedEntryAvoidReason || "上位候補外または条件未確定"}`
+      : null,
+    severeLoss,
+  };
 };
 
 type RankTimeframe = "D" | "W" | "M";
@@ -265,10 +388,14 @@ type RankSessionBundle = {
   confirmed_actionable_short_candidates?: RankItem[];
   confirmed_caution_watch_candidates?: RankItem[];
   confirmed_momentum_entry_candidates?: RankItem[];
+  confirmed_high_zone_chart_reads?: RankItem[];
+  confirmed_high_zone_research_candidates?: RankItem[];
   provisional_actionable_buy_candidates?: RankItem[];
   provisional_actionable_short_candidates?: RankItem[];
   provisional_caution_watch_candidates?: RankItem[];
   provisional_momentum_entry_candidates?: RankItem[];
+  provisional_high_zone_chart_reads?: RankItem[];
+  provisional_high_zone_research_candidates?: RankItem[];
   confirmed_trade_summary?: TradeDirectionSummary | null;
   provisional_trade_summary?: TradeDirectionSummary | null;
   confirmed_items?: RankItem[];
@@ -463,6 +590,22 @@ const isIntradayMomentumAlertCandidate = (item: RankItem) => {
   return true;
 };
 
+const resolveLongTermSupport = (item: RankItem) => item.longTermSupport ?? item.long_term_support ?? null;
+
+const resolveLongTermSupportTag = (item: RankItem) => {
+  const support = resolveLongTermSupport(item);
+  return item.longTermSupportTag ?? item.long_term_support_tag ?? support?.tag ?? null;
+};
+
+const formatLongTermSupportLabel = (item: RankItem) => {
+  const tag = resolveLongTermSupportTag(item);
+  if (!tag) return null;
+  const support = resolveLongTermSupport(item);
+  const distance = toFiniteNumber(support?.latestDistancePct);
+  if (distance == null) return tag;
+  return `${tag} ${distance >= 0 ? "+" : ""}${distance.toFixed(1)}%`;
+};
+
 const resolveRankFetchTimeframe = (value: "daily" | "weekly" | "monthly"): RankTimeframe => {
   if (value === "weekly") return "W";
   if (value === "monthly") return "M";
@@ -621,6 +764,10 @@ const formatTradeBlockReason = (reason?: string | null) => {
   if (reason === "already_large_20d_run") return "20日上昇済み";
   if (reason === "upper_wick_rejection") return "上髭警戒";
   if (reason === "current_weak_close") return "引け弱い";
+  if (reason === "rulebook_post_10pct_spike_chase_caution") return "急騰後追い注意";
+  if (reason === "rulebook_extended_run_weak_close_caution") return "上昇後の弱い引け";
+  if (reason === "rulebook_extended_gain_ma20_break_exit_review") return "MA20割れ出口確認";
+  if (reason === "rulebook_extended_run_upper_wick_exit_review") return "上昇後上髭";
   return reason;
 };
 
@@ -629,6 +776,37 @@ const uniqueTradeWarnings = (item: RankItem, limit = 2) => {
     .map(formatTradeBlockReason)
     .filter((value): value is string => Boolean(value));
   return Array.from(new Set(values)).slice(0, limit);
+};
+
+export const resolveTradeActionChip = (item: RankItem, hasTradeWarnings: boolean) => {
+  if (item.tradeReviewBucket === "caution_watch") {
+    return { label: "監視", className: "signal-chip warning" };
+  }
+  if (item.tradeReviewBucket === "actionable_short") {
+    return { label: "今入る 売り", className: "signal-chip short-tier tier-b" };
+  }
+  if (item.tradeReviewBucket === "momentum_entry") {
+    return { label: "今入る 勢い", className: "signal-chip entry-tier tier-a" };
+  }
+  if (item.tradeReviewBucket === "high_zone_chart") {
+    if (item.highZoneChartState === "trend_follow") {
+      return { label: "高値追随可", className: "signal-chip entry-tier tier-b" };
+    }
+    if (item.highZoneChartState === "high_grab_risk") {
+      return { label: "高値づかみ", className: "signal-chip no-entry" };
+    }
+    if (item.highZoneChartState === "research_needed" || item.highZoneEvidenceResearchRequired) {
+      return { label: "研究待ち", className: "signal-chip warning" };
+    }
+    return { label: "押し待ち", className: "signal-chip warning" };
+  }
+  if (item.tradeReviewBucket === "actionable_buy") {
+    return { label: "今入る 買い", className: "signal-chip entry-tier tier-a" };
+  }
+  if (hasTradeWarnings) {
+    return { label: "追わない", className: "signal-chip no-entry" };
+  }
+  return null;
 };
 
 const withTradeReviewMeta = (
@@ -647,6 +825,7 @@ const buildTradeReviewItems = (payload: {
   actionable_short_candidates?: RankItem[];
   caution_watch_candidates?: RankItem[];
   momentum_entry_candidates?: RankItem[];
+  high_zone_chart_reads?: RankItem[];
 }, options: { dir: "up" | "down"; limit: number }) => {
   const primary =
     options.dir === "down"
@@ -665,6 +844,7 @@ const buildTradeReviewItems = (payload: {
   };
   append(primary, options.dir === "down" ? "actionable_short" : "actionable_buy");
   if (options.dir === "up") {
+    append(payload.high_zone_chart_reads, "high_zone_chart");
     append(payload.momentum_entry_candidates, "momentum_entry");
     append(payload.caution_watch_candidates, "caution_watch");
   }
@@ -894,6 +1074,7 @@ export default function RankingView() {
 
   const [dir, setDir] = useState<"up" | "down">(initialDir);
   const [items, setItems] = useState<RankItem[]>(() => initialFetchCache?.items ?? []);
+  const [twoSidedMainRule, setTwoSidedMainRule] = useState<TwoSidedMainRuleReadout | null>(null);
   const [search, setSearch] = useState("");
   const [filterSignalsOnly, setFilterSignalsOnly] = useState(Boolean(storedViewState?.filterSignalsOnly));
   const [filterDataOnly, setFilterDataOnly] = useState(Boolean(storedViewState?.filterDataOnly));
@@ -926,7 +1107,7 @@ export default function RankingView() {
   const [consultBusy, setConsultBusy] = useState(false);
   const [consultMeta, setConsultMeta] = useState<{ omitted: number }>({ omitted: 0 });
   const [screenshotBusy, setScreenshotBusy] = useState(false);
-  const [rankingChromeCollapsed, setRankingChromeCollapsed] = useState(false);
+  const [rankingChromeCollapsed, setRankingChromeCollapsed] = useState(true);
   const consultBarsCount = 60;
   const consultPaddingClass = consultVisible
     ? consultExpanded
@@ -957,6 +1138,31 @@ export default function RankingView() {
   useEffect(() => {
     itemsRef.current = items;
   }, [items]);
+
+  useEffect(() => {
+    if (!backendReady) return;
+    let cancelled = false;
+    const loadIntegratedEntries = () => {
+      void api.get<IntegratedEntryBoardPayload>("/tradex/research/integrated-entry-board", {
+        params: { limit: 30 },
+        timeout: 20_000,
+      }).then((response) => {
+        if (cancelled) return;
+        const payload = response.data;
+        setTwoSidedMainRule(payload.main_rule?.available ? payload.main_rule : null);
+      }).catch(() => {
+        if (!cancelled) {
+          setTwoSidedMainRule(null);
+        }
+      });
+    };
+    loadIntegratedEntries();
+    const timer = window.setInterval(loadIntegratedEntries, 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [backendReady]);
 
   useEffect(() => {
     recordPerfEvent("ranking_view_mount", {
@@ -1230,13 +1436,10 @@ export default function RankingView() {
   }, [mtfStrictFilterRelaxed, filteredItems, mtfStrictFilteredItems, mtfStrictResolved]);
 
   const sortedItems = useMemo(() => {
-    if (!useFallback) {
-      return effectiveItems;
-    }
     const list = [...effectiveItems];
     const getLiquidity = (item: RankItem) =>
       Number.isFinite(item.liquidity20d ?? NaN) ? (item.liquidity20d as number) : -1;
-    list.sort((a, b) => {
+    if (useFallback) list.sort((a, b) => {
       const aChange = Number.isFinite(a.changePct ?? NaN) ? (a.changePct as number) : null;
       const bChange = Number.isFinite(b.changePct ?? NaN) ? (b.changePct as number) : null;
       const aMissing = aChange == null;
@@ -1252,8 +1455,36 @@ export default function RankingView() {
       if (aLiq !== bLiq) return bLiq - aLiq;
       return a.code.localeCompare(b.code, "ja");
     });
-    return list;
-  }, [effectiveItems, dir, useFallback]);
+    const targetSide = dir === "up" ? "buy" : "sell";
+    const priorityRows = [...(targetSide === "buy" ? twoSidedMainRule?.buy_ranks ?? [] : twoSidedMainRule?.sell_ranks ?? [])]
+      .sort((a, b) => a.rank - b.rank || a.code.localeCompare(b.code, "ja"));
+    if (priorityRows.length === 0) return list;
+    const byCode = new Map(list.map((item) => [item.code, item]));
+    const prioritized: RankItem[] = [];
+    const used = new Set<string>();
+    priorityRows.forEach((row) => {
+      if (!row.code || used.has(row.code)) return;
+      const ticker = tickers.find((item) => item.code === row.code);
+      const existing = byCode.get(row.code) ?? { code: row.code, name: ticker?.name ?? row.code };
+      prioritized.push({
+        ...existing,
+        integratedEntryRank: row.rank,
+        integratedEntryDisplayPriority: row.rank,
+        integratedEntryState: row.actionable ? "official" : "watch",
+        integratedEntryRule: "統合主力ルール",
+        integratedEntrySide: targetSide,
+        integratedEntryActionable: row.actionable === true,
+        integratedEntryReason: null,
+        integratedEntryAvoidReason: row.actionable ? null : "現在は条件未成立",
+        integratedEntrySevereLossProbability: null,
+        integratedEntryDisplayOnly: true,
+        integratedEntryCurrentRegimeOnly: false,
+        integratedEntryCurrentRegime: null,
+      });
+      used.add(row.code);
+    });
+    return [...prioritized, ...list.filter((item) => !used.has(item.code))];
+  }, [effectiveItems, dir, useFallback, tickers, twoSidedMainRule]);
   const tradeReviewDisplayCounts = useMemo(() => {
     if (rankMode !== "trade") return null;
     return sortedItems.reduce(
@@ -1261,10 +1492,12 @@ export default function RankingView() {
         if (item.tradeReviewBucket === "caution_watch") acc.caution += 1;
         else if (item.tradeReviewBucket === "actionable_short") acc.short += 1;
         else if (item.tradeReviewBucket === "momentum_entry") acc.momentum += 1;
-        else acc.buy += 1;
+        else if (item.tradeReviewBucket === "high_zone_chart") acc.momentum += 1;
+        else if (item.tradeReviewBucket === "actionable_buy") acc.buy += 1;
+        else if (uniqueTradeWarnings(item, 1).length > 0) acc.noEntry += 1;
         return acc;
       },
-      { buy: 0, short: 0, caution: 0, momentum: 0 }
+      { buy: 0, short: 0, caution: 0, momentum: 0, noEntry: 0 }
     );
   }, [rankMode, sortedItems]);
   const provisionalItems = useMemo(
@@ -1275,8 +1508,16 @@ export default function RankingView() {
     () => syncFavoriteFlags((rankSession?.confirmed_momentum_entry_candidates ?? []).filter((item) => item && item.code)),
     [rankSession, syncFavoriteFlags]
   );
+  const confirmedHighZoneChartItems = useMemo(
+    () => syncFavoriteFlags((rankSession?.confirmed_high_zone_chart_reads ?? []).filter((item) => item && item.code)),
+    [rankSession, syncFavoriteFlags]
+  );
   const provisionalMomentumEntryItems = useMemo(
     () => syncFavoriteFlags((rankSession?.provisional_momentum_entry_candidates ?? []).filter((item) => item && item.code)),
+    [rankSession, syncFavoriteFlags]
+  );
+  const provisionalHighZoneChartItems = useMemo(
+    () => syncFavoriteFlags((rankSession?.provisional_high_zone_chart_reads ?? []).filter((item) => item && item.code)),
     [rankSession, syncFavoriteFlags]
   );
   const listCodes = useMemo(() => sortedItems.map((item) => item.code), [sortedItems]);
@@ -1497,6 +1738,8 @@ export default function RankingView() {
           actionable_short_candidates?: RankItem[];
           caution_watch_candidates?: RankItem[];
           momentum_entry_candidates?: RankItem[];
+          high_zone_chart_reads?: RankItem[];
+          high_zone_research_candidates?: RankItem[];
           errors?: string[];
           freshness_state?: "fresh" | "stale" | null;
           freshness_days?: number | null;
@@ -2132,7 +2375,10 @@ export default function RankingView() {
       const rightsLabel = formatEventBadgeDate(ticker?.eventRightsDate);
       const tradexSummaryKey = buildTradexListSummaryKey(item.code, item.asOf ?? null);
       const tradeWarnings = uniqueTradeWarnings(item);
+      const tradeActionChip = resolveTradeActionChip(item, tradeWarnings.length > 0);
       const showTradeReviewMeta = rankMode === "trade" && Boolean(item.tradeReviewBucket || tradeWarnings.length);
+      const longTermSupportLabel = formatLongTermSupportLabel(item);
+      const integratedAnnotation = resolveIntegratedEntryAnnotation(item);
       return (
         <TradexListSummaryMount
           backendReady={backendReady}
@@ -2167,16 +2413,41 @@ export default function RankingView() {
                   rankingChromeCollapsed ? null :
                   (rightsLabel ||
                     earningsLabel ||
+                    integratedAnnotation ||
                     item.researchPatternTag ||
                     Number.isFinite(item.researchPriorBonus ?? NaN) ||
+                    longTermSupportLabel ||
                     showTradeReviewMeta ||
                     selectedSet.has(item.code) ||
                     visibleTradexSummary) ? (
                     <>
+                      {integratedAnnotation && (
+                        <div className="rank-card-meta-row">
+                          <span className="signal-chips">
+                            <span className={`signal-chip ${integratedAnnotation.isWatch ? "warning" : "achieved"}`}>
+                              {integratedAnnotation.header}
+                            </span>
+                            <span className="signal-chip achieved">{integratedAnnotation.priority}</span>
+                            {integratedAnnotation.context && (
+                              <span className="signal-chip warning">{integratedAnnotation.context}</span>
+                            )}
+                            {integratedAnnotation.reason && (
+                              <span className="signal-chip achieved">{integratedAnnotation.reason}</span>
+                            )}
+                            {integratedAnnotation.avoidReason && (
+                              <span className="signal-chip warning">{integratedAnnotation.avoidReason}</span>
+                            )}
+                            {integratedAnnotation.severeLoss && (
+                              <span className="signal-chip warning">{integratedAnnotation.severeLoss}</span>
+                            )}
+                          </span>
+                        </div>
+                      )}
                       {(rightsLabel ||
                         earningsLabel ||
                         item.researchPatternTag ||
                         Number.isFinite(item.researchPriorBonus ?? NaN) ||
+                        longTermSupportLabel ||
                         showTradeReviewMeta) && (
                         <div className="rank-card-meta-row">
                           {(rightsLabel || earningsLabel) && (
@@ -2191,22 +2462,19 @@ export default function RankingView() {
                               )}
                             </span>
                           )}
-                          {showTradeReviewMeta && (
+                          {showTradeReviewMeta && tradeActionChip && (
                             <span className="signal-chips">
-                              {item.tradeReviewBucket === "caution_watch" ? (
-                                <span className="signal-chip warning">監視</span>
-                              ) : item.tradeReviewBucket === "actionable_short" ? (
-                                <span className="signal-chip short-tier tier-b">短期売り</span>
-                              ) : item.tradeReviewBucket === "momentum_entry" ? (
-                                <span className="signal-chip entry-tier tier-a">モメンタム本命</span>
-                              ) : (
-                                <span className="signal-chip entry-tier tier-a">買い候補</span>
-                              )}
+                              <span className={tradeActionChip.className}>{tradeActionChip.label}</span>
                               {tradeWarnings.map((warning) => (
                                 <span key={`${item.code}-${warning}`} className="signal-chip warning">
                                   {warning}
                                 </span>
                               ))}
+                            </span>
+                          )}
+                          {longTermSupportLabel && (
+                            <span className="signal-chips">
+                              <span className="signal-chip achieved">{longTermSupportLabel}</span>
                             </span>
                           )}
                           <ResearchPatternBadges
@@ -2247,16 +2515,23 @@ export default function RankingView() {
                 }
                 headerRight={
                   <div className="rank-header-meta">
+                    {item.integratedEntryState ? (
+                      <span className={`rank-score-badge rank-qualification ${item.integratedEntryState === "official" ? "is-ok" : item.integratedEntryState === "provisional" ? "is-warn" : "is-neutral"}`}>
+                        {integratedAnnotation
+                          ? `${integratedAnnotation.header} / ${integratedAnnotation.priority}`
+                          : `${dir === "up" ? "買い候補" : "空売り候補"} / 表示優先順位なし`}
+                      </span>
+                    ) : null}
                     {item.is_provisional ? (
                       <span className="rank-score-badge rank-qualification is-warn">
                         {`当日反映${typeof (item.rank_delta ?? item.rankDelta) === "number" ? ` ${(item.rank_delta ?? item.rankDelta) > 0 ? "+" : ""}${item.rank_delta ?? item.rankDelta}` : ""}`}
                       </span>
                     ) : null}
-                    {resolveRankSummaryScore(item) != null ? (
+                    {!item.integratedEntryState && resolveRankSummaryScore(item) != null ? (
                       <span
                         className={`rank-score-badge rank-qualification ${tradeStrengthToneClass(resolveRankSummaryScore(item))}`.trim()}
                       >
-                        {formatTradeStrengthCaption(dir === "up" ? "買い" : "短期売り", resolveRankSummaryScore(item))}
+                        {`${dir === "up" ? "買い" : "売り"}順位スコア ${Math.round(Number(resolveRankSummaryScore(item)))}点`}
                     </span>
                     ) : null}
                     <Link
@@ -2319,7 +2594,7 @@ export default function RankingView() {
           ? dir === "up" && longEntryDecision?.status === "no_eligible_long"
             ? longEntryDecision.message ?? "現在価格から利益期待値を確認できる買い候補はありません。"
             : dir === "down" && shortEntryDecision?.status === "no_eligible_short"
-              ? shortEntryDecision.message ?? "現在価格から利益期待値を確認できる短期売り候補はありません。"
+              ? shortEntryDecision.message ?? "現在価格から売り条件を確認できる銘柄はありません。"
             : "当日の上位銘柄がありません。"
           : "ランキングがありません。"
       : null;
@@ -2332,7 +2607,7 @@ export default function RankingView() {
     tradeSummary?.dominant_direction === "up"
       ? "買い優位"
       : tradeSummary?.dominant_direction === "down"
-        ? "短期売り優位"
+        ? "売り側スコア優位"
         : "中立";
   const rankingSnapshotLabel =
     rankingFreshness?.snapshotAsOf ??
@@ -2375,6 +2650,7 @@ export default function RankingView() {
       qualificationFilterRelaxed ||
       mtfStrictFilterRelaxed ||
       Boolean(rankingDataFreshnessContract) ||
+      Boolean(twoSidedMainRule) ||
       (rankMode === "trade" && Boolean(tradeSummary)) ||
       (rankMode === "trade" && Boolean(rankSession)));
   return (
@@ -2400,7 +2676,7 @@ export default function RankingView() {
                   className={dir === key ? "active" : ""}
                   onClick={() => setDir(key)}
                 >
-                  {key === "up" ? "買い" : "短期売り"}
+                  {key === "up" ? "買い" : "売り"}
                 </button>
               ))}
             </div>
@@ -2419,9 +2695,26 @@ export default function RankingView() {
           setConsultTab("selection");
         }}
       />
-      <TradexShortLifecycleStrip enabled={dir === "down"} />
       {showOverviewPanel && (
         <div className="rank-overview-panel">
+          {twoSidedMainRule && (
+            <div className="rank-overview-row">
+              <span className="rank-overview-section-title">主力ルール</span>
+              <div className="rank-top-summary is-ok">
+                {twoSidedMainRule.label ?? "買い・空売り 統合主力候補"} / {twoSidedMainRule.status ?? "研究採用候補（表示のみ）"}
+              </div>
+              <div className="rank-top-summary">
+                買いのみ {formatPct(twoSidedMainRule.allocation?.buy_only_buy ?? null)} / 両方なら 買い{formatPct(twoSidedMainRule.allocation?.both_buy ?? null)}・売り{formatPct(twoSidedMainRule.allocation?.both_sell ?? null)} / 売りのみ 売り{formatPct(twoSidedMainRule.allocation?.sell_only_sell ?? null)}・現金{formatPct(twoSidedMainRule.allocation?.sell_only_cash ?? null)}
+              </div>
+              <div className="rank-top-summary">
+                2025 PF {twoSidedMainRule.validation_2025?.portfolio?.calendar_profit_factor?.toFixed(2) ?? "--"} / 期待値 {formatPct(twoSidedMainRule.validation_2025?.portfolio?.calendar_expectancy ?? null)}
+              </div>
+              <div className="rank-top-summary">
+                2026 PF {twoSidedMainRule.shadow_2026?.portfolio?.calendar_profit_factor?.toFixed(2) ?? "--"} / 期待値 {formatPct(twoSidedMainRule.shadow_2026?.portfolio?.calendar_expectancy ?? null)}
+              </div>
+              <div className="rank-top-summary is-warn">ランキング変更なし・自動売買なし</div>
+            </div>
+          )}
           {(rankingSnapshotLabel || rankingRefreshMessage) && (
             <div className="rank-overview-row">
               <span className="rank-overview-section-title">基準</span>
@@ -2469,14 +2762,14 @@ export default function RankingView() {
                 買い {tradeSummary.actionable_buy?.count ?? 0}件 / 平均 {formatTradeStrengthPoints(tradeSummary.actionable_buy?.avg_trade_priority_score ?? null)} / 期待値 {formatPct(tradeSummary.actionable_buy?.avg_profit_expectancy ?? null)} / 的中 {formatPct(tradeSummary.actionable_buy?.avg_hit_score ?? null)}
               </div>
               <div className="rank-top-summary">
-                短期売り {tradeSummary.actionable_short?.count ?? 0}件 / 平均 {formatTradeStrengthPoints(tradeSummary.actionable_short?.avg_trade_priority_score ?? null)} / 期待値 {formatPct(tradeSummary.actionable_short?.avg_profit_expectancy ?? null)} / 的中 {formatPct(tradeSummary.actionable_short?.avg_hit_score ?? null)}
+                売り判定 {tradeSummary.actionable_short?.count ?? 0}件 / 平均 {formatTradeStrengthPoints(tradeSummary.actionable_short?.avg_trade_priority_score ?? null)} / 期待値 {formatPct(tradeSummary.actionable_short?.avg_profit_expectancy ?? null)} / 的中 {formatPct(tradeSummary.actionable_short?.avg_hit_score ?? null)}
               </div>
               <div className="rank-top-summary">
                 注意/監視 {tradeSummary.caution_watch?.count ?? 0}件
               </div>
               {tradeReviewDisplayCounts && (
                 <div className="rank-top-summary is-ok">
-                  表示 {sortedItems.length}件 / 買い {tradeReviewDisplayCounts.buy}件 / モメンタム {tradeReviewDisplayCounts.momentum}件 / 監視 {tradeReviewDisplayCounts.caution}件
+                  表示 {sortedItems.length}件 / 今入る 買い {tradeReviewDisplayCounts.buy}件 / 今入る 勢い {tradeReviewDisplayCounts.momentum}件 / 今入る 売り {tradeReviewDisplayCounts.short}件 / 監視 {tradeReviewDisplayCounts.caution}件 / 追わない {tradeReviewDisplayCounts.noEntry}件
                 </div>
               )}
               <div className="rank-overview-actions">
@@ -2534,11 +2827,14 @@ export default function RankingView() {
               </div>
               {hasProvisionalSession && (
                 <div className="rank-top-summary">
-                  当日候補 {provisionalItems.length}件 / 買い {rankSession.provisional_trade_summary?.actionable_buy?.count ?? 0}件 / モメンタム {provisionalMomentumEntryItems.length}件 / 短期売り {rankSession.provisional_trade_summary?.actionable_short?.count ?? 0}件 / 注意 {rankSession.provisional_trade_summary?.caution_watch?.count ?? 0}件
+                  当日反映 {provisionalItems.length}件 / 買い判定 {rankSession.provisional_trade_summary?.actionable_buy?.count ?? 0}件 / 高値圏読解 {provisionalHighZoneChartItems.length}件 / モメンタム {provisionalMomentumEntryItems.length}件 / 売り判定 {rankSession.provisional_trade_summary?.actionable_short?.count ?? 0}件 / 注意 {rankSession.provisional_trade_summary?.caution_watch?.count ?? 0}件
                 </div>
               )}
               <div className={`rank-top-summary ${confirmedMomentumEntryItems.length || provisionalMomentumEntryItems.length ? "is-ok" : "is-warn"}`}>
                 {`モメンタム本命 確定 ${confirmedMomentumEntryItems.length}件 / 当日 ${provisionalMomentumEntryItems.length}件`}
+              </div>
+              <div className={`rank-top-summary ${confirmedHighZoneChartItems.length || provisionalHighZoneChartItems.length ? "is-ok" : "is-warn"}`}>
+                {`高値圏読解 確定 ${confirmedHighZoneChartItems.length}件 / 当日 ${provisionalHighZoneChartItems.length}件`}
               </div>
               {dir === "up" && (
                 <div className={`rank-top-summary ${hasIntradayMomentumAlerts ? "is-ok" : "is-warn"}`}>
@@ -2568,7 +2864,7 @@ export default function RankingView() {
           )}
           {(confirmedMomentumEntryItems.length > 0 || provisionalMomentumEntryItems.length > 0) && (
             <div className="rank-overview-row rank-momentum-alert-row">
-              <span className="rank-overview-section-title">本命候補</span>
+              <span className="rank-overview-section-title">優先チャート</span>
               <div className="rank-momentum-alert-list">
                 {[...provisionalMomentumEntryItems, ...confirmedMomentumEntryItems]
                   .filter((item, index, list) => list.findIndex((other) => other.code === item.code) === index)
@@ -2583,6 +2879,28 @@ export default function RankingView() {
                       <span className="rank-momentum-alert-name">{item.name ?? item.code}</span>
                       <span>{formatPct(item.changePct ?? null)}</span>
                       <span>{formatTradeStrengthPoints(item.momentumEntryScore ?? item.tradePriorityScore ?? null)}</span>
+                    </Link>
+                  ))}
+              </div>
+            </div>
+          )}
+          {(confirmedHighZoneChartItems.length > 0 || provisionalHighZoneChartItems.length > 0) && (
+            <div className="rank-overview-row rank-momentum-alert-row">
+              <span className="rank-overview-section-title">高値圏読解</span>
+              <div className="rank-momentum-alert-list">
+                {[...provisionalHighZoneChartItems, ...confirmedHighZoneChartItems]
+                  .filter((item, index, list) => list.findIndex((other) => other.code === item.code) === index)
+                  .slice(0, MOMENTUM_ALERT_MAX_ITEMS)
+                  .map((item) => (
+                    <Link
+                      key={`high-zone-entry-${item.code}`}
+                      className="rank-momentum-alert-chip"
+                      to={`/detail/${encodeURIComponent(item.code)}`}
+                    >
+                      <span className="rank-momentum-alert-code">{item.code}</span>
+                      <span className="rank-momentum-alert-name">{item.name ?? item.code}</span>
+                      <span>{formatPct(item.changePct ?? null)}</span>
+                      <span>{formatTradeStrengthPoints(item.highZoneChartScore ?? item.tradePriorityScore ?? null)}</span>
                     </Link>
                   ))}
               </div>

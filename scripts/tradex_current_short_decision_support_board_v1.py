@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import json
@@ -260,6 +260,8 @@ def run(db_path: Path, output_root: Path, source_board_path: Path, regime_db_pat
             "original_rank": rank,
             "original_score": item.get("original_score", item.get("rank_score")),
             "source_review_state": item.get("review_state"),
+            "signal_bar_status": item.get("signal_bar_status"),
+            "entry_timing_status": item.get("entry_timing_status"),
             "range_40_20": item.get("range_40_20"),
             "last_vol_ratio": item.get("last_vol_ratio"),
             "dist_prior_80_high": item.get("dist_prior_80_high"),

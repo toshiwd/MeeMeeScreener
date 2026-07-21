@@ -1,0 +1,21 @@
+from __future__ import annotations
+import argparse,json
+from pathlib import Path
+import pandas as pd
+INITIALS=[.25,.5,.75]
+def met(g):return {"n":int(len(g)),"codes":int(g.code.nunique()),"add_rate":float(g.added.mean()),"stall_exit_rate":float(g.stall_exit.mean()),"mean_planned_return_pct":float(g.ret.mean()),"median_planned_return_pct":float(g.ret.median()),"win_rate":float(g.ret.gt(0).mean()),"severe_loss5_rate":float(g.ret.le(-5).mean()),"p10_return_pct":float(g.ret.quantile(.1)),"mean_deployed_fraction":float(g.deployed.mean())}
+def main():
+ ap=argparse.ArgumentParser();ap.add_argument("--paths",required=True);ap.add_argument("--output",required=True);a=ap.parse_args();out=Path(a.output);out.mkdir(parents=True,exist_ok=False);x=pd.read_parquet(a.paths);ds=[];rows=[];yrs=[]
+ for i in INITIALS:
+  q=x.copy();im=q.entry_day_path.eq("即上昇");stall=q.entry_day_path.eq("失速");q["added"]=im;q["stall_exit"]=stall;q["add_fraction"]=(1-i)*im;q["deployed"]=i+q.add_fraction;q["ret"]=100*i*(q.c5/q.o1-1);q.loc[im,"ret"]=100*(i*(q.loc[im,"c5"]/q.loc[im,"o1"]-1)+(1-i)*(q.loc[im,"c5"]/q.loc[im,"o2"]-1));q.loc[stall,"ret"]=100*i*(q.loc[stall,"o2"]/q.loc[stall,"o1"]-1);q["initial_fraction"]=i;ds.append(q)
+  for (p,f),g in q.groupby(["period","buy_family"]):rows.append({"period":p,"buy_family":f,"initial_fraction":i,**met(g)})
+  for (y,f),g in q.assign(year=q.ymd//10000).groupby(["year","buy_family"]):yrs.append({"year":int(y),"buy_family":f,"initial_fraction":i,**met(g)})
+ d=pd.concat(ds);m=pd.DataFrame(rows);yr=pd.DataFrame(yrs);d.to_parquet(out/"staged_management_ledger.parquet",index=False);m.to_parquet(out/"staged_management_metrics.parquet",index=False);yr.to_parquet(out/"staged_management_yearly_metrics.parquet",index=False);sel={}
+ for f in ["急落反発","上昇継続"]:
+  z=m[(m.period.eq("development"))&(m.buy_family.eq(f))];ok=z[(z.mean_planned_return_pct>0)&(z.severe_loss5_rate<=.10)];sel[f]=None if ok.empty else float(ok.sort_values(["mean_planned_return_pct","severe_loss5_rate"],ascending=[False,True]).iloc[0].initial_fraction)
+ val=[];checks={"both_selected":all(v is not None for v in sel.values())}
+ for f,i in sel.items():
+  z=m[(m.period.eq("validation"))&(m.buy_family.eq(f))&(m.initial_fraction.eq(i))];val+=z.to_dict("records");yy=yr[(yr.year>=2024)&(yr.buy_family.eq(f))&(yr.initial_fraction.eq(i))];checks[f"{f}_validation_positive"]=bool(len(z)==1 and z.iloc[0].mean_planned_return_pct>0);checks[f"{f}_tail_le10"]=bool(len(z)==1 and z.iloc[0].severe_loss5_rate<=.1);checks[f"{f}_all_years_positive"]=bool(len(yy)==3 and (yy.mean_planned_return_pct>0).all())
+ keep=all(checks.values());res={"schema_version":"tradex_long_path_staged_management_v1.compare.v1","artifact_role":"authoritative_long_path_staged_management","review_only":True,"fixed_conditions":{"entry":"next open initial fraction","initial_candidates":INITIALS,"immediate_rise":"add remainder following open","stall":"exit initial following open","flat_or_other":"keep initial only","exit":"fifth-session close","development":"2019-2023","validation":"2024-2026","costs":"ignored"},"authoritative_result":{"selected_initial":sel,"validation":val,"validation_years":yr[(yr.year>=2024)&yr.apply(lambda r:sel.get(r.buy_family)==r.initial_fraction,axis=1)].to_dict("records"),"gate_checks":checks},"observed_branching":{"changed_top5_members_count":None,"changed_top10_members_count":None,"changed_rank_count":int(d.added.sum()+d.stall_exit.sum()),"selection_divergence_reason":"entry-day path changes size and exit only"},"judgment":{"candidate_local_decision":"keep" if keep else "hold","session_aggregate_decision":"keep_long_staged_management" if keep else "hold_long_staged_management","authoritative_rollup_decision":"keep_long_path_staged_management_v1_review_only" if keep else "hold_continue_long_management","reason_type":"positive_yearly_tail_gates"},"not_changed":["family membership","MeeMee","ranking","runtime DB","production logic"]}
+ (out/"compare.json").write_text(json.dumps(res,ensure_ascii=False,indent=2),encoding="utf-8");(out/"_ARTIFACT_COMPLETE.json").write_text(json.dumps({"complete":True,"authoritative":"compare.json"}));print(json.dumps(res["authoritative_result"],ensure_ascii=False))
+if __name__=="__main__":main()

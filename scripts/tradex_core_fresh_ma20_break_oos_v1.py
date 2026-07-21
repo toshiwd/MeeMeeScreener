@@ -1,0 +1,17 @@
+"""Evaluate a fresh close-based MA20 break as one fixed core-entry point."""
+from __future__ import annotations
+import argparse,hashlib,json
+from pathlib import Path
+import pandas as pd
+
+YEARS=tuple(range(2019,2026))
+def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
+def rates(x):return {"n":int(len(x)),"codes":int(x.code.nunique()),"down_first":None if x.empty else float(x.outcome.eq("down_first").mean()),"rebound_first":None if x.empty else float(x.outcome.eq("rebound_first").mean()),"neutral":None if x.empty else float(x.outcome.str.startswith("neutral").mean())}
+def main():
+ p=argparse.ArgumentParser();p.add_argument("--candidate-union",type=Path,required=True);p.add_argument("--output",type=Path,required=True);a=p.parse_args();a.output.mkdir(parents=True,exist_ok=False);x=pd.read_parquet(a.candidate_union);q=x[x.cross_ma20.eq(1)].copy();base={str(y):rates(x[x.year.eq(y)]) for y in YEARS};challenger={str(y):rates(q[q.year.eq(y)]) for y in YEARS}
+ direction=all(challenger[str(y)]["n"]>0 and challenger[str(y)]["down_first"]>challenger[str(y)]["rebound_first"] for y in YEARS);breadth=all(challenger[str(y)]["n"]>=30 for y in YEARS);anchors=[]
+ for code,ymd in [("9107",20241122),("4755",20251114),("6857",20240903),("6532",20230626)]:
+  z=x[(x.code.astype(str).str.zfill(4)==code)&x.ymd.eq(ymd)];anchors.append({"code":code,"ymd":ymd,"present":not z.empty,"fresh_ma20_break":False if z.empty else bool(z.cross_ma20.iloc[0]==1)})
+ data={"schema_version":"tradex_core_fresh_ma20_break_oos_v1.compare.v1","artifact_role":"authoritative","axis":"fresh close-based MA20 break","fixed_conditions":{"candidate_union":"unchanged","single_filter":"cross_ma20==1","definition":"prior close>=prior MA20 and current close<current MA20","years":list(YEARS),"outcome":"fixed3 h5","minimum_each_year":30,"threshold_sweep":False},"baseline_results":base,"challenger_results":challenger,"human_anchor_states":anchors,"observed_branching":{"base_events":int(len(x)),"retained_events":int(len(q)),"removed_events":int(len(x)-len(q)),"changed_rank_count":int(len(x)-len(q)),"selection_divergence_reason":"fresh transition below MA20 is separated from already-below MA20 position"},"judgment":{"decision":"keep" if direction and breadth else "drop","direction_pass_all_years":direction,"breadth_pass":breadth,"reason":"fresh MA20 break passes every year" if direction and breadth else "fresh MA20 break is not directionally stable across all years"},"not_changed":["candidate branches","MA20 value","break definition","other features","human episode actions","MeeMee","ranking","runtime DB"]}
+ cp=a.output/"compare.json";cp.write_text(json.dumps(data,ensure_ascii=False,indent=2)+"\n",encoding="utf-8");q.to_parquet(a.output/"fresh_ma20_break_events.parquet",index=False);audit={"base_events":int(len(x)),"retained_events":int(len(q)),"duplicates":int(q.duplicated(["code","ymd"]).sum()),"missing_cross":int(x.cross_ma20.isna().sum()),"future_used_for_selection":False,"review_only":True,"source_sha256":sha(a.candidate_union)};(a.output/"audit.json").write_text(json.dumps(audit,indent=2)+"\n",encoding="utf-8");(a.output/"_ARTIFACT_COMPLETE.json").write_text(json.dumps({"complete":True,"authoritative":"compare.json","sha256":sha(cp)},indent=2)+"\n",encoding="utf-8");print(json.dumps({"output":str(a.output),"challenger":challenger,"anchors":anchors,"judgment":data["judgment"],"audit":audit},indent=2))
+if __name__=="__main__":main()

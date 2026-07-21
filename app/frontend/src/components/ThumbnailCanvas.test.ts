@@ -79,6 +79,26 @@ describe("drawChart", () => {
     expect(volumeBars[1].y).toBeGreaterThanOrEqual(90);
   });
 
+  it("right-aligns short bar histories inside the requested display range", () => {
+    const payload: BarsPayload = {
+      bars: [
+        [20260318, 100, 102, 99, 101, 0],
+        [20260319, 101, 112, 100, 110, 0]
+      ],
+      ma: { ma7: [], ma20: [], ma60: [] },
+      provenance: null
+    };
+    const boxes: Box[] = [];
+    const maSettings: MaSetting[] = [];
+    const { canvas, calls } = createCanvasStub();
+
+    drawChart(canvas, payload, boxes, false, maSettings, 200, 120, 4, false, "dark");
+
+    expect(calls).toHaveLength(2);
+    expect(calls[0].x).toBeGreaterThan(95);
+    expect(calls[1].x).toBeGreaterThan(calls[0].x);
+  });
+
   it("draws boxes with the detected monthly range", () => {
     const payload: BarsPayload = {
       bars: [

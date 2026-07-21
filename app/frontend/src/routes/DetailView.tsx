@@ -38,7 +38,8 @@ import { Box, MaSetting, useStore } from "../store";
 import { computeSignalMetrics } from "../utils/signals";
 import type { TradeEvent, CurrentPosition, DailyPosition } from "../utils/positions";
 import { buildCurrentPositions, buildDailyPositions, buildPositionLedger } from "../utils/positions";
-import { captureAndCopyScreenshot, getScreenType } from "../utils/windowScreenshot";
+import { captureAndCopyScreenshot, getScreenType, saveBlobToFile } from "../utils/windowScreenshot";
+import { normalizeSearchInput } from "../utils/searchInput";
 import { formatEventBadgeDate, parseEventDateMs } from "../utils/events";
 import DailyMemoPanel from "../components/DailyMemoPanel";
 import { buildConsultCopyText, copyToClipboard as copyConsultToClipboard } from "../utils/consultCopy";
@@ -199,6 +200,7 @@ import {
   shouldAutoRefreshTaisyaku,
   shouldAutoRefreshTdnet,
   buildRange,
+  buildRangeAroundTime,
   buildRangeEndingAt,
   buildRangeFromEndTime,
   hasSignificantRangeChange,
@@ -473,6 +475,10 @@ const tradesCache = new Map<
 >();
 const COMPARE_LOOKBACK_MONTHS = 10;
 const COMPARE_LOOKAHEAD_MONTHS = 2;
+const DETAIL_SHOT_CENTER_DAILY_LOOKBACK_MONTHS = 8;
+const DETAIL_SHOT_CENTER_DAILY_LOOKAHEAD_MONTHS = 3;
+const DETAIL_SHOT_CENTER_HIGHER_LOOKBACK_MONTHS = 18;
+const DETAIL_SHOT_CENTER_HIGHER_LOOKAHEAD_MONTHS = 6;
 const COMPARE_FORWARD_DAILY_BARS = 60;
 const COMPARE_FORWARD_MONTHLY_BARS = 2;
 const RANGE_SETTLE_MS = 2_000;
@@ -532,6 +538,46 @@ const ANALYSIS_NEIGHBOR_PREFETCH_DELAY_MS = 1200;
 const ANALYSIS_JOB_POLL_DELAY_MS = 1200;
 const TRADES_FETCH_DELAY_MS = 1200;
 
+const RESEARCH_REVIEW_MARKER_KINDS = new Set([
+  "research-up",
+  "research-down",
+  "research-neutral",
+]);
+
+export const parseResearchReviewMarkers = (raw: string | null) => {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.slice(0, 8).flatMap((item) => {
+      if (!item || typeof item !== "object") return [];
+      const date = String(item.date ?? "").trim();
+      const label = String(item.label ?? "").trim().slice(0, 24);
+      const kind = String(item.kind ?? "").trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !label || !RESEARCH_REVIEW_MARKER_KINDS.has(kind)) return [];
+      return [{ date, label, kind }];
+    });
+  } catch {
+    return [];
+  }
+};
+
+export const parseResearchReviewBand = (raw: string | null) => {
+  if (!raw) return null;
+  try {
+    const item = JSON.parse(raw);
+    const startDate = String(item?.startDate ?? "").trim();
+    const endDate = String(item?.endDate ?? "").trim();
+    const lower = Number(item?.lower);
+    const upper = Number(item?.upper);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) return null;
+    if (!Number.isFinite(lower) || !Number.isFinite(upper) || lower <= 0 || upper <= lower) return null;
+    return { startDate, endDate, lower, upper };
+  } catch {
+    return null;
+  }
+};
+
 const isRetryableTradesError = (error: unknown) => {
   const status = (error as { response?: { status?: number } })?.response?.status;
   const payload = (error as { response?: { data?: { retryable?: boolean } } })?.response?.data;
@@ -547,6 +593,32 @@ export default function DetailView() {
     const params = new URLSearchParams(location.search);
     return shouldShowOperatorConsole() && params.get("overwriteLiveValidation") === "1";
   }, [location.search]);
+  const autoScreenshotEnabled = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    const requested = params.get("autoScreenshot");
+    return location.pathname.startsWith("/detail-shot/") || requested === "1" || requested === "save";
+  }, [location.pathname, location.search]);
+  const cleanAutoScreenshotEnabled = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    const requested = params.get("cleanScreenshot");
+    return location.pathname.startsWith("/detail-shot/") || requested === "1" || requested === "true";
+  }, [location.pathname, location.search]);
+  const dailyMonthlyReviewScreenshotEnabled = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    return cleanAutoScreenshotEnabled && params.get("reviewTimeframes") === "daily-monthly";
+  }, [cleanAutoScreenshotEnabled, location.search]);
+  const cleanDetailScreenshotOptions = useMemo(() => ({
+    captureSelector: ".detail-shell",
+    ignoreSelectors: [
+      ".detail-header",
+      ".detail-footer-left",
+      ".toast",
+      ".global-screenshot-button",
+      ".ai-explain-dock",
+      ".popover",
+      ".detail-popover",
+    ],
+  }), []);
   const dailyChartRef = useRef<DetailChartHandle | null>(null);
   const weeklyChartRef = useRef<DetailChartHandle | null>(null);
   const monthlyChartRef = useRef<DetailChartHandle | null>(null);
@@ -561,6 +633,8 @@ export default function DetailView() {
   const manualCompareDailyRangeRef = useRef<{ from: number; to: number } | null>(null);
   const manualCompareMonthlyRangeRef = useRef<{ from: number; to: number } | null>(null);
   const analysisBaseAsOfRef = useRef<number | null>(null);
+  const autoScreenshotKeyRef = useRef<string | null>(null);
+  const autoScreenshotInFlightRef = useRef(false);
   // Guard: suppress programmatic visible-range events from resetting rangeMonths
   const rangeSettleRef = useRef(0);
 
@@ -663,6 +737,10 @@ export default function DetailView() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [toastAction, setToastAction] = useState<{ label: string; onClick: () => void } | null>(null);
   const [screenshotBusy, setScreenshotBusy] = useState(false);
+  // Clean captures intentionally omit the interactive header. Keep an explicit
+  // identifier visible while a manual capture is in progress so the resulting
+  // image remains attributable to its ticker.
+  const chartOnlyScreenshotEnabled = cleanAutoScreenshotEnabled || screenshotBusy;
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [showPositionLedger, setShowPositionLedger] = useState(false);
   const [financialPanel, setFinancialPanel] = useState<EdinetFinancialPanel | null>(null);
@@ -838,6 +916,21 @@ export default function DetailView() {
     const raw = params.get("mainAsOf");
     return raw ? raw.trim() : null;
   }, [location.search]);
+  const centerAsOf = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    const raw = params.get("centerAsOf");
+    return raw ? raw.trim() : null;
+  }, [location.search]);
+  const centerAsOfLookbackMonths = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    const raw = Number.parseInt(params.get("centerLookbackMonths") ?? "", 10);
+    return Number.isFinite(raw) && raw > 0 ? raw : DETAIL_SHOT_CENTER_DAILY_LOOKBACK_MONTHS;
+  }, [location.search]);
+  const centerAsOfLookaheadMonths = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    const raw = Number.parseInt(params.get("centerLookaheadMonths") ?? "", 10);
+    return Number.isFinite(raw) && raw > 0 ? raw : DETAIL_SHOT_CENTER_DAILY_LOOKAHEAD_MONTHS;
+  }, [location.search]);
   const compareAsOfTime = useMemo(() => {
     if (!compareAsOf) return null;
     return normalizeTime(compareAsOf);
@@ -846,6 +939,10 @@ export default function DetailView() {
     if (!mainAsOf) return null;
     return normalizeTime(mainAsOf);
   }, [mainAsOf]);
+  const centerAsOfTime = useMemo(() => {
+    if (!centerAsOf) return null;
+    return normalizeTime(centerAsOf);
+  }, [centerAsOf]);
   const isFavorite = useStore((state) => (code ? state.favorites.includes(code) : false));
   const [compareMonthlyData, setCompareMonthlyData] = useState<number[][]>([]);
   const [compareMonthlyErrors, setCompareMonthlyErrors] = useState<string[]>([]);
@@ -2379,7 +2476,7 @@ export default function DetailView() {
     : showFinancialPanel
       ? "financial"
       : null;
-  const showRightPanel = rightRailKind !== null;
+  const showRightPanel = rightRailKind !== null && !chartOnlyScreenshotEnabled;
   const headerDrawToolControls = (
     <>
       <AnnotationToolbar
@@ -3918,8 +4015,8 @@ export default function DetailView() {
     analysisLoadingText != null ||
     sellAnalysisLoadingText != null;
 
-  const dailyEventMarkers = useMemo<{ time: number; kind: "earnings" | "decision-buy" | "decision-sell" | "decision-neutral" | "tdnet-positive" | "tdnet-negative" | "tdnet-neutral"; label?: string }[]>(() => {
-    const markers: { time: number; kind: "earnings" | "decision-buy" | "decision-sell" | "decision-neutral" | "tdnet-positive" | "tdnet-negative" | "tdnet-neutral"; label?: string }[] = [];
+  const dailyEventMarkers = useMemo<{ time: number; kind: "earnings" | "decision-buy" | "decision-sell" | "decision-neutral" | "tdnet-positive" | "tdnet-negative" | "tdnet-neutral" | "research-up" | "research-down" | "research-neutral"; label?: string }[]>(() => {
+    const markers: { time: number; kind: "earnings" | "decision-buy" | "decision-sell" | "decision-neutral" | "tdnet-positive" | "tdnet-negative" | "tdnet-neutral" | "research-up" | "research-down" | "research-neutral"; label?: string }[] = [];
     const eventMs = parseEventDateMs(activeTicker?.eventEarningsDate);
     if (eventMs != null && dailyCandles.length > 0) {
       const eventTime = Math.floor(eventMs / 1000);
@@ -4674,9 +4771,41 @@ export default function DetailView() {
     }
     return buildRange(monthlyCandles, rangeMonths);
   }, [chartAsOfTime, monthlyCandles, rangeMonths]);
-  const resolvedDailyVisibleRange = cursorDailyVisibleRange ?? (rangeMonths ? dailyVisibleRange : manualDailyRangeRef.current);
-  const resolvedWeeklyVisibleRange = rangeMonths ? weeklyVisibleRange : manualWeeklyRangeRef.current;
-  const resolvedMonthlyVisibleRange = rangeMonths ? monthlyVisibleRange : manualMonthlyRangeRef.current;
+  const centerDailyVisibleRange = useMemo(
+    () =>
+      centerAsOfTime
+        ? buildRangeAroundTime(dailyCandles, centerAsOfTime, centerAsOfLookbackMonths, centerAsOfLookaheadMonths)
+        : null,
+    [centerAsOfLookaheadMonths, centerAsOfLookbackMonths, centerAsOfTime, dailyCandles]
+  );
+  const centerWeeklyVisibleRange = useMemo(
+    () =>
+      centerAsOfTime
+        ? buildRangeAroundTime(
+            weeklyCandles,
+            centerAsOfTime,
+            Math.max(centerAsOfLookbackMonths, DETAIL_SHOT_CENTER_HIGHER_LOOKBACK_MONTHS),
+            Math.max(centerAsOfLookaheadMonths, DETAIL_SHOT_CENTER_HIGHER_LOOKAHEAD_MONTHS)
+          )
+        : null,
+    [centerAsOfLookaheadMonths, centerAsOfLookbackMonths, centerAsOfTime, weeklyCandles]
+  );
+  const centerMonthlyVisibleRange = useMemo(
+    () =>
+      centerAsOfTime
+        ? buildRangeAroundTime(
+            monthlyCandles,
+            centerAsOfTime,
+            Math.max(centerAsOfLookbackMonths, DETAIL_SHOT_CENTER_HIGHER_LOOKBACK_MONTHS),
+            Math.max(centerAsOfLookaheadMonths, DETAIL_SHOT_CENTER_HIGHER_LOOKAHEAD_MONTHS)
+          )
+        : null,
+    [centerAsOfLookaheadMonths, centerAsOfLookbackMonths, centerAsOfTime, monthlyCandles]
+  );
+  const resolvedDailyVisibleRange =
+    centerDailyVisibleRange ?? cursorDailyVisibleRange ?? (rangeMonths ? dailyVisibleRange : manualDailyRangeRef.current);
+  const resolvedWeeklyVisibleRange = centerWeeklyVisibleRange ?? (rangeMonths ? weeklyVisibleRange : manualWeeklyRangeRef.current);
+  const resolvedMonthlyVisibleRange = centerMonthlyVisibleRange ?? (rangeMonths ? monthlyVisibleRange : manualMonthlyRangeRef.current);
 
   // Cursor mode functions
   const autoPanToBar = useCallback((time: number) => {
@@ -4707,6 +4836,14 @@ export default function DetailView() {
 
     autoPanToBar(bar.time);
   }, [dailyCandles, autoPanToBar]);
+
+  useEffect(() => {
+    if (!cleanAutoScreenshotEnabled || centerAsOfTime == null || dailyCandles.length === 0) return;
+    const nearestIndex = findNearestCandleIndex(dailyCandles, centerAsOfTime);
+    if (nearestIndex == null) return;
+    setCursorMode(true);
+    updateSelectedBar(nearestIndex);
+  }, [cleanAutoScreenshotEnabled, centerAsOfTime, dailyCandles, updateSelectedBar]);
 
   const moveToPrevDay = useCallback(() => {
     if (selectedBarIndex === null || selectedBarIndex <= 0) return;
@@ -5029,6 +5166,33 @@ export default function DetailView() {
     () => new Map(dailyVolume.map((item) => [item.time, item.value])),
     [dailyVolume]
   );
+  const cleanScreenshotSummary = useMemo(() => {
+    const latest = dailyCandles[dailyCandles.length - 1];
+    if (!latest) return null;
+
+    const formatPrice = (value: number | undefined) =>
+      Number.isFinite(value) ? Math.round(value!).toLocaleString("ja-JP") : "--";
+    const latestVolume = dailyVolumeByTime.get(latest.time);
+    const recentVolumes = dailyVolume
+      .filter((item) => item.time <= latest.time && Number.isFinite(item.value))
+      .slice(-20)
+      .map((item) => item.value);
+    const averageVolume = recentVolumes.length
+      ? recentVolumes.reduce((sum, value) => sum + value, 0) / recentVolumes.length
+      : null;
+    const volumeRatio =
+      Number.isFinite(latestVolume) && averageVolume && averageVolume > 0
+        ? latestVolume! / averageVolume
+        : null;
+    const maAtLatest = (period: number) => dailyMaValueMapByPeriod.get(period)?.get(latest.time);
+
+    return {
+      date: toDateKey(latest.time),
+      ohlc: `O ${formatPrice(latest.open)} / H ${formatPrice(latest.high)} / L ${formatPrice(latest.low)} / C ${formatPrice(latest.close)}`,
+      ma: `7MA ${formatPrice(maAtLatest(7))} / 20MA ${formatPrice(maAtLatest(20))} / 60MA ${formatPrice(maAtLatest(60))}`,
+      volume: volumeRatio == null ? "出来高比 --" : `出来高比 ${volumeRatio.toFixed(1)}x（20日平均）`,
+    };
+  }, [dailyCandles, dailyMaValueMapByPeriod, dailyVolume, dailyVolumeByTime]);
   const compareDailyMaLines = useMemo(() => {
     return buildDetailMaLines(compareDailyCandles, compareMaSettings.daily);
   }, [compareDailyCandles, compareMaSettings.daily]);
@@ -6023,6 +6187,58 @@ export default function DetailView() {
 
   const showVolumeDaily = dailyVolume.length > 0 && showVolumeEnabled;
   const gapBandsOverride = showGapBands ? undefined : [];
+  const researchReviewMarkers = useMemo(() => {
+    if (!cleanAutoScreenshotEnabled || dailyCandles.length === 0) return [];
+    const params = new URLSearchParams(location.search);
+    return parseResearchReviewMarkers(params.get("researchMarkers")).flatMap((marker) => {
+      const requestedTime = normalizeTime(marker.date);
+      if (!Number.isFinite(requestedTime)) return [];
+      const markerTime = findNearestCandleTime(dailyCandles, requestedTime);
+      if (markerTime == null || Math.abs(markerTime - requestedTime) > MAX_EVENT_OFFSET_SEC) return [];
+      return [{ time: markerTime, label: marker.label, kind: marker.kind }];
+    });
+  }, [cleanAutoScreenshotEnabled, dailyCandles, location.search]);
+  const researchReviewBand = useMemo(() => {
+    if (!cleanAutoScreenshotEnabled || dailyCandles.length === 0) return [];
+    const params = new URLSearchParams(location.search);
+    const band = parseResearchReviewBand(params.get("researchBand"));
+    if (!band) return [];
+    const startTime = findNearestCandleTime(dailyCandles, normalizeTime(band.startDate));
+    const endTime = findNearestCandleTime(dailyCandles, normalizeTime(band.endDate));
+    if (startTime == null || endTime == null || startTime > endTime) return [];
+    return [{
+      startTime, endTime, topPrice: band.upper, bottomPrice: band.lower,
+      color: "#d97706", opacity: 0.14, lineWidth: 2,
+    }];
+  }, [cleanAutoScreenshotEnabled, dailyCandles, location.search]);
+  const cleanChartBoxes = chartOnlyScreenshotEnabled ? [] : boxes;
+  const cleanShowBoxes = chartOnlyScreenshotEnabled ? false : showBoxes;
+  const cleanShowBattleZones = chartOnlyScreenshotEnabled ? false : showBattleZones;
+  const cleanGapBands = chartOnlyScreenshotEnabled ? [] : gapBandsOverride;
+  const cleanTimeZones = chartOnlyScreenshotEnabled ? [] : null;
+  const cleanPriceBands = chartOnlyScreenshotEnabled ? [] : null;
+  const cleanDrawBoxes = chartOnlyScreenshotEnabled ? researchReviewBand : null;
+  const cleanHorizontalLines = chartOnlyScreenshotEnabled ? [] : null;
+  const cleanCallouts = chartOnlyScreenshotEnabled ? [] : annotationCallouts;
+  const cleanDailyEventMarkers = chartOnlyScreenshotEnabled ? researchReviewMarkers : mergedDailyEventMarkers;
+  const cleanCursorTime = chartOnlyScreenshotEnabled ? null : resolvedCursorAsOfTime;
+  const cleanSelectedTime = cleanAutoScreenshotEnabled ? null : selectedBarData?.time ?? null;
+  const cleanDailyDetailChrome = chartOnlyScreenshotEnabled ? null : DETAIL_CHROME_DAILY;
+  const cleanWeeklyDetailChrome = chartOnlyScreenshotEnabled ? null : DETAIL_CHROME_WEEKLY;
+  const cleanMonthlyDetailChrome = chartOnlyScreenshotEnabled ? null : DETAIL_CHROME_MONTHLY;
+  const cleanPositionOverlay = chartOnlyScreenshotEnabled
+    ? {
+        dailyPositions: [],
+        tradeMarkers: [],
+        showOverlay: false,
+        showMarkers: false,
+        showPnL: false,
+        hoverTime: null,
+        currentPositions: [],
+        latestTradeTime: null,
+        hidePanel: true,
+      }
+    : null;
 
   const handleDailyVisibleRangeChange = (range: { from: number; to: number } | null) => {
     if (rangeMonths && range) {
@@ -6351,7 +6567,7 @@ export default function DetailView() {
   const handleTickerCodeSubmit = useCallback(
     (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      const nextCode = tickerCodeInput.trim();
+      const nextCode = normalizeSearchInput(tickerCodeInput).trim();
       if (!nextCode || nextCode === code || !/^[0-9A-Za-z.-]+$/.test(nextCode)) return;
       void openDetailWithPrefetch({
         navigate,
@@ -6452,7 +6668,7 @@ export default function DetailView() {
     return { immediate, delayed };
   }, [listCodes, code]);
   useEffect(() => {
-    if (!backendReady || compareCode) return;
+    if (!backendReady || compareCode || autoScreenshotEnabled) return;
     if (dailyFetch.status !== "success") return;
     if (!detailPrefetchTargets.immediate.length && !detailPrefetchTargets.delayed.length) return;
     let cancelled = false;
@@ -6488,7 +6704,91 @@ export default function DetailView() {
     return () => {
       cancelled = true;
     };
-  }, [backendReady, compareCode, dailyFetch.status, detailPrefetchTargets, mainAsOf]);
+  }, [autoScreenshotEnabled, backendReady, compareCode, dailyFetch.status, detailPrefetchTargets, mainAsOf]);
+  useEffect(() => {
+    if (!autoScreenshotEnabled || !code || autoScreenshotInFlightRef.current) return;
+    const mainReady =
+      dailyFetch.status === "success" &&
+      weeklyFetch.status === "success" &&
+      monthlyFetch.status === "success";
+    if (!mainReady || dailyData.length === 0 || weeklyData.length === 0 || monthlyData.length === 0) return;
+    const key = `${location.pathname}?${location.search}`;
+    if (autoScreenshotKeyRef.current === key) return;
+    autoScreenshotKeyRef.current = key;
+    let cancelled = false;
+    const globalWindow = window as Window & {
+      __meemeeDetailScreenshotResult?: unknown;
+    };
+    const timerId = window.setTimeout(() => {
+      void (async () => {
+        setScreenshotBusy(true);
+        autoScreenshotInFlightRef.current = true;
+        setToastAction(null);
+        try {
+          const screenType = getScreenType(location.pathname);
+          const captureResult = await captureAndCopyScreenshot({
+            screenType,
+            code,
+            ...(cleanAutoScreenshotEnabled ? cleanDetailScreenshotOptions : {}),
+          });
+          if (cancelled) return;
+          if (!captureResult.success || !captureResult.blob || !captureResult.filename) {
+            const error = captureResult.error ?? "detail screenshot capture failed";
+            globalWindow.__meemeeDetailScreenshotResult = { success: false, code, error };
+            setToastMessage(error);
+            return;
+          }
+          const saveResult = await saveBlobToFile(captureResult.blob, captureResult.filename);
+          if (cancelled) return;
+          globalWindow.__meemeeDetailScreenshotResult = {
+            success: saveResult.success,
+            code,
+            copied: captureResult.copied,
+            filename: captureResult.filename,
+            savedPath: saveResult.savedPath,
+            savedDir: saveResult.savedDir,
+            error: saveResult.error,
+          };
+          if (!saveResult.success) {
+            setToastMessage(saveResult.error ?? "detail screenshot save failed");
+            return;
+          }
+          setToastMessage("銘柄詳細スクショを保存しました。");
+          if (saveResult.savedDir && window.pywebview?.api?.open_screenshot_dir) {
+            setToastAction({
+              label: "フォルダ",
+              onClick: () => {
+                void window.pywebview?.api?.open_screenshot_dir?.();
+              },
+            });
+          }
+        } finally {
+          if (!cancelled) {
+            setScreenshotBusy(false);
+            autoScreenshotInFlightRef.current = false;
+          }
+        }
+      })();
+    }, 700);
+    return () => {
+      cancelled = true;
+      autoScreenshotInFlightRef.current = false;
+      window.clearTimeout(timerId);
+    };
+  }, [
+    autoScreenshotEnabled,
+    cleanAutoScreenshotEnabled,
+    cleanDetailScreenshotOptions,
+    code,
+    dailyData.length,
+    dailyFetch.status,
+    location.pathname,
+    location.search,
+    monthlyFetch.status,
+    monthlyData.length,
+    weeklyData.length,
+    weeklyFetch.status,
+  ]);
   const headerScreenshotButton = (
     <IconButton
       label="スクショ"
@@ -6503,7 +6803,7 @@ export default function DetailView() {
         setToastAction(null);
         try {
           const screenType = getScreenType(location.pathname);
-          const result = await captureAndCopyScreenshot({ screenType, code });
+          const result = await captureAndCopyScreenshot({ screenType, code, ...cleanDetailScreenshotOptions });
           if (!result.success) {
             setToastMessage(result.error ?? "スクショに失敗しました");
             return;
@@ -6685,7 +6985,7 @@ export default function DetailView() {
                 aria-label="銘柄コードを入力"
                 inputMode="text"
                 value={tickerCodeInput}
-                onChange={(event) => setTickerCodeInput(event.target.value)}
+                onChange={(event) => setTickerCodeInput(normalizeSearchInput(event.target.value))}
                 onBlur={() => setTickerCodeInput(code ?? "")}
               />
             </form>
@@ -6783,6 +7083,23 @@ export default function DetailView() {
       {marketDataStatusMessage && (
         <div className={`detail-market-data-status ${marketDataStatusDelayed ? "is-delayed" : ""}`}>
           {marketDataStatusMessage}
+        </div>
+      )}
+      {chartOnlyScreenshotEnabled && (
+        <div className="detail-clean-shot-title">
+          <div className="detail-clean-shot-identity">
+            <span className="detail-clean-shot-code">{code}</span>
+            {tickerName && <span className="detail-clean-shot-name">{tickerName}</span>}
+          </div>
+          {cleanScreenshotSummary && (
+            <div className="detail-clean-shot-metrics">
+              <span>基準日 {cleanScreenshotSummary.date}</span>
+              <span>{cleanScreenshotSummary.ohlc}</span>
+              <span>{cleanScreenshotSummary.ma}</span>
+              <span>{cleanScreenshotSummary.volume}</span>
+              <span>決算予定 {earningsLabel || "--"}</span>
+            </div>
+          )}
         </div>
       )}
       <div className={`detail-content ${showRightPanel ? "with-right-rail" : ""}`}>
@@ -7128,19 +7445,20 @@ export default function DetailView() {
                       volume={dailyVolume}
                       maLines={dailyChartMaLines}
                       showVolume={showVolumeDaily}
-                      eventMarkers={mergedDailyEventMarkers}
-                      boxes={boxes}
-                      showBoxes={showBoxes}
-                      showBattleZones={showBattleZones}
-                      gapBands={gapBandsOverride}
+                      eventMarkers={cleanDailyEventMarkers}
+                      boxes={cleanChartBoxes}
+                      showBoxes={cleanShowBoxes}
+                      showBattleZones={cleanShowBattleZones}
+                      gapBands={cleanGapBands}
                       drawingEnabled={dailyAnnotationDrawTool != null}
-                      timeZones={dailyDrawings.timeZones}
-                      priceBands={dailyPriceBandsWithPositionRisk}
-                      drawBoxes={dailyDrawBoxesWithAnnotations}
-                      horizontalLines={dailyHorizontalLinesWithPositionRisk}
-                      callouts={annotationCallouts}
+                      timeZones={cleanTimeZones ?? dailyDrawings.timeZones}
+                      priceBands={cleanPriceBands ?? dailyPriceBandsWithPositionRisk}
+                      drawBoxes={cleanDrawBoxes ?? dailyDrawBoxesWithAnnotations}
+                      horizontalLines={cleanHorizontalLines ?? dailyHorizontalLinesWithPositionRisk}
+                      callouts={cleanCallouts}
                       showPriceBands
-                      meeMeeDetailChrome={DETAIL_CHROME_DAILY}
+                      suppressValueLabels={chartOnlyScreenshotEnabled}
+                      meeMeeDetailChrome={cleanDailyDetailChrome}
                       selectionEnabled={!annotationMode && drawingSelectionMode}
                       activeTool={dailyAnnotationDrawTool}
                       onDrawCommit={handleDrawCommit}
@@ -7163,13 +7481,13 @@ export default function DetailView() {
                       onDeleteHorizontalLine={deleteHorizontalLine(dailyDrawingKey)}
                       partialTimes={dailyMonthBoundaries}
                       visibleRange={resolvedDailyVisibleRange}
-                      positionOverlay={{
+                      positionOverlay={cleanPositionOverlay ?? {
                         dailyPositions,
                         tradeMarkers,
                         showOverlay: showTradesOverlay,
                         showMarkers: showTradeMarkers,
                         showPnL: showPnLPanel,
-                        hoverTime: resolvedCursorAsOfTime ?? mainSync.hoverTime,
+                        hoverTime: cleanCursorTime ?? mainSync.hoverTime,
                         currentPositions,
                         latestTradeTime
                       }}
@@ -7344,19 +7662,20 @@ export default function DetailView() {
                       volume={dailyVolume}
                       maLines={dailyChartMaLines}
                       showVolume={showVolumeDaily}
-                      eventMarkers={mergedDailyEventMarkers}
-                      boxes={boxes}
-                      showBoxes={showBoxes}
-                      showBattleZones={showBattleZones}
-                      gapBands={gapBandsOverride}
+                      eventMarkers={cleanDailyEventMarkers}
+                      boxes={cleanChartBoxes}
+                      showBoxes={cleanShowBoxes}
+                      showBattleZones={cleanShowBattleZones}
+                      gapBands={cleanGapBands}
                       drawingEnabled={dailyAnnotationDrawTool != null}
-                      timeZones={dailyDrawings.timeZones}
-                      priceBands={dailyPriceBandsWithPositionRisk}
-                      drawBoxes={dailyDrawBoxesWithAnnotations}
-                      horizontalLines={dailyHorizontalLinesWithPositionRisk}
-                      callouts={annotationCallouts}
+                      timeZones={cleanTimeZones ?? dailyDrawings.timeZones}
+                      priceBands={cleanPriceBands ?? dailyPriceBandsWithPositionRisk}
+                      drawBoxes={cleanDrawBoxes ?? dailyDrawBoxesWithAnnotations}
+                      horizontalLines={cleanHorizontalLines ?? dailyHorizontalLinesWithPositionRisk}
+                      callouts={cleanCallouts}
                       showPriceBands
-                      meeMeeDetailChrome={DETAIL_CHROME_DAILY}
+                      suppressValueLabels={chartOnlyScreenshotEnabled}
+                      meeMeeDetailChrome={cleanDailyDetailChrome}
                       selectionEnabled={!annotationMode && drawingSelectionMode}
                       activeTool={dailyAnnotationDrawTool}
                       onDrawCommit={handleDrawCommit}
@@ -7379,7 +7698,7 @@ export default function DetailView() {
                       onDeleteHorizontalLine={deleteHorizontalLine(dailyDrawingKey)}
                       partialTimes={dailyMonthBoundaries}
                       visibleRange={resolvedDailyVisibleRange}
-                      positionOverlay={{
+                      positionOverlay={cleanPositionOverlay ?? {
                         dailyPositions,
                         tradeMarkers,
                         showOverlay: showTradesOverlay,
@@ -7389,8 +7708,8 @@ export default function DetailView() {
                         currentPositions,
                         latestTradeTime
                       }}
-                        cursorTime={resolvedCursorAsOfTime}
-                        selectedTime={selectedBarData?.time ?? null}
+                        cursorTime={cleanCursorTime}
+                        selectedTime={cleanSelectedTime}
                         onCrosshairMove={handleDailyCrosshair}
                       onVisibleRangeChange={handleDailyVisibleRangeChange}
                       onChartClick={handleDailyChartClick}
@@ -7415,6 +7734,7 @@ export default function DetailView() {
                 style={{ flex: `${1 - DETAIL_DAILY_ROW_RATIO} 1 0%` }}
                 ref={bottomRowRef}
               >
+                {!dailyMonthlyReviewScreenshotEnabled && (
                 <div className="detail-pane" style={{ flex: `${weeklyRatio} 1 0%` }}>
                   <div
                     className="detail-chart detail-chart-focusable"
@@ -7427,16 +7747,17 @@ export default function DetailView() {
                         volume={weeklyVolume}
                         maLines={weeklyChartMaLines}
                         showVolume={false}
-                        boxes={boxes}
-                        showBoxes={showBoxes}
-                        gapBands={gapBandsOverride}
+                        boxes={cleanChartBoxes}
+                        showBoxes={cleanShowBoxes}
+                        gapBands={cleanGapBands}
                         drawingEnabled={activeDrawTool != null}
-                        timeZones={weeklyDrawings.timeZones}
-                        priceBands={weeklyDrawings.priceBands}
-                        drawBoxes={weeklyDrawings.drawBoxes}
-                        horizontalLines={weeklyDrawings.horizontalLines}
+                        timeZones={cleanTimeZones ?? weeklyDrawings.timeZones}
+                        priceBands={cleanPriceBands ?? weeklyDrawings.priceBands}
+                        drawBoxes={cleanDrawBoxes ?? weeklyDrawings.drawBoxes}
+                        horizontalLines={cleanHorizontalLines ?? weeklyDrawings.horizontalLines}
                         showPriceBands
-                        meeMeeDetailChrome={DETAIL_CHROME_WEEKLY}
+                        suppressValueLabels={chartOnlyScreenshotEnabled}
+                        meeMeeDetailChrome={cleanWeeklyDetailChrome}
                         meeMeeDetailChromeTerminalDates={weeklyChromeTerminalDates}
                         selectionEnabled={!annotationMode && drawingSelectionMode}
                         activeTool={activeDrawTool}
@@ -7459,8 +7780,8 @@ export default function DetailView() {
                         onDeleteHorizontalLine={deleteHorizontalLine(weeklyDrawingKey)}
                         partialTimes={weeklyMonthBoundaries}
                         visibleRange={resolvedWeeklyVisibleRange}
-                        cursorTime={resolvedCursorAsOfTime}
-                        selectedTime={selectedBarData?.time ?? null}
+                        cursorTime={cleanCursorTime}
+                        selectedTime={cleanSelectedTime}
                         onCrosshairMove={handleWeeklyCrosshair}
                         onVisibleRangeChange={handleWeeklyVisibleRangeChange}
                       />
@@ -7480,12 +7801,15 @@ export default function DetailView() {
                     )}
                   </div>
                 </div>
+                )}
+                {!dailyMonthlyReviewScreenshotEnabled && (
                 <div
                   className="detail-divider detail-divider-vertical"
                   onMouseDown={startDrag()}
                   onTouchStart={startDrag()}
                 />
-                <div className="detail-pane" style={{ flex: `${monthlyRatio} 1 0%` }}>
+                )}
+                <div className="detail-pane" style={{ flex: dailyMonthlyReviewScreenshotEnabled ? "1 1 100%" : `${monthlyRatio} 1 0%` }}>
                   <div
                     className="detail-chart detail-chart-focusable"
                     onDoubleClick={() => toggleFocus("monthly")}
@@ -7497,16 +7821,17 @@ export default function DetailView() {
                         volume={monthlyVolume}
                         maLines={monthlyChartMaLines}
                         showVolume={false}
-                        boxes={boxes}
-                        showBoxes={showBoxes}
-                        gapBands={gapBandsOverride}
+                        boxes={cleanChartBoxes}
+                        showBoxes={cleanShowBoxes}
+                        gapBands={cleanGapBands}
                         drawingEnabled={activeDrawTool != null}
-                        timeZones={monthlyDrawings.timeZones}
-                        priceBands={monthlyDrawings.priceBands}
-                        drawBoxes={monthlyDrawings.drawBoxes}
-                        horizontalLines={monthlyDrawings.horizontalLines}
+                        timeZones={cleanTimeZones ?? monthlyDrawings.timeZones}
+                        priceBands={cleanPriceBands ?? monthlyDrawings.priceBands}
+                        drawBoxes={cleanDrawBoxes ?? monthlyDrawings.drawBoxes}
+                        horizontalLines={cleanHorizontalLines ?? monthlyDrawings.horizontalLines}
                         showPriceBands
-                        meeMeeDetailChrome={DETAIL_CHROME_MONTHLY}
+                        suppressValueLabels={chartOnlyScreenshotEnabled}
+                        meeMeeDetailChrome={cleanMonthlyDetailChrome}
                         meeMeeDetailChromeTerminalDates={monthlyChromeTerminalDates}
                         selectionEnabled={!annotationMode && drawingSelectionMode}
                         activeTool={activeDrawTool}
@@ -7529,8 +7854,8 @@ export default function DetailView() {
                         onDeleteHorizontalLine={deleteHorizontalLine(monthlyDrawingKey)}
                         partialTimes={monthlyYearBoundaries}
                         visibleRange={resolvedMonthlyVisibleRange}
-                        cursorTime={resolvedCursorAsOfTime}
-                        selectedTime={selectedBarData?.time ?? null}
+                        cursorTime={cleanCursorTime}
+                        selectedTime={cleanSelectedTime}
                         onCrosshairMove={handleMonthlyCrosshair}
                         onVisibleRangeChange={handleMonthlyVisibleRangeChange}
                       />
@@ -7554,7 +7879,7 @@ export default function DetailView() {
             </>
           )}
         </div>
-        {rightRailKind && (
+        {showRightPanel && (
           <aside className="detail-right-rail">
             {rightRailKind === "replay" && (
               <DetailReplayPanel
@@ -7757,7 +8082,7 @@ export default function DetailView() {
           </aside>
         )}
       </div>
-      {activeTdnetDisclosure && !compareCode && (
+      {activeTdnetDisclosure && !compareCode && !chartOnlyScreenshotEnabled && (
         <Suspense fallback={null}>
           <LazyDetailTdnetCard
             activeTdnetDisclosure={activeTdnetDisclosure}
@@ -7771,7 +8096,7 @@ export default function DetailView() {
           />
         </Suspense>
       )}
-      {!focusPanel && (
+      {!focusPanel && !chartOnlyScreenshotEnabled && (
         <div className="detail-footer" data-testid="detail-footer">
           <div className="detail-footer-left">
             <button className="load-more is-compact" onClick={loadMoreDailyAndMonthly} disabled={loadMoreDisabled}>
@@ -7797,6 +8122,7 @@ export default function DetailView() {
           </div>
         </div>
       )}
+      {!chartOnlyScreenshotEnabled && (
       <div className="detail-bottom-tools">
         <DetailDebugBanner
           hasIssues={hasIssues}
@@ -7828,6 +8154,7 @@ export default function DetailView() {
           </div>
         )}
       </div>
+      )}
       <DetailPositionLedgerSheet
         isOpen={showPositionLedger}
         expanded={positionLedgerExpanded}

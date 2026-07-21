@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { IconTrash } from "@tabler/icons-react";
 import { CrosshairMode, createChart, type Time } from "lightweight-charts";
 import type { Box } from "../store";
@@ -162,7 +162,10 @@ type EventMarker = {
     | "decision-neutral"
     | "tdnet-positive"
     | "tdnet-negative"
-    | "tdnet-neutral";
+    | "tdnet-neutral"
+    | "research-up"
+    | "research-down"
+    | "research-neutral";
 };
 
 type ChartWithCrosshairApi = ReturnType<typeof createChart> & {
@@ -380,6 +383,7 @@ type DetailChartProps = {
   onChartClick?: (time: number | null, point?: { x: number; y: number; price: number | null } | null) => void;
   theme?: "dark" | "light";
   meeMeeDetailChrome?: MeeMeeDetailChromeConfig | null;
+  suppressValueLabels?: boolean;
 };
 
 const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function DetailChart(
@@ -430,7 +434,8 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     onVisibleRangeChange,
     onChartClick,
     theme,
-    meeMeeDetailChrome
+    meeMeeDetailChrome,
+    suppressValueLabels = false
   },
   ref
 ) {
@@ -550,6 +555,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     lastValueVisible: boolean;
   }>>([]);
   const detailChromeEnabledRef = useRef(detailChromeEnabled);
+  const suppressValueLabelsRef = useRef(suppressValueLabels);
   const detailChromeTimeframeRef = useRef<MeeMeeDetailChromeConfig["timeframe"] | null>(
     detailChromeTimeframe
   );
@@ -557,8 +563,10 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     meeMeeDetailChromeTerminalDates ?? null
   );
   const [chromeTick, setChromeTick] = useState(0);
+  const [crosshairDateVisible, setCrosshairDateVisible] = useState(false);
   const [detailChromeSnapshot, setDetailChromeSnapshot] = useState<{
     chipLabel: string;
+    chipX?: number;
     legendLabel?: string;
     legendClose?: string;
     legendValues: Array<{ key: string; label: string; value: string; color?: string }>;
@@ -656,9 +664,10 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
 
   useEffect(() => {
     detailChromeEnabledRef.current = detailChromeEnabled;
+    suppressValueLabelsRef.current = suppressValueLabels;
     detailChromeTimeframeRef.current = detailChromeTimeframe;
     detailChromeTerminalDatesRef.current = meeMeeDetailChromeTerminalDates ?? null;
-  }, [detailChromeEnabled, detailChromeTimeframe, meeMeeDetailChromeTerminalDates]);
+  }, [detailChromeEnabled, detailChromeTimeframe, meeMeeDetailChromeTerminalDates, suppressValueLabels]);
 
   const emitSelectionStable = useStableCallback(emitSelection);
   const clearDraftStateStable = useStableCallback(clearDraftState);
@@ -850,6 +859,13 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     const rightBoundary =
       visibleRange && Number.isFinite(visibleRange.to) ? visibleRange.to : candleSource[candleSource.length - 1]?.time ?? null;
     const chipCandle = findLastCandleAtOrBefore(candleSource, rightBoundary ?? null) ?? candleSource[candleSource.length - 1] ?? null;
+    const rawChipX = chipCandle
+      ? chartRef.current?.timeScale?.().timeToCoordinate?.(chipCandle.time)
+      : null;
+    const chartWidth = containerRef.current?.clientWidth ?? 0;
+    const chipX = typeof rawChipX === "number" && Number.isFinite(rawChipX) && chartWidth > 0
+      ? Math.max(32, Math.min(chartWidth - 32, rawChipX))
+      : undefined;
     const legendAnchorTime = cursorTimeRef.current ?? selectedTimeRef.current ?? chipCandle?.time ?? null;
     const legendCandle = findLastCandleAtOrBefore(candleSource, legendAnchorTime);
     const activeCandle = legendCandle ?? chipCandle ?? candleSource[candleSource.length - 1] ?? null;
@@ -883,6 +899,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
       });
     return {
       chipLabel: formatDetailChromeDate(chipCandle?.time ?? candleSource[candleSource.length - 1].time, timeframe),
+      chipX,
       legendLabel: legendCandle
         ? formatDetailChromeDate(legendCandle.time, timeframe)
         : formatDetailChromeDate(chipCandle?.time ?? candleSource[candleSource.length - 1].time, timeframe),
@@ -2188,11 +2205,19 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
                       ? "#ef4444"
                       : marker.kind === "tdnet-neutral"
                         ? "#f59e0b"
+                        : marker.kind === "research-up"
+                          ? "#16a34a"
+                          : marker.kind === "research-down"
+                            ? "#dc2626"
+                            : marker.kind === "research-neutral"
+                              ? "#d97706"
                         : colors.earnings;
+          const isResearchMarker = marker.kind?.startsWith("research-") ?? false;
           const isDecisionMarker =
             marker.kind === "decision-buy" ||
             marker.kind === "decision-sell" ||
-            marker.kind === "decision-neutral";
+            marker.kind === "decision-neutral" ||
+            isResearchMarker;
           let markerY = markerBaseY;
           if (isDecisionMarker && typeof series?.priceToCoordinate === "function") {
             const candle = candleMap.get(marker.time);
@@ -2224,7 +2249,22 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
           ctx.fill();
           ctx.globalAlpha = 0.65;
           ctx.stroke();
-          if (!isDecisionMarker) {
+          if (isResearchMarker) {
+            const label = marker.label ?? "研究判定";
+            ctx.font = "bold 11px sans-serif";
+            const labelWidth = Math.ceil(ctx.measureText(label).width) + 10;
+            const labelHeight = 18;
+            const labelX = Math.max(4, Math.min(width - labelWidth - 4, x + 8));
+            const labelY = Math.max(4, markerY - labelHeight / 2);
+            ctx.globalAlpha = 0.92;
+            ctx.fillStyle = markerColor;
+            ctx.fillRect(labelX, labelY, labelWidth, labelHeight);
+            ctx.globalAlpha = 1;
+            ctx.fillStyle = "#ffffff";
+            ctx.textAlign = "center";
+            ctx.fillText(label, labelX + labelWidth / 2, labelY + 12.5);
+            ctx.textAlign = "left";
+          } else if (!isDecisionMarker) {
             ctx.globalAlpha = 0.6;
             ctx.fillStyle = colors.muted;
             ctx.fillText(marker.label ?? "E", x + 6, markerY);
@@ -2365,7 +2405,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
             lineWidth: line.lineWidth,
             priceLineVisible: false,
             crosshairMarkerVisible: false,
-            lastValueVisible: !detailChromeEnabledRef.current
+            lastValueVisible: !detailChromeEnabledRef.current && !suppressValueLabelsRef.current
           })
         );
       }
@@ -2422,7 +2462,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
         color: line.color,
         visible: line.visible,
         lineWidth: line.lineWidth,
-        lastValueVisible: !detailChromeEnabledRef.current
+        lastValueVisible: !detailChromeEnabledRef.current && !suppressValueLabelsRef.current
       };
       const prevLineOptions = lastAppliedLineOptionsRef.current[index];
       if (
@@ -2621,7 +2661,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
       cursorTime: cursorTime ?? null,
       selectedTime: selectedTime ?? null
     };
-    if (detailChromeEnabledRef.current) {
+    if (detailChromeEnabledRef.current || selectedTime != null) {
       setChromeTick((tick) => tick + 1);
     }
     drawOverlayStable();
@@ -2709,6 +2749,19 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     meeMeeDetailChromeTerminalDates,
     buildDetailChromeSnapshotStable
   ]);
+
+  const selectedDateSnapshot = useMemo(() => {
+    if (selectedTime == null || cursorTime != null) return null;
+    const selectedCandleTime = findNearestChartTime(candles, selectedTime);
+    if (selectedCandleTime == null) return null;
+    const rawX = chartRef.current?.timeScale?.().timeToCoordinate?.(selectedCandleTime);
+    const chartWidth = containerRef.current?.clientWidth ?? 0;
+    if (typeof rawX !== "number" || !Number.isFinite(rawX) || chartWidth <= 0) return null;
+    return {
+      label: formatDetailChromeDate(selectedCandleTime, detailChromeTimeframe ?? "daily"),
+      x: Math.max(32, Math.min(chartWidth - 32, rawX))
+    };
+  }, [candles, chromeTick, cursorTime, detailChromeTimeframe, selectedTime]);
 
   useEffect(() => {
     if (gapBands) return;
@@ -2855,7 +2908,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
         color: prev?.color ?? dataRef.current.maLines[index]?.color ?? colors.text,
         visible: prev?.visible ?? dataRef.current.maLines[index]?.visible ?? true,
         lineWidth: prev?.lineWidth ?? dataRef.current.maLines[index]?.lineWidth ?? 1,
-        lastValueVisible: !detailChromeEnabled
+        lastValueVisible: !detailChromeEnabled && !suppressValueLabels
       };
       series.applyOptions({
         color: next.color,
@@ -2867,7 +2920,11 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
       lastAppliedLineOptionsRef.current[index] = next;
     });
     drawOverlayStable();
-  }, [detailChromeEnabled, readChartColorsStable, resolvedTheme, showVolume, drawOverlayStable]);
+    candleSeriesRef.current?.applyOptions({
+      priceLineVisible: !suppressValueLabels,
+      lastValueVisible: !suppressValueLabels
+    });
+  }, [detailChromeEnabled, readChartColorsStable, resolvedTheme, showVolume, drawOverlayStable, suppressValueLabels]);
 
   useLayoutEffect(() => {
     if (!containerRef.current || chartRef.current) return;
@@ -2912,7 +2969,9 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
           scaleMargins: { top: 0.08, bottom: 0.25 }
         },
         timeScale: {
-          borderVisible: false,
+          borderVisible: true,
+          borderColor: baseColors.grid,
+          ticksVisible: true,
           tickMarkFormatter: formatChartDate,
           rightOffset: 0,
           fixRightEdge: true,
@@ -2926,7 +2985,9 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
         downColor: "#22c55e",
         borderVisible: false,
         wickUpColor: "#ef4444",
-        wickDownColor: "#22c55e"
+        wickDownColor: "#22c55e",
+        priceLineVisible: !suppressValueLabelsRef.current,
+        lastValueVisible: !suppressValueLabelsRef.current
       });
 
       const volumeSeries = chart.addHistogramSeries({
@@ -2948,7 +3009,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
           lineWidth: line.lineWidth,
           priceLineVisible: false,
           crosshairMarkerVisible: false,
-          lastValueVisible: !detailChromeEnabledRef.current
+          lastValueVisible: !detailChromeEnabledRef.current && !suppressValueLabelsRef.current
         })
       );
 
@@ -2957,6 +3018,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
           suppressCrosshairRef.current = false;
           return;
         }
+        setCrosshairDateVisible(Boolean(param?.point && param?.time != null));
         if (!onCrosshairMoveRef.current) return;
         const point =
           param && param.point && Number.isFinite(param.point.x) && Number.isFinite(param.point.y)
@@ -3513,10 +3575,20 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     >
       <div className="detail-chart-inner" ref={containerRef} />
       <canvas className="detail-chart-overlay" ref={overlayRef} />
-      {showDetailChromeDateChip && (
+      {selectedDateSnapshot && !crosshairDateVisible && (
+        <div
+          className="chart-info-panel detail-chart-date-chip detail-chart-selected-date-chip"
+          data-testid="detail-chart-selected-date-chip"
+          style={{ left: selectedDateSnapshot.x }}
+        >
+          <span className="chart-info-value">{selectedDateSnapshot.label}</span>
+        </div>
+      )}
+      {showDetailChromeDateChip && !crosshairDateVisible && !selectedDateSnapshot && (
         <div
           className="chart-info-panel detail-chart-date-chip"
           data-testid="detail-chart-date-chip"
+          style={detailChromeSnapshot.chipX == null ? undefined : { left: detailChromeSnapshot.chipX }}
         >
           <span className="chart-info-label">日付</span>
           <span className="chart-info-value">{detailChromeSnapshot.chipLabel}</span>

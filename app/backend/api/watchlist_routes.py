@@ -21,6 +21,7 @@ from app.backend.services.watchlist import (
     watchlist_lock,
 )
 from app.backend.services.market_watch_tags import build_market_watch_tags_by_code
+from app.backend.services.tradex_research_tags import build_short_research_tags_by_code
 from app.backend.core.screener_snapshot_job import schedule_screener_snapshot_refresh
 
 router = APIRouter()
@@ -30,13 +31,20 @@ router = APIRouter()
 def get_watchlist():
     path = resolve_watchlist_path()
     if not os.path.isfile(path):
-        return {"codes": [], "path": path, "missing": True}
+        return {
+            "codes": [],
+            "tagsByCode": {},
+            "researchTagsByCode": build_short_research_tags_by_code(),
+            "path": path,
+            "missing": True,
+        }
 
     with watchlist_lock:
         codes = load_watchlist_codes(path)
     return {
         "codes": codes,
         "tagsByCode": build_market_watch_tags_by_code(codes),
+        "researchTagsByCode": build_short_research_tags_by_code(),
         "path": path,
         "missing": False,
     }
@@ -65,7 +73,10 @@ def watchlist_remove(payload: dict = Body(default=None)):
         return JSONResponse(status_code=400, content={"ok": False, "error": "invalid_code"})
 
     delete_artifacts = payload.get("deleteArtifacts", True)
-    delete_db = payload.get("deleteDb", False)
+    # Exclusion means removal from the active universe, not only editing
+    # code.txt. Purge derived/runtime rows by default so cached DB-backed lists
+    # cannot retain the code. Callers may explicitly opt out for diagnostics.
+    delete_db = payload.get("deleteDb", True)
     delete_related = payload.get("deleteRelated", False)
     path = resolve_watchlist_path()
     if not os.path.isfile(path):

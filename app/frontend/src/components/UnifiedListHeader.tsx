@@ -5,6 +5,7 @@ import { useStore } from "../store";
 import { DENSITY_PRESET_OPTIONS, type DensityPreset } from "../density";
 import { formatEventDateYmd, parseEventDateMs } from "../utils/events";
 import { formatUserFacingOperationIssue } from "../utils/userFacingErrors";
+import { normalizeSearchInput } from "../utils/searchInput";
 
 type ListTimeframe = "monthly" | "weekly" | "daily";
 
@@ -505,7 +506,7 @@ export default function UnifiedListHeader({
               className="search-input"
               placeholder={searchPlaceholderText}
               value={search}
-              onChange={(event) => onSearchChange(event.target.value)}
+              onChange={(event) => onSearchChange(normalizeSearchInput(event.target.value))}
             />
             {search && (
               <button

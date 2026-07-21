@@ -258,17 +258,22 @@ def _build_weekly_context(daily_rows: list[tuple]) -> dict[str, Any]:
 
 
 def _fetch_monthly_context(conn: duckdb.DuckDBPyConnection, code: str, as_of_date: str) -> dict[str, Any]:
-    _, asof_ymd = _as_of_compare_values(as_of_date)
-    month_limit = int(str(asof_ymd)[:6])
+    asof_epoch, asof_ymd = _as_of_compare_values(as_of_date)
+    asof_ym = int(str(asof_ymd)[:6])
     rows = conn.execute(
         """
         SELECT month, o, h, l, c, v
         FROM monthly_bars
-        WHERE code = ? AND month <= ?
+        WHERE code = ?
+          AND month <= CASE
+            WHEN month >= 1000000000 THEN ?
+            WHEN month >= 10000000 THEN ?
+            ELSE ?
+          END
         ORDER BY month DESC
         LIMIT 120
         """,
-        [code, month_limit],
+        [code, asof_epoch, asof_ymd, asof_ym],
     ).fetchall()
     rows = list(reversed(rows))
     return {

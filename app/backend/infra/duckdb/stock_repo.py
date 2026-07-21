@@ -149,41 +149,61 @@ class StockRepository:
             return {}
 
         placeholders = ",".join(["?"] * len(unique_codes))
-        query = f"""
-            SELECT code, date, o, h, l, c, v, COALESCE(source, 'pan') AS source
-            FROM (
-                SELECT
-                    code,
-                    date,
-                    o,
-                    h,
-                    l,
-                    c,
-                    v,
-                    source,
-                    ROW_NUMBER() OVER (PARTITION BY code ORDER BY date DESC) AS rn
-                FROM daily_bars
-                WHERE code IN ({placeholders})
-        """
-        params: List[Any] = list(unique_codes)
-        if asof_dt is not None:
-            asof_ymd = int(datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y%m%d"))
-            query += " AND date <= CASE WHEN date >= 1000000000 THEN ? ELSE ? END"
-            params.extend([asof_dt, asof_ymd])
-        query += """
-            )
-            WHERE rn <= ?
-            ORDER BY code, date
-        """
-        params.append(limit)
-
         with self._get_read_conn() as conn:
-            rows = conn.execute(query, params).fetchall()
+            source_expr = "COALESCE(source, 'pan')" if self._column_exists(conn, "daily_bars", "source") else "'pan'"
+            rows = conn.execute(
+                f"""
+                SELECT code, date, o, h, l, c, v, {source_expr} AS source
+                FROM (
+                    SELECT
+                        code,
+                        date,
+                        o,
+                        h,
+                        l,
+                        c,
+                        v,
+                        {source_expr} AS source,
+                        ROW_NUMBER() OVER (PARTITION BY code ORDER BY date DESC) AS rn
+                    FROM daily_bars
+                    WHERE code IN ({placeholders})
+            """
+                + (
+                    " AND date <= CASE WHEN date >= 1000000000 THEN ? ELSE ? END"
+                    if asof_dt is not None
+                    else ""
+                )
+                + """
+                )
+                WHERE rn <= ?
+                ORDER BY code, date
+                """,
+                [
+                    *unique_codes,
+                    *(
+                        [
+                            asof_dt,
+                            int(datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y%m%d")),
+                        ]
+                        if asof_dt is not None
+                        else []
+                    ),
+                    limit,
+                ],
+            ).fetchall()
 
         grouped: Dict[str, List[Tuple]] = {code: [] for code in unique_codes}
         for row in rows:
             code = str(row[0])
             grouped.setdefault(code, []).append(tuple(row[1:]))
+        for code, code_rows in list(grouped.items()):
+            trimmed_rows = trim_to_latest_continuous_segment(code_rows)
+            grouped[code] = self._maybe_fill_sparse_daily_history_with_source(
+                code,
+                trimmed_rows,
+                limit=limit,
+                asof_dt=asof_dt,
+            )
         return grouped
 
     def get_daily_bars_with_source_around_batch(
@@ -329,6 +349,30 @@ class StockRepository:
         if limit > 0 and len(preferred) > limit:
             return preferred[-limit:]
         return preferred
+
+    def _maybe_fill_sparse_daily_history_with_source(
+        self,
+        code: str,
+        rows: List[Tuple],
+        *,
+        limit: int,
+        asof_dt: int | None,
+    ) -> List[Tuple]:
+        stripped_rows = [tuple(row[:6]) for row in rows]
+        if not needs_history_backfill(stripped_rows):
+            return rows
+
+        yahoo_rows = get_historical_daily_rows_from_chart(code)
+        if asof_dt is not None:
+            yahoo_rows = [row for row in yahoo_rows if int(row[0]) <= int(asof_dt)]
+        preferred = prefer_richer_history(stripped_rows, yahoo_rows)
+        if preferred == stripped_rows:
+            return rows
+
+        filled = [tuple(row[:6]) + ("yahoo_history",) for row in preferred]
+        if limit > 0 and len(filled) > limit:
+            return filled[-limit:]
+        return filled
 
     def _finalize_monthly_rows(
         self,

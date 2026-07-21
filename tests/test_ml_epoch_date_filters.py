@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 import pandas as pd
+import duckdb
 
 from app.backend.services.ml import ml_service
 
@@ -36,7 +37,7 @@ class _LabelConn:
     def execute(self, query: str, params=None):
         sql = " ".join(str(query).split())
         args = list(params or [])
-        if sql.startswith("CREATE TABLE IF NOT EXISTS") or sql.startswith("ALTER TABLE"):
+        if sql.startswith("CREATE TABLE IF NOT EXISTS") or sql.startswith("ALTER TABLE") or sql.startswith("DROP VIEW"):
             return _Rows([])
         if sql.startswith("SELECT 1 FROM information_schema.tables") or sql.startswith("SELECT COUNT(*) FROM information_schema.tables"):
             return _Rows([(1,)])
@@ -98,6 +99,93 @@ def test_load_training_df_uses_yyyymmdd_bounds_for_epoch_feature_dates() -> None
     assert df["dt"].tolist() == [_epoch(20260312)]
     assert "CASE WHEN f.dt >= 1000000000" in conn.sql
     assert conn.params == [20260312, 20260312]
+
+
+def test_refresh_ml_labels_incremental_advances_from_latest_label() -> None:
+    conn = duckdb.connect(":memory:")
+    ml_service._ensure_ml_schema(conn)  # type: ignore[attr-defined]
+    conn.execute("CREATE TABLE daily_bars (code VARCHAR, date INTEGER, h DOUBLE, l DOUBLE, c DOUBLE)")
+    dates = [_epoch(20260101) + i * 86400 for i in range(45)]
+    conn.executemany(
+        "INSERT INTO daily_bars VALUES ('1001', ?, ?, ?, ?)",
+        [(dt, 101.0 + i, 99.0 + i, 100.0 + i) for i, dt in enumerate(dates)],
+    )
+
+    first = ml_service.refresh_ml_labels_incremental(conn)
+    assert first["updated"] is True
+    assert first["rows"] == 25
+
+    conn.executemany(
+        "INSERT INTO daily_bars VALUES ('1001', ?, ?, ?, ?)",
+        [(dates[-1] + (i + 1) * 86400, 146.0 + i, 144.0 + i, 145.0 + i) for i in range(5)],
+    )
+    second = ml_service.refresh_ml_labels_incremental(conn)
+    assert second["updated"] is True
+    assert second["latest_label_dt"] > first["latest_label_dt"]
+
+
+def test_refresh_ml_features_incremental_skips_when_current(monkeypatch) -> None:
+    class _Conn:
+        def execute(self, sql):
+            if "feature_snapshot_daily" in sql:
+                return _Rows([(_epoch(20260619),)])
+            if "ml_feature_daily" in sql:
+                return _Rows([(_epoch(20260619),)])
+            raise AssertionError(sql)
+
+    monkeypatch.setattr(ml_service, "ensure_ml_runtime_schema", lambda conn, legacy_schema_enabled: None)
+    result = ml_service.refresh_ml_features_incremental(_Conn())
+    assert result == {
+        "updated": False,
+        "rows": 0,
+        "previous_feature_dt": 20260619,
+        "latest_feature_dt": 20260619,
+    }
+
+
+def test_refresh_ml_predictions_incremental_advances_to_latest_feature(monkeypatch) -> None:
+    class _Conn:
+        def __init__(self):
+            self.replaced_dates = []
+
+        def execute(self, sql, params=None):
+            compact = " ".join(str(sql).split())
+            if compact.startswith("SELECT MAX(dt) FROM ml_feature_daily WHERE"):
+                assert params == [20260619]
+                return _Rows([(_epoch(20260619),)])
+            if compact.startswith("SELECT MAX(dt) FROM ml_feature_daily"):
+                return _Rows([(_epoch(20260619),)])
+            if compact.startswith("SELECT MAX(dt) FROM ml_pred_20d"):
+                if self.replaced_dates:
+                    return _Rows([(_epoch(20260619),)])
+                return _Rows([(_epoch(20260610),)])
+            raise AssertionError(compact)
+
+    conn = _Conn()
+    pred_frame = pd.DataFrame({"dt": [_epoch(20260619)], "code": ["1001"]})
+
+    monkeypatch.setattr(ml_service, "ensure_ml_runtime_schema", lambda conn, legacy_schema_enabled: None)
+    monkeypatch.setattr(ml_service, "_load_prediction_feature_frame", lambda conn, dates: pred_frame)
+    monkeypatch.setattr(ml_service, "_load_models_from_registry", lambda conn: ("models", "model-v1", 123))
+    monkeypatch.setattr(ml_service, "_predict_frame", lambda frame, models, cfg: frame)
+    monkeypatch.setattr(ml_service, "_build_ml_pred_rows", lambda pred, model_version, n_train: [("row",)])
+
+    def _replace(_conn, dates, rows):
+        _conn.replaced_dates.extend(dates)
+
+    monkeypatch.setattr(ml_service, "_replace_ml_predictions_for_dates", _replace)
+
+    result = ml_service.refresh_ml_predictions_incremental(conn)
+
+    assert conn.replaced_dates == [_epoch(20260619)]
+    assert result == {
+        "updated": True,
+        "rows": 1,
+        "previous_prediction_dt": 20260610,
+        "latest_prediction_dt": 20260619,
+        "model_version": "model-v1",
+        "skipped_reason": None,
+    }
 
 
 def test_train_models_wrapper_uses_current_impl(monkeypatch) -> None:

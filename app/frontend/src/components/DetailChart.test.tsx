@@ -541,6 +541,8 @@ describe("DetailChart MeeMee chrome", () => {
     expect(chart.options.timeScale.fixRightEdge).toBe(true);
     expect(chart.options.timeScale.lockVisibleTimeRangeOnResize).toBe(true);
     expect(chart.options.timeScale.rightBarStaysOnScroll).toBe(true);
+    expect(chart.options.timeScale.borderVisible).toBe(true);
+    expect(chart.options.timeScale.ticksVisible).toBe(true);
     expect(render.container.querySelector("[data-testid='detail-chart-date-chip']")).not.toBeNull();
     expect(render.container.querySelector("[data-testid='detail-chart-legend']")).not.toBeNull();
 
@@ -553,6 +555,19 @@ describe("DetailChart MeeMee chrome", () => {
       await Promise.resolve();
     });
 
+    expect(render.container.querySelector("[data-testid='detail-chart-date-chip']")?.textContent).toContain("26/04/09");
+    expect((render.container.querySelector("[data-testid='detail-chart-date-chip']") as HTMLElement)?.style.left).not.toBe("");
+
+    await act(async () => {
+      chart.crosshairHandler({ point: { x: 120, y: 80 }, time: firstWeekTime });
+      await Promise.resolve();
+    });
+    expect(render.container.querySelector("[data-testid='detail-chart-date-chip']")).toBeNull();
+
+    await act(async () => {
+      chart.crosshairHandler({ point: null, time: null });
+      await Promise.resolve();
+    });
     expect(render.container.querySelector("[data-testid='detail-chart-date-chip']")?.textContent).toContain("26/04/09");
 
     render.cleanup();
@@ -674,6 +689,30 @@ describe("DetailChart MeeMee chrome", () => {
     const gapDrawCalls = canvasMock?.ctx.fillRect.mock.calls.filter((call) => call[0] === 2 && call[2] === 878) ?? [];
     expect(gapDrawCalls.length).toBeGreaterThan(0);
 
+    render.cleanup();
+  });
+
+  it("keeps a clicked date label visible without a live cursor", async () => {
+    const selectedTime = baseCandles[0].time;
+    const render = await renderClient(
+      <DetailChart
+        candles={baseCandles}
+        volume={baseVolume}
+        maLines={baseMaLines}
+        showVolume={false}
+        boxes={[]}
+        showBoxes={false}
+        selectedTime={selectedTime}
+        cursorTime={null}
+      />
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(render.container.querySelector("[data-testid='detail-chart-selected-date-chip']")?.textContent).toContain("26/04/06");
     render.cleanup();
   });
 
