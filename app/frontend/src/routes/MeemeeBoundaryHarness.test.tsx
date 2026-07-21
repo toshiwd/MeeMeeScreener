@@ -79,6 +79,7 @@ function MockHeader(props: Record<string, unknown>) {
   return (
     <div data-testid="list-header">
       {props.topRowLeftExtra}
+      {props.topNavActions}
       {props.children}
     </div>
   );
@@ -297,7 +298,10 @@ async function waitForText(container: HTMLElement, text: string, timeoutMs = 250
   const start = Date.now();
   while (!container.textContent?.includes(text)) {
     if (Date.now() - start > timeoutMs) {
-      throw new Error(`Timed out waiting for text: ${text}`);
+      const requestedUrls = mocks.apiGet.mock.calls.map(([url]) => String(url));
+      throw new Error(
+        `Timed out waiting for text: ${text}; requested=${requestedUrls.join(",")}; rendered=${container.textContent ?? ""}`
+      );
     }
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 50));
@@ -305,9 +309,25 @@ async function waitForText(container: HTMLElement, text: string, timeoutMs = 250
   }
 }
 
+async function expandRankingInfo(container: HTMLElement) {
+  await waitForText(container, "情報表示");
+  const button = Array.from(container.querySelectorAll("button")).find(
+    (candidate) => candidate.textContent?.includes("情報表示")
+  );
+  if (!button) throw new Error("Ranking information toggle was not found");
+  await act(async () => {
+    button.click();
+  });
+}
+
 describe("MeeMee boundary harness", () => {
   beforeEach(() => {
     resetMocks();
+    vi.stubGlobal("requestIdleCallback", (callback: IdleRequestCallback) => {
+      callback({ didTimeout: false, timeRemaining: () => 50 });
+      return 1;
+    });
+    vi.stubGlobal("cancelIdleCallback", vi.fn());
     window.localStorage.clear();
     window.sessionStorage.clear();
     mocks.apiGet.mockImplementation((url: string, config?: { params?: Record<string, unknown> }) => {
@@ -582,19 +602,21 @@ describe("MeeMee boundary harness", () => {
   });
 
   afterEach(() => {
+    vi.unstubAllGlobals();
     document.body.innerHTML = "";
   });
 
   it("renders the ranking shell with confirmed-only rows", async () => {
     const render = await renderRankingRoute();
     await flush();
+    await expandRankingInfo(render.container);
     await waitForText(render.container, "注意/監視 1件");
     await waitForText(render.container, "市場データ更新", 12000);
 
     expect(render.container.textContent).toContain("1301");
     expect(render.container.textContent).toContain("MeeMee Electric");
     expect(render.container.textContent).toContain("注意/監視 1件");
-    expect(render.container.textContent).toContain("短期売り 0件");
+    expect(render.container.textContent).toContain("売り判定 0件");
     expect(render.container.textContent).toContain("検証表示: 有効");
     expect(render.container.textContent).toContain("当日反映");
     expect(render.container.textContent).toContain("市場データ更新");
@@ -602,7 +624,7 @@ describe("MeeMee boundary harness", () => {
     expect(render.container.textContent).toContain("当日データ取得 1/2");
     expect(render.container.textContent).toContain("未取得 1");
     expect(render.container.textContent).toContain("当日一致 1/1");
-    expect(render.container.textContent).toContain("当日候補 1件");
+    expect(render.container.textContent).toContain("当日反映 1件");
     expect(render.container.querySelectorAll("[data-testid='chart-card']")).toHaveLength(3);
 
     render.cleanup();
@@ -620,6 +642,7 @@ describe("MeeMee boundary harness", () => {
 
     const render = await renderRankingRoute();
     await flush();
+    await expandRankingInfo(render.container);
 
     await waitForText(render.container, "\u4eca\u5165\u308b \u58f2\u308a", 12000);
 
